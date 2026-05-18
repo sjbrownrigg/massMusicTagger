@@ -127,45 +127,79 @@ def search_and_map(
 
 
 # ── Source attempt helpers ────────────────────────────────────────────────────
+#
+# Both _try_discogs and _try_musicbrainz apply the same validation policy for
+# release IDs obtained from different origins:
+#
+#   Explicit ID (CLI --releaseid or id.txt)
+#     → fetch, validate track count, WARN if mismatched but PROCEED.
+#       The user or a previous manual step chose this ID deliberately.
+#
+#   Embedded tag (discogs_id / musicbrainz_releaseid in audio files)
+#     → fetch, validate track count, FALL THROUGH if mismatched.
+#       The tag may be stale: Discogs/MB releases can gain bonus tracks,
+#       be reissued, or be corrected after an earlier tagging run.
+#
+#   Search result (DiscogsSearch / MBSearch)
+#     → track count already validated by the search logic; accept as-is.
+
 
 def _try_discogs(sourcedir, cfg, connector, searcher,
                  release_id_override=None) -> Optional[tuple]:
     """Return (raw_release, release_id) or None.
 
-    DiscogsSearch uses a two-step API (mirroring discogstagger3's __main__.py):
-      1. searcher.getSearchParams(sourcedir)  — read metadata from source files
-      2. searcher.search_discogs()            — execute Discogs API search
-    The result is a lazily-loaded Release object; accessing .tracklist triggers
-    the actual fetch and can raise if the release was deleted (404).
+    Lookup order:
+      1. release_id_override (CLI --releaseid)  — explicit; warn on mismatch
+      2. id.txt Discogs ID                      — explicit; warn on mismatch
+      3. discogs_id embedded in audio file tags — validate; fall through on mismatch
+      4. DiscogsSearch.search_discogs()         — already track-count-validated
     """
     if connector is None:
         return None
     try:
-        relid = release_id_override or _read_id_txt(sourcedir, cfg)
-        raw = None
+        local_count = _local_audio_count(sourcedir)
 
-        if relid is None and searcher is not None:
+        # ── 1. CLI override ────────────────────────────────────────────────
+        if release_id_override:
+            return _fetch_discogs_with_validation(
+                str(release_id_override), connector, sourcedir, local_count,
+                from_explicit=True,
+            )
+
+        # ── 2. Explicit id.txt Discogs ID ──────────────────────────────────
+        relid = _read_id_txt(sourcedir, cfg)
+        if relid:
+            return _fetch_discogs_with_validation(
+                relid, connector, sourcedir, local_count, from_explicit=True,
+            )
+
+        # ── 3. Existing discogs_id tag (falls through on stale match) ──────
+        relid = _read_existing_discogs_id_tag(sourcedir)
+        if relid:
+            result = _fetch_discogs_with_validation(
+                relid, connector, sourcedir, local_count, from_explicit=False,
+            )
+            if result is not None:
+                return result
+            # mismatch → fall through to search
+
+        # ── 4. DiscogsSearch (track count validated internally) ────────────
+        if searcher is not None:
             searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                              if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
                 searcher.getSearchParams(sourcedir)
-                raw = searcher.search_discogs()   # returns Release or None
+                raw = searcher.search_discogs()
                 if raw is not None:
                     try:
                         _ = raw.tracklist   # trigger lazy fetch; may raise on 404
-                        relid = raw.id
+                        relid = str(raw.id)
+                        logger.info('Discogs: matched release %s for %s', relid, sourcedir)
+                        return raw, relid
                     except Exception as fetch_exc:
                         logger.warning('Discogs search result fetch failed: %s', fetch_exc)
-                        raw = None
 
-        if relid is None:
-            return None
-
-        if raw is None:
-            raw = connector.fetch_release(relid)
-
-        logger.info('Discogs: matched release %s for %s', relid, sourcedir)
-        return raw, relid
+        return None
     except Exception as exc:
         logger.warning('Discogs failed for %s: %s', sourcedir, exc)
         return None
@@ -173,21 +207,131 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
 
 def _try_musicbrainz(sourcedir, cfg, connector, searcher,
                      release_id_override=None) -> Optional[tuple]:
-    """Return (raw_release, mbid) or None."""
+    """Return (raw_release, mbid) or None.
+
+    Lookup order:
+      1. release_id_override (CLI --releaseid)  — explicit; warn on mismatch
+      2. MBSearch.search() which internally handles:
+           tier 1: id.txt mbid=          — explicit; warn on mismatch
+           tier 2: musicbrainz_releaseid — validate; fall through on mismatch
+           tiers 3-7: text search, barcode, DiscID, AcoustID
+    """
     if connector is None:
         return None
     try:
-        mbid = release_id_override or _read_id_txt(sourcedir, cfg, key='mbid')
-        if mbid is None and searcher is not None:
+        local_count = _local_audio_count(sourcedir)
+
+        # ── 1. CLI override ────────────────────────────────────────────────
+        if release_id_override:
+            raw = connector.fetch_release(release_id_override)
+            mb_count = _mb_track_count(raw)
+            _validate_id_match(local_count, mb_count, 'MusicBrainz',
+                               release_id_override, from_explicit=True)
+            logger.info('MusicBrainz: matched release %s for %s',
+                        release_id_override, sourcedir)
+            return raw, release_id_override
+
+        # ── 2. MBSearch handles all remaining tiers (incl. tag + text) ────
+        if searcher is not None:
             mbid = searcher.search(sourcedir)
-        if mbid is None:
-            return None
-        raw = connector.fetch_release(mbid)
-        logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
-        return raw, mbid
+            if mbid:
+                raw = connector.fetch_release(mbid)
+                logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
+                return raw, mbid
+
+        return None
     except Exception as exc:
         logger.warning('MusicBrainz failed for %s: %s', sourcedir, exc)
         return None
+
+
+# ── Shared validation helpers ─────────────────────────────────────────────────
+
+def _local_audio_count(sourcedir: str) -> int:
+    """Return the number of audio files directly in sourcedir."""
+    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    return sum(1 for f in os.listdir(sourcedir) if f.lower().endswith(AUDIO_EXTENSIONS))
+
+
+def _validate_id_match(local_count: int, release_count: Optional[int],
+                        source_name: str, release_id: str,
+                        from_explicit: bool) -> bool:
+    """Return True if track counts agree (or validation is skipped).
+
+    from_explicit=True  — id.txt or CLI: warn but always return True (proceed).
+    from_explicit=False — embedded tag:  return False on mismatch (fall through).
+    """
+    if not local_count or release_count is None:
+        return True
+    if release_count == local_count:
+        return True
+    if from_explicit:
+        logger.warning(
+            '%s release %s has %d track(s) but %d audio file(s) found locally. '
+            'The release may have been updated on %s since this ID was recorded. '
+            'Proceeding with the explicit ID.',
+            source_name, release_id, release_count, local_count, source_name,
+        )
+        return True
+    else:
+        logger.info(
+            '%s release %s track count (%d) does not match local files (%d) — '
+            'embedded tag is stale, falling through to search.',
+            source_name, release_id, release_count, local_count,
+        )
+        return False
+
+
+def _fetch_discogs_with_validation(relid: str, connector, sourcedir: str,
+                                    local_count: int,
+                                    from_explicit: bool) -> Optional[tuple]:
+    """Fetch a Discogs release by ID, validate track count, return (raw, relid) or None."""
+    try:
+        raw = connector.fetch_release(relid)
+        _ = raw.tracklist   # trigger lazy fetch; raises on 404
+        release_count = _discogs_track_count(raw)
+        if not _validate_id_match(local_count, release_count, 'Discogs',
+                                   relid, from_explicit=from_explicit):
+            return None   # stale embedded tag; caller falls through
+        logger.info('Discogs: matched release %s for %s', relid, sourcedir)
+        return raw, relid
+    except Exception as exc:
+        logger.warning('Discogs fetch/validate failed for %s: %s', relid, exc)
+        return None
+
+
+def _discogs_track_count(raw) -> Optional[int]:
+    """Return total taggable track count from a Discogs Release object."""
+    from discogstagger.discogs_utils import build_flat_tracklist
+    try:
+        return len(build_flat_tracklist(raw.tracklist))
+    except Exception:
+        return None
+
+
+def _mb_track_count(raw: dict) -> Optional[int]:
+    """Return total track count from a MusicBrainz release dict."""
+    try:
+        return sum(int(m.get('track-count', 0)) for m in raw.get('medium-list', []))
+    except Exception:
+        return None
+
+
+def _read_existing_discogs_id_tag(sourcedir: str) -> Optional[str]:
+    """Read discogs_id from the first tagged audio file in sourcedir."""
+    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    try:
+        from discogstagger.mediafile_ext import MediaFile
+        for f in sorted(os.listdir(sourcedir)):
+            if f.lower().endswith(AUDIO_EXTENSIONS):
+                mf = MediaFile(os.path.join(sourcedir, f))
+                did = getattr(mf, 'discogs_id', None)
+                if did:
+                    return str(did)
+                break   # only read the first file
+    except Exception:
+        pass
+    return None
 
 
 def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
