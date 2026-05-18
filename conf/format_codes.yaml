@@ -33,7 +33,8 @@ base_formats:
   CDr:        CDr
   Cassette:   MC
   File:       file
-  Web:        web       # streaming / download releases (Bandcamp, etc.)
+  Digital Media: file
+  Web:        file       # streaming / download releases (Bandcamp, etc.)
   SACD:       SACD
   Blu-ray:    BD
   DVD:        DVD
