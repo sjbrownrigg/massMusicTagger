@@ -1,0 +1,11 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# massMusicTagger — Discogs credentials
+# ─────────────────────────────────────────────────────────────────────────────
+# Fill in your personal access token.
+# Generate one at https://www.discogs.com/settings/developers
+
+discogs:
+  user_token: YOUR_DISCOGS_TOKEN_HERE
+  skip_auth: false
+  consumer_key: ""
+  consumer_secret: ""

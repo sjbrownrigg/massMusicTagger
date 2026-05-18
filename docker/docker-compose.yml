@@ -1,0 +1,46 @@
+name: massmusictagger
+
+# ── Usage ─────────────────────────────────────────────────────────────────────
+#
+# Copy docker/config/* to your NAS config share and fill in credentials.
+# Then set MUSIC_DIR and CONFIG_DIR in the shell or in a .env file:
+#
+#   export MUSIC_DIR=/mnt/music          # WSL2: your NFS/CIFS mount point
+#   export CONFIG_DIR=/mnt/nas/docker/mmt/config
+#   docker compose -f docker/docker-compose.yml up -d
+#
+# WSL2 note: NFS Docker volumes are blocked by the WSL2 mount syscall
+# restriction.  Mount NFS/CIFS shares in WSL2 first and point MUSIC_DIR /
+# CONFIG_DIR at those mounts.  Bind mounts (used here) work correctly.
+#
+# Rebuild after massMusicTagger updates:
+#   docker compose -f docker/docker-compose.yml up -d --build
+
+services:
+  mmt:
+    build:
+      # Builds from GitHub master — picks up latest massMusicTagger + discogstagger3.
+      # Switch to 'context: ..' for local development builds.
+      context: https://github.com/sjbrownrigg/massMusicTagger.git#master
+      dockerfile: docker/Dockerfile
+    image: massmusictagger:latest
+    restart: unless-stopped
+
+    volumes:
+      # Music library — source and destination directories inside.
+      # Example: /mnt/music (WSL2 NFS mount) or /volume1/Music (Synology host)
+      - ${MUSIC_DIR:-/music}:/music
+
+      # User config and credentials (see docker/config/ for templates).
+      # Copy docker/config/ to your NAS and set CONFIG_DIR to that path.
+      - ${CONFIG_DIR:-./config}:/config
+
+      # Discogs + MusicBrainz API response cache — persists across restarts.
+      - cache:/cache
+
+    environment:
+      TZ: ${TZ:-Europe/London}
+
+volumes:
+  cache:
+    driver: local

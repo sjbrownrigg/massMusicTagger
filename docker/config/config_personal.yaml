@@ -1,0 +1,113 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# massMusicTagger — Docker personal configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Copy this file to your CONFIG_DIR on the NAS (the directory bound to /config
+# in the container) and customise the values below.
+#
+# The massMusicTagger default configs are bundled in the image at /app/conf/.
+# extra_configs loads them first (lowest priority) then overlays your personal
+# settings and credentials (highest priority).
+
+extra_configs:
+  - /app/conf/config.yaml              # massMusicTagger baseline defaults
+  - /app/conf/discogs.yaml             # Discogs source defaults
+  - /app/conf/musicbrainz.yaml         # MusicBrainz source defaults
+  - /config/discogs_personal.yaml      # Your Discogs credentials
+  - /config/musicbrainz_personal.yaml  # Your MusicBrainz/AcoustID settings
+  - /config/formats_personal.ini       # Optional: custom format strings
+
+# ─────────────────────────────────────────────────────────────────────────────
+common:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  user_agent: "massMusicTagger/1.0 +https://github.com/sjbrownrigg/massMusicTagger"
+  source_dir: /music/incoming      # subdirectory inside your MUSIC_DIR mount
+  dest_dir:   /music/sorted        # subdirectory inside your MUSIC_DIR mount
+  watch_poll_interval: 30          # seconds between polls (NFS-safe polling)
+
+# ─────────────────────────────────────────────────────────────────────────────
+source:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  priority:
+    - discogs
+    - musicbrainz
+    - existing_tags
+
+# ─────────────────────────────────────────────────────────────────────────────
+details:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  keep_original: true
+  embed_coverart: true
+  image_policy: prefer_larger
+
+  # linux profile: no character substitutions (filenames stored on NFS)
+  # Use 'windows' if your NAS serves files to Windows clients via SMB.
+  char_profile: linux
+  char_substitutions: /app/conf/char_substitutions.yaml
+  format_codes: /app/conf/format_codes.yaml
+
+  path_sep_replacement: "-"
+  control_replacement: ""
+
+  use_style: false
+  keep_tags: freedb_id
+
+  case_dir:     preserve
+  case_disc:    preserve
+  case_song:    preserve
+  case_va_song: preserve
+  case_nfo:     preserve
+  case_m3u:     preserve
+
+  use_folder_jpg: true
+  use_anv: true
+  variousartists: "Various Artists"
+
+  split_discs_folder: true
+  split_discs: true
+  split_discs_extension: '" (disc%DISNO%)"'
+
+  copy_other_files: true
+  done_file: .done
+  download_only_cover: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+batch:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  id_file: id.txt
+  searchdiscogs: true
+  tracklength_tolerance: 5.0
+  title_similarity_threshold: 60
+  workers: 2                              # concurrent worker threads
+  audit_log: /cache/audit.json            # persisted in the cache volume
+
+# ─────────────────────────────────────────────────────────────────────────────
+cache:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  directory: /cache/discogs               # Discogs API response cache
+
+# ─────────────────────────────────────────────────────────────────────────────
+replaygain:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  add_tags: true
+  application: r128gain
+
+# ─────────────────────────────────────────────────────────────────────────────
+cue:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  cue_done_dir: .cue
+  parse_cue_files: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+logging:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  level: 20     # 10=DEBUG  20=INFO  30=WARNING
+  config_file: ""
