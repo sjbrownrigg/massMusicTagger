@@ -137,6 +137,11 @@ class TestAlbumShapeParity(unittest.TestCase):
         album = MusicBrainzAlbum(_minimal_release(date='')).map()
         self.assertIsNone(album.release_date)
 
+    def test_year_none_when_date_missing(self):
+        """Empty date → year=None so tag_single_track's guard skips int('')."""
+        album = MusicBrainzAlbum(_minimal_release(date='')).map()
+        self.assertIsNone(album.year)
+
     # ── Geography / status ────────────────────────────────────────────────
 
     def test_country(self):

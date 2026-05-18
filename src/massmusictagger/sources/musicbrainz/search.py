@@ -133,8 +133,12 @@ class MBSearch:
             logger.warning('MB API search failed: %s', exc)
             return None
 
+        # Ranking tuple: (fuzzy_title_score, has_date).
+        # Releases with a date are preferred over undated ones at equal title
+        # score — MusicBrainz often has multiple versions of an album and the
+        # one with date data is more likely to be the one the user has.
         best_mbid: Optional[str] = None
-        best_score = 0
+        best_rank = (-1, 0)   # (score, has_date)
 
         for rel in result.get('release-list', []):
             candidate_title = rel.get('title', '')
@@ -150,12 +154,17 @@ class MBSearch:
                     logger.debug('MB tier 3: skipping %r — track count %d vs %d',
                                  candidate_title, candidate_tracks, track_count)
                     continue
-            if score > best_score:
-                best_score = score
+            has_date = 1 if rel.get('date', '') else 0
+            rank = (score, has_date)
+            if rank > best_rank:
+                best_rank = rank
                 best_mbid = rel.get('id')
 
         if best_mbid:
-            logger.info('MB tier 3: matched %s (score %d)', best_mbid, best_score)
+            best_score, best_has_date = best_rank
+            logger.info('MB tier 3: matched %s (score %d%s)',
+                        best_mbid, best_score,
+                        '' if best_has_date else ', no date — lower priority')
         else:
             logger.info('MB tier 3: no confident text match')
         return best_mbid

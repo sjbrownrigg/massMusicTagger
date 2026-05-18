@@ -61,10 +61,12 @@ class MusicBrainzAlbum:
         album.labels = self._labels(label_info)
         album.catnumbers = self._catnumbers(label_info)
 
-        # Date / year
+        # Date / year — use None rather than '' when absent so downstream
+        # code (tag_single_track's 'if self.album.year' guard) skips
+        # setting the year tag and avoids mediafile's int('') crash.
         date_str = r.get('date', '') or ''
         album.release_date = self._normalise_date(date_str)
-        album.year = date_str[:4] if len(date_str) >= 4 else ''
+        album.year = date_str[:4] if len(date_str) >= 4 else None
 
         album.country = r.get('country', '') or ''
         album.status = r.get('status', '') or ''
