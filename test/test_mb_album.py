@@ -147,17 +147,19 @@ class TestAlbumShapeParity(unittest.TestCase):
 
     # ── Format ───────────────────────────────────────────────────────────
 
-    def test_format(self):
-        self.assertEqual(self.album.format, 'Album')
+    def test_format_from_medium(self):
+        """album.format is the physical medium format (CD, Vinyl, …) not the release type."""
+        self.assertEqual(self.album.format, 'CD')
 
-    def test_format_description_from_secondary_types(self):
-        """format_description is populated from release-group secondary-types."""
-        self.assertEqual(self.album.format_description, ['Compilation'])
+    def test_format_description_includes_release_type_and_secondary(self):
+        """format_description = [release_type] + secondary_types."""
+        # Fixture: primary-type='Album', secondary-type-list=['Compilation']
+        self.assertEqual(self.album.format_description, ['Album', 'Compilation'])
 
-    def test_format_description_empty_when_no_secondary_types(self):
+    def test_format_description_release_type_only(self):
         rg = {'id': 'rg', 'primary-type': 'Album', 'secondary-type-list': []}
         album = MusicBrainzAlbum(_minimal_release(**{'release-group': rg})).map()
-        self.assertEqual(album.format_description, [])
+        self.assertEqual(album.format_description, ['Album'])
 
     def test_media_string(self):
         self.assertEqual(self.album.media, 'CD')

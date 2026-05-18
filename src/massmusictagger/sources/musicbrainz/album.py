@@ -69,13 +69,24 @@ class MusicBrainzAlbum:
         album.country = r.get('country', '') or ''
         album.status = r.get('status', '') or ''
 
-        # Release-group gives format and format_description equivalents.
-        # primary-type ('Album', 'Single', 'EP', …) → format
-        # secondary-types (['Compilation', 'Live', 'Remix', …]) → format_description
+        # MusicBrainz records format in two separate places (both are needed):
+        #
+        #   medium['format']                     → physical format (CD, Vinyl, Digital Media, …)
+        #                                           → album.format  (same semantics as Discogs)
+        #   release-group['primary-type']        → release type (Album, Single, EP, …)
+        #   release-group['secondary-type-list'] → descriptors (Compilation, Live, Remix, …)
+        #                                           → album.format_description (same as Discogs)
+        #
+        # Using the first medium's physical format keeps %format_code% and %format%
+        # consistent with Discogs (e.g. 'CD', 'Vinyl') rather than 'Album'/'Single'.
         rg = r.get('release-group', {})
-        # musicbrainzngs: primary type in 'type' or 'primary-type'; secondary types in 'secondary-type-list'
-        album.format = rg.get('primary-type') or rg.get('type', '') or ''
-        album.format_description = list(rg.get('secondary-type-list') or [])
+        medium_list = r.get('medium-list', [])
+        album.format = (medium_list[0].get('format', '') if medium_list else '') or ''
+        release_type = rg.get('primary-type') or rg.get('type', '') or ''
+        secondary_types = list(rg.get('secondary-type-list') or [])
+        # format_description mirrors Discogs: physical descriptors like 'Compilation', 'Live'.
+        # Prepend the release type so it's available via %format_description% if needed.
+        album.format_description = ([release_type] if release_type else []) + secondary_types
 
         album.genres = []   # MB genre data requires a separate user-tag lookup
         album.styles = []
