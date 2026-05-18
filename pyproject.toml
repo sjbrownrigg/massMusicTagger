@@ -24,9 +24,23 @@ dependencies = [
 
 [project.optional-dependencies]
 acoustid = [
-    # AcoustID fingerprinting — requires fpcalc binary (chromaprint package).
-    # Install with: pip install massmusictagger[acoustid]
+    # Tiers 6 & 7: AcoustID audio fingerprinting.
+    # Requires system dependency: fpcalc (from the chromaprint package).
+    #   apt install chromaprint-tools   # Debian/Ubuntu
+    #   brew install chromaprint         # macOS
     "pyacoustid>=1.3",
+]
+discid = [
+    # Tier 5: DiscID (CD TOC hash) lookup.
+    # Requires system library: libdiscid.
+    #   apt install libdiscid0   # Debian/Ubuntu
+    #   brew install libdiscid   # macOS
+    "python-discid>=1.2",
+]
+fingerprint = [
+    # All fingerprinting tiers (acoustid + discid) in one install.
+    "pyacoustid>=1.3",
+    "python-discid>=1.2",
 ]
 dev = [
     "pytest>=9.0",
