@@ -228,8 +228,29 @@ class MassProcessor:
                 th.tag_album()
 
                 if connector:
-                    fh.get_images(connector)
-                fh.embed_coverart_album()
+                    from massmusictagger.image_utils import (
+                        has_caa_type_metadata, download_typed_images,
+                    )
+                    if has_caa_type_metadata(album.images or []):
+                        # MB Cover Art Archive images — use typed download so each
+                        # image is named (front.jpg, back.jpg, medium.jpg, …)
+                        # and embedded with its correct picture type.
+                        download_typed_images(album, connector, cfg)
+                    else:
+                        # Discogs images — existing FileHandler behaviour.
+                        fh.get_images(connector)
+
+                # Embed cover art
+                embed_coverart = (cfg.getboolean('details', 'embed_coverart')
+                                  if cfg.has_option('details', 'embed_coverart') else True)
+                if embed_coverart:
+                    from massmusictagger.image_utils import (
+                        has_caa_type_metadata, embed_typed_images,
+                    )
+                    if has_caa_type_metadata(album.images or []):
+                        embed_typed_images(album, cfg)
+                    else:
+                        fh.embed_coverart_album()
             else:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 
