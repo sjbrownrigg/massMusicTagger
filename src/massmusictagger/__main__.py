@@ -381,8 +381,9 @@ def main(argv: list[str] | None = None) -> None:
             cfg.set('source', 'priority', opts.source)
     if opts.destination:
         cfg.set('common', 'dest_dir', opts.destination)
-    if opts.force:
-        cfg.set('details', 'done_file', '__never_matches__')
+    # --force is passed to MassProcessor; do NOT modify done_file in the config
+    # (that would cause FileHandler.create_done_file() to write a file named
+    # '__never_matches__' into the sorted directory).
 
     # ── Undo mode ────────────────────────────────────────────────────────────
     if opts.undo:
@@ -405,6 +406,7 @@ def main(argv: list[str] | None = None) -> None:
         dry_run=opts.dry_run,
         review=opts.review,
         audit_log_path=audit_log,
+        force=opts.force,
     )
 
     if opts.watch:

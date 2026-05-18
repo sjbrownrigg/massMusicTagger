@@ -82,11 +82,13 @@ class MassProcessor:
                  workers: int = 1,
                  dry_run: bool = False,
                  review: bool = False,
+                 force: bool = False,
                  audit_log_path: Optional[str] = None):
         self.cfg = cfg
         self.workers = workers
         self.dry_run = dry_run
         self.review = review
+        self.force = force
         self.audit_log_path = audit_log_path
 
         # Build connectors and searchers once per session (they hold caches).
@@ -157,7 +159,7 @@ class MassProcessor:
 
             done_file = cfg.get('details', 'done_file') or 'dt.done'
             done_path = os.path.join(sourcedir, done_file)
-            if os.path.exists(done_path):
+            if os.path.exists(done_path) and not self.force:
                 logger.info('Skipping %s (done file exists)', sourcedir)
                 result.outcome = OUTCOME_SKIPPED
                 result.elapsed = time.monotonic() - t0
