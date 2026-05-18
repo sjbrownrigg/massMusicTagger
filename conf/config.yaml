@@ -1,0 +1,173 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# massMusicTagger — default configuration
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file is a strict superset of discogstagger3's config.yaml.  All
+# discogstagger3 sections and keys are unchanged so that existing configs
+# work without modification.
+#
+# New keys added by massMusicTagger are documented below.
+
+# ─────────────────────────────────────────────────────────────────────────────
+common:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  user_agent: "massMusicTagger/1.0 +https://github.com/sjbrownrigg/massMusicTagger"
+  formats_file: ""
+  source_dir: ""
+  dest_dir: ""
+  watch_poll_interval: 30
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+source:
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# 'priority' is an ordered list of sources to try for each album.
+# Sources are tried left-to-right; the first confident match wins.
+#
+# Built-in source names:
+#   discogs        — Discogs API (requires user_token in [discogs])
+#   musicbrainz    — MusicBrainz API (requires user_agent in [musicbrainz])
+#   local          — local JSON fixture (for testing)
+#   existing_tags  — read metadata already embedded in the audio files;
+#                    used as a fallback to organise albums without any
+#                    database match.  No API calls are made; no new tags
+#                    are written — files are only renamed/moved.
+#
+# Examples:
+#   priority: [discogs]                                # Discogs only
+#   priority: [musicbrainz, discogs]                  # MB first, Discogs fallback
+#   priority: [discogs, musicbrainz, existing_tags]   # full cascade with fallback
+
+  priority:
+    - discogs
+    - musicbrainz
+    - existing_tags
+
+  # The following keys are kept for backward compatibility with discogstagger3.
+  # 'name' is still accepted: it maps to a single-element priority list.
+  discogs: discogs_id
+  amg:     amg_id
+  local:   discogs_id
+  name:    discogs    # legacy — overridden by 'priority' when both present
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+discogs:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  user_token: ""
+  skip_auth: false
+  consumer_key: ""
+  consumer_secret: ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+musicbrainz:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  # User-agent string required by the MB API.  Must include contact info.
+  # Format: "AppName/Version (contact@example.com)"
+  user_agent: "massMusicTagger/1.0 (your@email.com)"
+
+  # AcoustID API key for audio fingerprinting (tier-3 search).
+  # Register at https://acoustid.org/login
+  # Leave empty to disable AcoustID.
+  acoustid_api_key: ""
+
+  # Disk cache for MusicBrainz release JSON responses.
+  cache_directory: "~/.cache/massmusictagger/mb"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+batch:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  id_file: id.txt
+  searchdiscogs: false
+  tracklength_tolerance: 5.0
+  title_similarity_threshold: 60
+
+  # Number of concurrent worker threads for mass processing.
+  # Set to 1 for sequential processing (required for --review mode).
+  workers: 1
+
+  # Path to the JSON audit log (append-only).  Records every processed
+  # directory with outcome, source used, matched release, and elapsed time.
+  audit_log: "~/.cache/massmusictagger/audit.json"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+details:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  keep_original: true
+  embed_coverart: true
+  image_policy: prefer_larger
+  char_profile: linux
+  char_substitutions: conf/char_substitutions.yaml
+  format_codes: conf/format_codes.yaml
+  path_sep_replacement: ""
+  control_replacement: ""
+  use_style: false
+  keep_tags: freedb_id
+  case_dir:     lower
+  case_disc:    lower
+  case_song:    lower
+  case_va_song: lower
+  case_nfo:     lower
+  case_m3u:     lower
+  use_folder_jpg: true
+  use_anv: true
+  join_artists: ""
+  split_discs_folder: false
+  split_discs: false
+  split_discs_extension: '" (disc%DISNO%)"'
+  copy_other_files: false
+  done_file: dt.done
+  variousartists: Various
+  download_only_cover: true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+cue:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  cue_done_dir: .cue
+  parse_cue_files: false
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+tags:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  encoder: ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+suppress_tags:
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+replaygain:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  add_tags: true
+  application: r128gain
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+cache:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  directory: ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+logging:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  level: 20
+  config_file: ""
