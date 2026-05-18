@@ -74,6 +74,11 @@ def _setup_logging(verbose: bool) -> None:
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S',
     )
+    # musicbrainzngs logs INFO for every unrecognised XML attribute in the MB
+    # API response (e.g. 'uncaught attribute type-id').  These are harmless
+    # library-version-lag messages — suppress to WARNING so they don't clutter
+    # the output.  Actual warnings and errors from the library still show.
+    logging.getLogger('musicbrainzngs').setLevel(logging.WARNING)
 
 
 def _load_extra_configs(cfg, primary_config_path: str) -> None:
