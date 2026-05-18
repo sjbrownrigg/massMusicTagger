@@ -288,6 +288,10 @@ def main(argv: list[str] | None = None) -> None:
     # CLI overrides
     if opts.source:
         cfg.set('source', 'name', opts.source)
+        # Also override the priority list so _get_priority() sees the right source.
+        # '--source auto' restores the default priority order from config.
+        if opts.source != 'auto':
+            cfg.set('source', 'priority', opts.source)
     if opts.destination:
         cfg.set('common', 'dest_dir', opts.destination)
     if opts.force:
