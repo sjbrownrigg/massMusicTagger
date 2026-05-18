@@ -35,14 +35,15 @@ OUTCOME_DRY_RUN = 'dry_run'
 
 
 class ProcessingResult:
-    __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'title',
-                 'elapsed', 'error', 'target_dir')
+    __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
+                 'title', 'elapsed', 'error', 'target_dir')
 
     def __init__(self, sourcedir: str):
         self.sourcedir = sourcedir
         self.outcome: str = OUTCOME_FAILED
         self.source: Optional[str] = None
         self.release_id: Optional[str] = None
+        self.release_url: Optional[str] = None
         self.title: Optional[str] = None
         self.target_dir: Optional[str] = None
         self.elapsed: float = 0.0
@@ -50,15 +51,16 @@ class ProcessingResult:
 
     def as_dict(self) -> dict:
         return {
-            'sourcedir':  self.sourcedir,
-            'outcome':    self.outcome,
-            'source':     self.source,
-            'release_id': self.release_id,
-            'title':      self.title,
-            'target_dir': self.target_dir,
-            'elapsed':    round(self.elapsed, 2),
-            'error':      self.error,
-            'timestamp':  datetime.now(timezone.utc).isoformat(),
+            'sourcedir':   self.sourcedir,
+            'outcome':     self.outcome,
+            'source':      self.source,
+            'release_id':  self.release_id,
+            'release_url': self.release_url,
+            'title':       self.title,
+            'target_dir':  self.target_dir,
+            'elapsed':     round(self.elapsed, 2),
+            'error':       self.error,
+            'timestamp':   datetime.now(timezone.utc).isoformat(),
         }
 
 
@@ -188,7 +190,15 @@ class MassProcessor:
             connector = self._apply_image_source(album, connector, sourcedir, cfg)
             result.source = getattr(album, 'source', None)
             result.release_id = str(album.id)
+            result.release_url = getattr(album, 'url', None) or None
             result.title = album.title
+
+            # Log the matched release clearly — mirrors discogstagger3's
+            # "Found release ID / Tagging album" log line, gives a clickable
+            # URL for quick troubleshooting lookup.
+            logger.info('Tagging: "%s – %s"  [%s]',
+                        album.artist, album.title,
+                        result.release_url or result.release_id or '?')
 
             if self.review and not self._confirm(sourcedir, album):
                 result.outcome = OUTCOME_SKIPPED
