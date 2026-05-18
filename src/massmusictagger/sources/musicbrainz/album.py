@@ -219,7 +219,11 @@ class MusicBrainzAlbum:
     def _map_mediums(self, media: list, album: Album) -> list[Disc]:
         discs: list[Disc] = []
         for medium in media:
-            discno = int(medium.get('position', len(discs) + 1))
+            position = medium.get('position', '')
+            try:
+                discno = int(position) if position else len(discs) + 1
+            except (ValueError, TypeError):
+                discno = len(discs) + 1
             disc = Disc(discno)
             disc.discsubtitle = (medium.get('title') or '').strip() or None
             disc.mediatype = medium.get('format', '')
