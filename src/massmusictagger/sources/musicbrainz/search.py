@@ -52,17 +52,42 @@ class MBSearch:
     def search(self, sourcedir: str) -> Optional[str]:
         """Return a MusicBrainz release MBID, or None."""
 
+        # Count local audio files once — used for track count validation.
+        local_count = sum(
+            1 for f in os.listdir(sourcedir) if f.lower().endswith(AUDIO_EXTENSIONS)
+        )
+
         # ── Tier 1: MBID in id.txt ─────────────────────────────────────────
+        # User-supplied MBIDs are validated: if the track count doesn't match
+        # we warn loudly but still trust the user's explicit choice.
         mbid = _read_id_txt(sourcedir, self.cfg, key='mbid')
         if mbid:
             logger.info('MB tier 1: MBID from id.txt: %s', mbid)
+            if local_count and not self._tracks_match(mbid, local_count):
+                logger.warning(
+                    'MB tier 1: id.txt MBID %s track count does not match '
+                    'local files (%d) — proceeding anyway (user-supplied)',
+                    mbid, local_count,
+                )
             return mbid
 
         # ── Tier 2: Existing musicbrainz_releaseid tag ─────────────────────
+        # Validate before trusting: embedded MBIDs may be stale (e.g. tagged
+        # by an older tool against a different version of the release).
+        # If the track count mismatches, fall through to text search so a
+        # better match can be found rather than crashing downstream.
         mbid = self._read_existing_releaseid_tag(sourcedir)
         if mbid:
-            logger.info('MB tier 2: MBID from existing tag: %s', mbid)
-            return mbid
+            if local_count and not self._tracks_match(mbid, local_count):
+                logger.info(
+                    'MB tier 2: existing tag MBID %s track count does not match '
+                    'local files (%d) — tag is stale, falling through to search',
+                    mbid, local_count,
+                )
+                mbid = None   # fall through
+            else:
+                logger.info('MB tier 2: MBID from existing tag: %s', mbid)
+                return mbid
 
         # ── Read shared directory metadata (artist, album, track count) ────
         meta = _read_directory_metadata(sourcedir)
@@ -417,6 +442,26 @@ class MBSearch:
         return None
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _tracks_match(self, mbid: str, local_count: int) -> bool:
+        """Return True if the MB release track count matches the local file count.
+
+        Fetches the release with only 'media' included (lightweight — usually
+        cached from a previous fetch).  Returns True on any API error so the
+        caller can still proceed rather than silently skipping the MBID.
+        """
+        try:
+            result = musicbrainzngs.get_release_by_id(mbid, includes=['media'])
+            medium_list = result['release'].get('medium-list', [])
+            mb_count = sum(int(m.get('track-count', 0)) for m in medium_list)
+            if mb_count != local_count:
+                logger.debug('MB %s: %d track(s) vs %d local file(s)',
+                             mbid, mb_count, local_count)
+                return False
+            return True
+        except Exception as exc:
+            logger.debug('MB track-count validation failed for %s: %s', mbid, exc)
+            return True   # fail open: trust the MBID rather than silently dropping it
 
     def _acoustid_api_key(self) -> Optional[str]:
         try:
