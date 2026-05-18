@@ -33,9 +33,18 @@ def _make_cfg(**overrides):
     return cfg
 
 
-def _make_search(**cfg_overrides):
+def _make_search(acoustid=False, discid=False, **cfg_overrides):
+    """Create an MBSearch with optional capability flags forced on for testing."""
     from massmusictagger.sources.musicbrainz.search import MBSearch
-    return MBSearch(_make_cfg(**cfg_overrides))
+    search = MBSearch(_make_cfg(**cfg_overrides))
+    # The availability flags are set in __init__ by trying to import the
+    # optional packages.  Override them so tests can exercise the methods
+    # without requiring pyacoustid / python-discid to be installed.
+    if acoustid:
+        search._has_acoustid = True
+    if discid:
+        search._has_discid = True
+    return search
 
 
 # ── Tier 4: Barcode ───────────────────────────────────────────────────────────
@@ -60,7 +69,7 @@ class TestBarcodeTier(unittest.TestCase):
             'release-list': [{'id': _FAKE_MBID, 'title': 'Test Album'}]
         }
         self._write_id('barcode=5099749939523\n')
-        search = _make_search()
+        search = _make_search(discid=True)
         result = search._barcode_search(self.tmpdir)
         self.assertEqual(result, _FAKE_MBID)
         mb.search_releases.assert_called_once()
@@ -75,7 +84,7 @@ class TestBarcodeTier(unittest.TestCase):
             'release-list': [{'id': _FAKE_MBID}]
         }
         self._write_id('barcode=5 099 749 939 523\n')
-        search = _make_search()
+        search = _make_search(discid=True)
         result = search._barcode_search(self.tmpdir)
         self.assertEqual(result, _FAKE_MBID)
         call_kwargs = mb.search_releases.call_args[1]
@@ -86,13 +95,13 @@ class TestBarcodeTier(unittest.TestCase):
         """Empty release-list → None."""
         mb.search_releases.return_value = {'release-list': []}
         self._write_id('barcode=0000000000000\n')
-        search = _make_search()
+        search = _make_search(discid=True)
         result = search._barcode_search(self.tmpdir)
         self.assertIsNone(result)
 
     def test_no_barcode_returns_none_without_api_call(self):
         """No barcode in id.txt or tags → None, no API call made."""
-        search = _make_search()
+        search = _make_search(discid=True)
         result = search._barcode_search(self.tmpdir)
         self.assertIsNone(result)
 
@@ -101,7 +110,7 @@ class TestBarcodeTier(unittest.TestCase):
         """API failure is caught and returns None."""
         mb.search_releases.side_effect = Exception('network error')
         self._write_id('barcode=1234567890123\n')
-        search = _make_search()
+        search = _make_search(discid=True)
         result = search._barcode_search(self.tmpdir)
         self.assertIsNone(result)
 
@@ -127,7 +136,7 @@ class TestDiscIDTier(unittest.TestCase):
         fake_files = ['/fake/01.flac', '/fake/02.flac', '/fake/03.flac']
         fake_durations = [210.0, 185.4, 245.0]  # seconds
 
-        search = _make_search()
+        search = _make_search(discid=True)
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[
@@ -155,7 +164,7 @@ class TestDiscIDTier(unittest.TestCase):
             cause=Exception('404')
         )
         fake_files = ['/fake/01.flac']
-        search = _make_search()
+        search = _make_search(discid=True)
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(200.0)],
@@ -168,7 +177,7 @@ class TestDiscIDTier(unittest.TestCase):
 
     def test_discid_missing_library_returns_none(self):
         """When python-discid is not installed, tier returns None gracefully."""
-        search = _make_search()
+        search = _make_search()   # _has_discid=False by default
         import sys
         # Remove discid from sys.modules so import raises ImportError
         saved = sys.modules.pop('discid', None)
@@ -181,13 +190,13 @@ class TestDiscIDTier(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_discid_empty_files_returns_none(self):
-        search = _make_search()
+        search = _make_search(discid=True)
         result = search._discid_search([])
         self.assertIsNone(result)
 
     def test_discid_missing_duration_aborts(self):
         """A file without a duration causes the tier to abort (DiscID unreliable)."""
-        search = _make_search()
+        search = _make_search(discid=True)
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(None)],
@@ -208,7 +217,7 @@ class TestDiscIDTier(unittest.TestCase):
             mb.ResponseError = _mb.ResponseError
             mb.get_releases_by_discid.return_value = {'disc': {'release-list': []}}
 
-            search = _make_search()
+            search = _make_search(discid=True)
             with patch(
                 'massmusictagger.sources.musicbrainz.search.MediaFile',
                 side_effect=[_make_mock_mf(d) for d in durations],
@@ -255,7 +264,7 @@ class TestMultiTrackAcoustID(unittest.TestCase):
             [(0.92, _FAKE_REC_ID, 'Track 2', 'Artist')],
             [(0.88, _FAKE_REC_ID, 'Track 3', 'Artist')],
         ]
-        search = _make_search(**{'musicbrainz.acoustid_api_key': 'TESTKEY'})
+        search = _make_search(acoustid=True, **{'musicbrainz.acoustid_api_key': 'TESTKEY'})
         with _patch_acoustid(fake_acoustid_results):
             result = search._acoustid_multi(fake_files)
 
@@ -275,7 +284,7 @@ class TestMultiTrackAcoustID(unittest.TestCase):
             [],  # no result
             [],  # no result
         ]
-        search = _make_search(**{'musicbrainz.acoustid_api_key': 'TESTKEY'})
+        search = _make_search(acoustid=True, **{'musicbrainz.acoustid_api_key': 'TESTKEY'})
         with _patch_acoustid(fake_acoustid_results):
             result = search._acoustid_multi(fake_files)
 
@@ -288,10 +297,9 @@ class TestMultiTrackAcoustID(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_missing_pyacoustid_returns_none(self):
-        """When pyacoustid is not installed, tier returns None gracefully."""
+        """When pyacoustid is not installed, tier returns None (default _has_acoustid=False)."""
         search = _make_search(**{'musicbrainz.acoustid_api_key': 'KEY'})
-        with patch.dict('sys.modules', {'acoustid': None}):
-            result = search._acoustid_multi(['/f/01.flac'])
+        result = search._acoustid_multi(['/f/01.flac'])
         self.assertIsNone(result)
 
     @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
@@ -306,7 +314,7 @@ class TestMultiTrackAcoustID(unittest.TestCase):
             [(0.50, _FAKE_REC_ID, 'Track 1', 'Artist')],
             [(0.60, _FAKE_REC_ID, 'Track 2', 'Artist')],
         ]
-        search = _make_search(**{'musicbrainz.acoustid_api_key': 'KEY'})
+        search = _make_search(acoustid=True, **{'musicbrainz.acoustid_api_key': 'KEY'})
         with _patch_acoustid(fake_acoustid_results):
             result = search._acoustid_multi(fake_files)
 
@@ -332,7 +340,7 @@ class TestMultiTrackAcoustID(unittest.TestCase):
             [(0.95, rec_a, 'Track 1', 'Artist A')],
             [(0.95, rec_b, 'Track 2', 'Artist B')],
         ]
-        search = _make_search(**{'musicbrainz.acoustid_api_key': 'KEY'})
+        search = _make_search(acoustid=True, **{'musicbrainz.acoustid_api_key': 'KEY'})
         with _patch_acoustid(fake_acoustid_results):
             result = search._acoustid_multi(fake_files)
 

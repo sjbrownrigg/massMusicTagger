@@ -49,6 +49,27 @@ class MBSearch:
     def __init__(self, cfg: 'TaggerConfig'):
         self.cfg = cfg
 
+        # Check optional fingerprinting library availability once at startup
+        # so that per-album skip messages are suppressed — the capability check
+        # is logged at INFO level here instead of at DEBUG for every album.
+        try:
+            import discid as _discid_check  # noqa: F401
+            self._has_discid = True
+        except ImportError:
+            self._has_discid = False
+            logger.info('MB tier 5 (DiscID) unavailable: python-discid not installed. '
+                        'Install with: pip install massmusictagger[discid]  '
+                        '(also requires: apt install libdiscid0)')
+
+        try:
+            import acoustid as _acoustid_check  # noqa: F401
+            self._has_acoustid = True
+        except ImportError:
+            self._has_acoustid = False
+            logger.info('MB tiers 6 & 7 (AcoustID) unavailable: pyacoustid not installed. '
+                        'Install with: pip install massmusictagger[acoustid]  '
+                        '(also requires: apt install chromaprint-tools)')
+
     def search(self, sourcedir: str) -> Optional[str]:
         """Return a MusicBrainz release MBID, or None."""
 
@@ -254,10 +275,11 @@ class MBSearch:
         Requires: python-discid  (pip install massmusictagger[discid])
         System library: libdiscid  (apt install libdiscid0)
         """
+        if not self._has_discid:
+            return None
         try:
             import discid as discid_lib
         except ImportError:
-            logger.debug('MB tier 5: python-discid not installed — skipping DiscID')
             return None
 
         if not audio_files:
@@ -330,15 +352,12 @@ class MBSearch:
         Requires: pyacoustid  (pip install massmusictagger[acoustid])
         System dependency: fpcalc (chromaprint package)
         """
+        if not self._has_acoustid:
+            return None
         api_key = self._acoustid_api_key()
         if not api_key:
             return None
-        try:
-            import acoustid
-        except ImportError:
-            logger.debug('MB tier 6: pyacoustid not installed — skipping')
-            return None
-
+        import acoustid
         logger.info('MB tier 6: single-track AcoustID — %s', os.path.basename(audio_path))
         try:
             results = list(acoustid.match(api_key, audio_path))
@@ -376,15 +395,12 @@ class MBSearch:
         Requires: pyacoustid  (pip install massmusictagger[acoustid])
         System dependency: fpcalc (chromaprint package)
         """
+        if not self._has_acoustid:
+            return None
         api_key = self._acoustid_api_key()
         if not api_key:
             return None
-        try:
-            import acoustid
-        except ImportError:
-            logger.debug('MB tier 7: pyacoustid not installed — skipping')
-            return None
-
+        import acoustid
         logger.info('MB tier 7: multi-track AcoustID — %d file(s)', len(audio_files))
 
         # Step 1: fingerprint → Recording MBID for each file
