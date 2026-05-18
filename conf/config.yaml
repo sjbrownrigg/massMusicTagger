@@ -1,12 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# massMusicTagger — default configuration
+# massMusicTagger — shared default configuration
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# This file is a strict superset of discogstagger3's config.yaml.  All
-# discogstagger3 sections and keys are unchanged so that existing configs
-# work without modification.
+# Contains only settings that are not specific to any metadata source.
+# Source-specific defaults live in their own named files:
+#   conf/discogs.yaml       — Discogs API settings
+#   conf/musicbrainz.yaml   — MusicBrainz API settings
 #
-# New keys added by massMusicTagger are documented below.
+# Usage: create conf/config_personal.yaml (gitignored) with your overrides,
+# and list extra files to load via extra_configs:
+#
+#   extra_configs:
+#     - conf/discogs_personal.yaml
+#     - conf/musicbrainz_personal.yaml
+#     - conf/formats_personal.ini
+#
+# massMusicTagger loads this file first, then any extra_configs in order.
 
 # ─────────────────────────────────────────────────────────────────────────────
 common:
@@ -53,31 +62,18 @@ source:
   name:    discogs    # legacy — overridden by 'priority' when both present
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-discogs:
-# ─────────────────────────────────────────────────────────────────────────────
-
-  user_token: ""
-  skip_auth: false
-  consumer_key: ""
-  consumer_secret: ""
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-musicbrainz:
-# ─────────────────────────────────────────────────────────────────────────────
-
-  # User-agent string required by the MB API.  Must include contact info.
-  # Format: "AppName/Version (contact@example.com)"
-  user_agent: "massMusicTagger/1.0 (your@email.com)"
-
-  # AcoustID API key for audio fingerprinting (tier-3 search).
-  # Register at https://acoustid.org/login
-  # Leave empty to disable AcoustID.
-  acoustid_api_key: ""
-
-  # Disk cache for MusicBrainz release JSON responses.
-  cache_directory: "~/.cache/massmusictagger/mb"
+# Source-specific settings live in their own named files (all in conf/):
+#   conf/discogs.yaml       — Discogs API defaults
+#   conf/musicbrainz.yaml   — MusicBrainz API defaults
+#
+# Load them (and your personal credential files) via extra_configs in your
+# personal config.  Example conf/config_personal.yaml:
+#
+#   extra_configs:
+#     - conf/discogs.yaml
+#     - conf/musicbrainz.yaml
+#     - conf/discogs_personal.yaml
+#     - conf/musicbrainz_personal.yaml
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,147 @@
+# discogstagger3 — Discogs format code rules
+#
+# Computes a compact format code (e.g. LP, CD, CDS, 12″M, LCDS, 2xCD)
+# from the three format fields Discogs provides:
+#
+#   format.name          Vinyl, CD, Cassette, File, …
+#   format.descriptions  Album, Single, Limited Edition, 12", …
+#   disctotal            number of records/discs in the release
+#
+# The code is built in five steps applied in order:
+#
+#   1. base_formats     map format.name to a short code (LP, CD, …)
+#   2. vinyl_sizes      if format is Vinyl and a size description is present,
+#                       the size overrides "LP" (12″, 7″, 10″)
+#   3. suffixes         description → type suffix appended to base (S, M, EP, …)
+#                       empty string means "implied by base — suppress"
+#   4. prefixes         description → modifier prepended to everything (L, #)
+#   5. quantity         disctotal > 1 prepends a multiplier (D for 2, 3x, 4x…)
+#
+# Descriptions not listed in suffixes, prefixes, vinyl_sizes or ignored_descriptions
+# are silently skipped (they do not produce a warning).
+#
+# The inch mark (") in vinyl sizes is replaced with the double prime (″, U+2033)
+# which is safe in all common filesystem path names.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Step 1: base format name → code ──────────────────────────────────────────
+
+base_formats:
+  Vinyl:      LP
+  CD:         CD
+  CDr:        CDr
+  Cassette:   MC
+  File:       file
+  Web:        web       # streaming / download releases (Bandcamp, etc.)
+  SACD:       SACD
+  Blu-ray:    BD
+  DVD:        DVD
+  DVD-Video:  DVD
+  VHS:        VHS
+  Laserdisc:  LD
+  MiniDisc:   MD
+  DAT:        DAT
+  DCC:        DCC
+  Betamax:    Beta
+  Shellac:    SP       # 78 RPM shellac records
+  Flexi-disc: Flexi
+  Acetate:    Lacquer
+  # Catch-all: any format not listed here uses the raw Discogs name
+
+
+# ── Step 2: vinyl size descriptions (only applied when base_format = "Vinyl") ─
+# These override "LP" when the size is explicitly listed in descriptions.
+
+vinyl_sizes:
+  7":   7″     # ″ = double prime U+2033  (safe in filenames)
+  10":  10″
+  12":  12″
+
+
+# ── Step 3: description suffixes ─────────────────────────────────────────────
+# Appended to the base/size code.
+# The FIRST matching description wins; later ones are ignored.
+# Empty string means "implied — suppress entirely".
+#
+# Resulting codes (for CD base): CD, CDS, CDM, CDEP
+# Resulting codes (for LP/12″):  LP, 7″S, 12″M, 12″EP
+
+suffixes:
+  Album:          ""        # implied by LP/CD — no suffix
+  Single:         S         # CDS, 7″S, 12″S
+  Maxi-Single:    M         # CDM, 12″M
+  EP:             EP        # CDEP, 12″EP
+  Mini-Album:     Mini
+  Promo:          P
+  White Label:    WL
+  Unofficial Release: Bootleg
+
+
+# ── Step 4: description prefixes ─────────────────────────────────────────────
+# Prepended to the full code (after base + suffix).
+# ALL matching prefixes are applied (not just the first).
+# Applied in the order they appear here.
+#
+# Examples:  Limited Edition CD Single  →  L + CDS  = LCDS
+#            Numbered Album             →  # + LP    = #LP
+
+prefixes:
+  Limited Edition:  L
+  Numbered:         "#"
+
+
+# ── Step 5: quantity ─────────────────────────────────────────────────────────
+# Applied when disctotal > 1.
+# Named aliases are used first; anything beyond max_alias uses "{n}x" form.
+#
+# Examples with CD base:  D + CD = DCD,  3x + CD = 3xCD
+
+quantity_aliases:
+  2: D    # Double:  DLP, DCD
+  # 3: T  # Triple  (uncomment if you prefer T over "3x")
+
+quantity_format: "{n}x"   # format for quantities without an alias: 3x, 4x, …
+
+
+# ── Ignored descriptions ─────────────────────────────────────────────────────
+# These appear in Discogs data but carry no useful information for the format
+# code.  Listing them here avoids any future "unrecognised" logging if that
+# is ever added.
+
+ignored:
+  - 33 ⅓ RPM
+  - 45 RPM
+  - 78 RPM
+  - Stereo
+  - Mono
+  - Remastered
+  - Reissue
+  - Repress
+  - Compilation        # informational; not part of the format code
+  - Club Edition
+  - Promo              # already a suffix; ignore at the ignored-pass
+  - Enhanced           # enhanced CD (data track) — not a format modifier
+  - Mispress
+  - Test Pressing
+  - Advance
+  - Transcription
+
+
+# ── Edition qualifiers ────────────────────────────────────────────────────────
+# These descriptions name a release as a particular edition and are displayed
+# alongside the album title — e.g. "[2012] The Young Gods (Deluxe Edition)"
+# — rather than being folded into the format code bracket.
+#
+# Use the %edition% variable in your dir format string:
+#   %album%$if1($strcmp('%edition%',''),'', ' \(%edition%\)')
+#
+# The FIRST matching description in this list wins.
+
+editions:
+  - Deluxe Edition       # also matches "Super Deluxe Edition", "Deluxe Anniversary Edition", …
+  - Ultimate Edition
+  - Collector's Edition
+  - Expanded Edition
+  - Anniversary Edition  # also matches "30th Anniversary Edition", "25th Anniversary", …
+  - Special Edition

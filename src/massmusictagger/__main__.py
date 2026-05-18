@@ -76,6 +76,58 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
+def _load_extra_configs(cfg, primary_config_path: str) -> None:
+    """Load additional config files listed in extra_configs of the primary YAML.
+
+    Paths in extra_configs are resolved relative to the primary config file's
+    directory, so you can use bare filenames like 'conf/discogs_personal.yaml'
+    regardless of the working directory.
+
+    Supports both YAML (.yaml/.yml) and INI (.ini/.conf) files.
+    YAML files with 'extra_configs' are NOT recursed into — one level only.
+    """
+    import yaml
+
+    try:
+        with open(primary_config_path, 'r', encoding='utf-8') as fh:
+            raw = yaml.safe_load(fh) or {}
+    except Exception:
+        return
+
+    extra = raw.get('extra_configs') or []
+    if not extra:
+        return
+
+    config_dir = os.path.dirname(os.path.abspath(primary_config_path))
+
+    for entry in extra:
+        path = os.path.expanduser(str(entry).strip())
+        if not os.path.isabs(path):
+            # Try relative to CWD first (most natural for paths like conf/discogs.yaml).
+            # If not found there, try relative to the config file's own directory.
+            cwd_path = os.path.normpath(path)
+            if not os.path.exists(cwd_path):
+                path = os.path.join(config_dir, path)
+            else:
+                path = cwd_path
+        path = os.path.normpath(path)
+
+        if not os.path.exists(path):
+            logger.warning('extra_configs: file not found — %s', path)
+            continue
+
+        ext = os.path.splitext(path)[1].lower()
+        try:
+            if ext in ('.yaml', '.yml'):
+                cfg._load_yaml(path)
+                logger.debug('Loaded extra YAML config: %s', path)
+            else:
+                cfg.read(path)
+                logger.debug('Loaded extra INI config: %s', path)
+        except Exception as exc:
+            logger.warning('extra_configs: failed to load %s: %s', path, exc)
+
+
 def _default_config_path() -> str:
     """Return the path to conf/config.yaml relative to this package."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -160,6 +212,10 @@ def main(argv: list[str] | None = None) -> None:
     from discogstagger.tagger_config import TaggerConfig
     cfg = TaggerConfig(config_path)
     cfg.source_conffile = config_path  # let processor re-read per-dir
+
+    # Load extra config files listed in extra_configs.
+    # Paths are resolved relative to the primary config file's directory.
+    _load_extra_configs(cfg, config_path)
 
     # CLI overrides
     if opts.source:

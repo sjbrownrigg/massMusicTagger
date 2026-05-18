@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# massMusicTagger — Discogs source defaults
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file is loaded automatically when 'discogs' is in source.priority.
+# Override by creating conf/discogs_personal.yaml (gitignored) and listing it
+# in your config_personal.yaml under extra_configs.
+
+discogs:
+  # Personal access token — generate at https://www.discogs.com/settings/developers
+  # Set here or export DISCOGS_USER_TOKEN in your shell.
+  user_token: ""
+
+  # Set to true to disable all authentication (image downloads will not work).
+  skip_auth: false
+
+  # OAuth 1.0a — only needed when not using a personal access token.
+  # Tokens are cached in .token after the first PIN flow.
+  consumer_key: ""
+  consumer_secret: ""
+
+source:
+  discogs: discogs_id
+  amg:     amg_id
+  local:   discogs_id

@@ -1,0 +1,20 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# massMusicTagger — MusicBrainz source defaults
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# This file is loaded automatically when 'musicbrainz' is in source.priority.
+# Override by creating conf/musicbrainz_personal.yaml (gitignored) and listing
+# it in your config_personal.yaml under extra_configs.
+
+musicbrainz:
+  # Required: user-agent identifying your application to the MB API.
+  # Format: "AppName/Version (contact@example.com)"
+  user_agent: "massMusicTagger/1.0 (your@email.com)"
+
+  # AcoustID API key for tier 6/7 audio fingerprinting.
+  # Register at https://acoustid.org/login
+  # Leave empty to skip AcoustID tiers.
+  acoustid_api_key: ""
+
+  # Disk cache directory for MusicBrainz release JSON.
+  cache_directory: "~/.cache/massmusictagger/mb"

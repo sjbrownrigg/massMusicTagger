@@ -1,0 +1,150 @@
+# discogstagger3 — character substitution profiles
+#
+# Select a profile by setting char_profile in the [details] section of your
+# config file, e.g.:
+#
+#   [details]
+#   char_profile = linux
+#
+# Substitutions are applied to the name part of generated filenames in the
+# order listed, before the core invalid-character strip (which only removes
+# / and control characters on Linux).  An empty value removes the character.
+#
+# The [character_exceptions] section in your .conf file is applied on top of
+# the YAML profile, so you can still use INI overrides for individual tweaks.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Choosing a profile
+# ─────────────────────────────────────────────────────────────────────────────
+#
+#  linux        No substitutions — preserve everything the filesystem allows.
+#               Only / and control characters are ever removed.
+#               Best choice if your music stays on Linux and you value
+#               keeping the original artist/title characters intact.
+#
+#  macos        Adds : → - (HFS+/APFS uses : as its internal separator).
+#
+#  windows      Full set of NTFS-illegal characters, suitable for Samba/NAS
+#               shares accessed from Windows or for files you copy to Windows.
+#
+#  unicode_to_ascii   Transliterates common non-ASCII letters to ASCII
+#               equivalents.  Useful for players or devices that are
+#               ASCII-only.  Can be combined with another profile via INI
+#               overrides.
+#
+# You can add your own profile below and reference it by name.
+# ─────────────────────────────────────────────────────────────────────────────
+
+profiles:
+
+  # ── Linux / ext4 / btrfs ──────────────────────────────────────────────────
+  # Only / and null bytes are truly invalid on Linux.  Keep everything else.
+  linux: {}
+
+
+  # ── macOS / HFS+ / APFS ───────────────────────────────────────────────────
+  macos:
+    ":": "-"          # HFS+ path separator (shown as / in Finder)
+
+
+  # ── Windows / NTFS, or Samba/NAS shares accessed from Windows ─────────────
+  windows:
+    ":":  "-"         # NTFS path separator
+    "?":  ""          # NTFS wildcard
+    "*":  ""          # NTFS wildcard
+    '"':  "'"          # NTFS illegal
+    "<":  "("          # NTFS illegal
+    ">":  ")"          # NTFS illegal
+    "|":  "-"          # NTFS pipe / illegal
+    "\\":  "-"        # Windows path separator
+    # Trailing periods/spaces are also illegal on Windows, but those are
+    # handled separately by the rstrip('.') call in get_clean_filename.
+
+
+  # ── Unicode → ASCII transliteration ───────────────────────────────────────
+  # Uncomment the entries you want, or create a custom profile that includes
+  # them.  Sorted by Unicode block for readability.
+  #
+  # unicode_to_ascii:
+  #   # Latin Extended-A (common Western European)
+  #   "À": "A"    # À
+  #   "Á": "A"    # Á
+  #   "Â": "A"    # Â
+  #   "Ã": "A"    # Ã
+  #   "Ä": "Ae"   # Ä  (German convention)
+  #   "Å": "A"    # Å
+  #   "Æ": "AE"   # Æ
+  #   "Ç": "C"    # Ç
+  #   "È": "E"    # È
+  #   "É": "E"    # É
+  #   "Ê": "E"    # Ê
+  #   "Ë": "E"    # Ë
+  #   "Ì": "I"    # Ì
+  #   "Í": "I"    # Í
+  #   "Î": "I"    # Î
+  #   "Ï": "I"    # Ï
+  #   "Ð": "D"    # Ð
+  #   "Ñ": "N"    # Ñ
+  #   "Ò": "O"    # Ò
+  #   "Ó": "O"    # Ó
+  #   "Ô": "O"    # Ô
+  #   "Õ": "O"    # Õ
+  #   "Ö": "Oe"   # Ö  (German convention)
+  #   "Ø": "O"    # Ø
+  #   "Ù": "U"    # Ù
+  #   "Ú": "U"    # Ú
+  #   "Û": "U"    # Û
+  #   "Ü": "Ue"   # Ü  (German convention)
+  #   "Ý": "Y"    # Ý
+  #   "Þ": "Th"   # Þ
+  #   "ß": "ss"   # ß
+  #   "à": "a"    # à
+  #   "á": "a"    # á
+  #   "â": "a"    # â
+  #   "ã": "a"    # ã
+  #   "ä": "ae"   # ä  (German convention)
+  #   "å": "a"    # å
+  #   "æ": "ae"   # æ
+  #   "ç": "c"    # ç
+  #   "è": "e"    # è
+  #   "é": "e"    # é
+  #   "ê": "e"    # ê
+  #   "ë": "e"    # ë
+  #   "ì": "i"    # ì
+  #   "í": "i"    # í
+  #   "î": "i"    # î
+  #   "ï": "i"    # ï
+  #   "ð": "d"    # ð
+  #   "ñ": "n"    # ñ
+  #   "ò": "o"    # ò
+  #   "ó": "o"    # ó
+  #   "ô": "o"    # ô
+  #   "õ": "o"    # õ
+  #   "ö": "oe"   # ö  (German convention)
+  #   "ø": "o"    # ø
+  #   "ù": "u"    # ù
+  #   "ú": "u"    # ú
+  #   "û": "u"    # û
+  #   "ü": "ue"   # ü  (German convention)
+  #   "ý": "y"    # ý
+  #   "þ": "th"   # þ
+  #   "ÿ": "y"    # ÿ
+  #   # Typographic punctuation
+  #   "‘": "'"    # ' left single quotation mark  → straight apostrophe
+  #   "’": "'"    # ' right single quotation mark → straight apostrophe
+  #   "“": '"'    # " left double quotation mark  → straight quote
+  #   "”": '"'    # " right double quotation mark → straight quote
+  #   "–": "-"    # – en dash
+  #   "—": "-"    # — em dash
+  #   "…": "..."  # … ellipsis
+
+
+  # ── Personal / custom preference ──────────────────────────────────────────
+  # Copy this block into your own profile name and uncomment what you want.
+  #
+  # personal:
+  #   "'":  ""         # strip straight apostrophe
+  #   "’":  ""         # strip curly apostrophe
+  #   ",":  ""         # strip commas
+  #   "&":  " and "    # ampersand → "and"
+  #   " ":  "_"        # spaces → underscores (combine with {space}=_ in INI)

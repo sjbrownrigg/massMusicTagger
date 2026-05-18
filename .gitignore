@@ -6,4 +6,5 @@ build/
 .venv/
 .pytest_cache/
 *.log
-conf/config_personal.yaml
+conf/*_personal.yaml
+conf/*_personal.ini
