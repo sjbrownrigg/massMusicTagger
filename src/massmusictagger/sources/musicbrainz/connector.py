@@ -22,7 +22,8 @@ _INCLUDES = [
     'artist-credits', 'isrcs', 'release-groups',
 ]
 
-_CAA_FRONT = 'https://coverartarchive.org/release/{mbid}/front'
+_CAA_FRONT  = 'https://coverartarchive.org/release/{mbid}/front'
+_CAA_INDEX  = 'https://coverartarchive.org/release/{mbid}'
 
 
 class MBConnector:
@@ -79,6 +80,54 @@ class MBConnector:
 
     def front_cover_url(self, mbid: str) -> str:
         return _CAA_FRONT.format(mbid=mbid)
+
+    def fetch_image_list(self, mbid: str) -> list[dict]:
+        """Return the full Cover Art Archive image list for a release MBID.
+
+        Each entry is a dict compatible with the common image format used
+        throughout the codebase:
+
+            {
+              'uri':       str,            # full-size image URL
+              'type':      'primary'|'secondary',
+              'caa_types': list[str],      # e.g. ['Front'], ['Back'], ['Medium']
+              'width':     None,           # CAA index does not include dimensions
+              'height':    None,
+            }
+
+        'uri' points to the full-resolution image on archive.org.
+        Approved images are returned first (CAA default ordering).
+
+        Returns an empty list on any error (network, 404, parse failure).
+        """
+        import requests
+        url = _CAA_INDEX.format(mbid=mbid)
+        headers = {'User-Agent': 'massMusicTagger/1.0', 'Accept': 'application/json'}
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.warning('Cover Art Archive index failed for %s: %s', mbid, exc)
+            return []
+
+        result: list[dict] = []
+        for img in data.get('images', []):
+            types = img.get('types') or []
+            # Only include approved images; unapproved art can be low-quality or wrong
+            if not img.get('approved', True):
+                continue
+            is_front = img.get('front', False) or 'Front' in types
+            result.append({
+                'uri':       img.get('image') or img.get('url', ''),
+                'type':      'primary' if is_front else 'secondary',
+                'caa_types': types,
+                'width':     None,
+                'height':    None,
+            })
+
+        logger.info('Cover Art Archive: %d image(s) for release %s', len(result), mbid)
+        return result
 
     # ── Cache helpers ──────────────────────────────────────────────────────
 

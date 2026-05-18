@@ -11,6 +11,21 @@ MusicBrainz hierarchy:
 
 The mapper flattens this into the Album → Disc → Track model where each
 Medium becomes one Disc and each Track stays as a Track.
+
+Album shape alignment
+─────────────────────
+Every attribute set by DiscogsAlbum.map() is also set here, using the closest
+MusicBrainz equivalent.  Source-specific extras (isrc, mbid on Track) are
+additive and do not conflict.
+
+  format_description  ← release-group['secondary-types'] (Compilation, Live, …)
+  images              ← placeholder pointing at Cover Art Archive; replaced by
+                        MBConnector.fetch_image_list() in the cascade after map()
+  identifiers         ← [] (MB stores identifiers differently; barcode is direct)
+  extraartists        ← [] (MB credits come from relations, not extraartists;
+                        future work: map recording/release relations)
+  genres / styles     ← [] (MB genre data requires a separate user-tag lookup)
+  notes               ← release annotation
 """
 from __future__ import annotations
 
@@ -54,27 +69,43 @@ class MusicBrainzAlbum:
         album.country = r.get('country', '') or ''
         album.status = r.get('status', '') or ''
 
-        # Format / genre from release-group
+        # Release-group gives format and format_description equivalents.
+        # primary-type ('Album', 'Single', 'EP', …) → format
+        # secondary-types (['Compilation', 'Live', 'Remix', …]) → format_description
         rg = r.get('release-group', {})
         album.format = rg.get('primary-type', '') or ''
-        album.genres = []   # MB genre data requires a separate lookup
+        album.format_description = list(rg.get('secondary-types') or [])
+
+        album.genres = []   # MB genre data requires a separate user-tag lookup
         album.styles = []
 
         album.media = self._media_string(r.get('media', []))
         album.is_compilation = self._is_compilation(r)
         album.master_id = rg.get('id', None)
 
-        # Cover Art Archive
-        album.images = [{'uri': f'https://coverartarchive.org/release/{mbid}/front',
-                         'type': 'primary'}] if mbid else []
+        # Images: a CAA front placeholder is set here.  The cascade replaces
+        # this with the full typed image list from MBConnector.fetch_image_list()
+        # immediately after map() returns, so downstream code always sees a
+        # complete list.
+        album.images = (
+            [{'uri': f'https://coverartarchive.org/release/{mbid}/front',
+              'type': 'primary', 'caa_types': ['Front'],
+              'width': None, 'height': None}]
+            if mbid else []
+        )
 
-        # Notes
+        # Notes from the release annotation (rare but present on some releases)
         album.notes = r.get('annotation', '') or ''
 
-        # identifiers (MB doesn't use the Discogs-style list, but keep the attr)
+        # Identifiers: Discogs stores as a typed list; MB doesn't have an
+        # equivalent list at this level.  barcode is available as a direct field.
         album.identifiers = []
         album.barcode = r.get('barcode', '') or ''
-        album.extraartists = []   # MB extra credits: to be added via relations
+
+        # Extra artist credits (composers, producers, etc.) from release relations.
+        # Relations are a richer but more complex structure than Discogs extraartists;
+        # mapping them is future work.  Set to empty list for shape consistency.
+        album.extraartists = []
 
         # Build discs
         album.discs = self._map_mediums(r.get('media', []), album)
@@ -134,7 +165,7 @@ class MusicBrainzAlbum:
                 seen.setdefault(catno, None)
         return list(seen)
 
-    # ── Date normalisation ────────────────────────────────────────────────
+    # ── Date normalisation ─────────────────────────────────────────────────
 
     @staticmethod
     def _normalise_date(raw: str) -> Optional[str]:
@@ -187,6 +218,7 @@ class MusicBrainzAlbum:
         tracks: list[Track] = []
         for i, rt in enumerate(raw_tracks, start=1):
             title = (rt.get('title') or rt.get('recording', {}).get('title', '')).strip()
+
             # Per-track artist credit (if different from album)
             tc = rt.get('artist-credit') or []
             if tc:
@@ -201,16 +233,18 @@ class MusicBrainzAlbum:
             track.real_tracknumber = rt.get('number', str(i))
             track.discnumber = disc.discnumber
             track.discsubtitle = disc.discsubtitle
+            track.mediatype = disc.mediatype   # inherit from medium (shape parity)
             track.sort_artist = t_artists[0] if t_artists else ''
             track.position = i - 1
+            track.notes = None                 # set if recording annotation present
+            track.extraartists = []            # shape parity with Discogs tracks
 
-            # ISRC and MBID from the Recording
+            # MB-specific: ISRC and Recording MBID
             recording = rt.get('recording', {})
             isrcs = recording.get('isrc-list', [])
             if isrcs:
                 track.isrc = isrcs[0]
             track.mbid = recording.get('id', '')
-            track.extraartists = []
 
             tracks.append(track)
         return tracks

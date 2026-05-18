@@ -117,6 +117,19 @@ details:
   use_folder_jpg: true
   use_anv: true
   join_artists: ""
+
+  # Preferred source for cover art, independent of the metadata source.
+  #
+  #   auto         — use whichever source provided the metadata (default)
+  #   discogs      — always use Discogs images
+  #   musicbrainz  — always use Cover Art Archive images; if the metadata came
+  #                  from Discogs, attempt a barcode-based MBID lookup first
+  #
+  # MusicBrainz Cover Art Archive advantages:
+  #   • Images are explicitly typed (Front, Back, Medium/disc label, Booklet, …)
+  #   • Often higher resolution (no size cap like Discogs)
+  #   • Community-curated; approved flag filters out poor submissions
+  image_source: auto
   split_discs_folder: false
   split_discs: false
   split_discs_extension: '" (disc%DISNO%)"'

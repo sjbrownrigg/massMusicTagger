@@ -110,6 +110,12 @@ def search_and_map(
                 from massmusictagger.source_factory import make_mb_mapper
                 album = make_mb_mapper(cfg).map(raw)
                 album.release_id_str = mbid
+                # Immediately replace the placeholder image with the full
+                # typed CAA image list (Front, Back, Medium, Booklet, …).
+                if mb_connector and mbid:
+                    caa_images = mb_connector.fetch_image_list(mbid)
+                    if caa_images:
+                        album.images = caa_images
                 return album, mb_connector
 
         elif source == 'existing_tags':

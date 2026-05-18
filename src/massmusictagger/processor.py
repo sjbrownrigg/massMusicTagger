@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
+import musicbrainzngs
 from rich.console import Console
 from rich.progress import (
     BarColumn, MofNCompleteColumn, Progress, SpinnerColumn,
@@ -173,6 +174,10 @@ class MassProcessor:
                 return result
 
             album, connector = match
+
+            # Image source preference: may override album.images and the
+            # connector used for downloading, independently of metadata source.
+            connector = self._apply_image_source(album, connector, sourcedir, cfg)
             result.source = getattr(album, 'source', None)
             result.release_id = str(album.id)
             result.title = album.title
@@ -255,6 +260,107 @@ class MassProcessor:
         with open(self.audit_log_path, 'w', encoding='utf-8') as fh:
             json.dump(existing, fh, indent=2, ensure_ascii=False)
         logger.debug('Audit log updated: %s', self.audit_log_path)
+
+    def _apply_image_source(self, album, connector, sourcedir: str, cfg) -> object:
+        """Override album.images and image connector based on image_source config.
+
+        Returns the connector that should be used for image downloading.
+
+        image_source: auto
+            Use whichever connector fetched the metadata (no change).
+        image_source: musicbrainz
+            Fetch the full typed CAA image list.  If the metadata came from
+            Discogs, try a barcode-based MBID lookup first; fall back to
+            Discogs images if no MBID can be found.
+        image_source: discogs
+            Use Discogs images even when metadata came from MusicBrainz.
+        """
+        image_source = (cfg.get('details', 'image_source')
+                        if cfg.has_option('details', 'image_source') else 'auto')
+
+        if image_source == 'auto' or not image_source:
+            return connector
+
+        if image_source == 'discogs':
+            if self._discogs_conn and album.source != 'discogs':
+                logger.info('image_source=discogs: using Discogs images for MB album %r',
+                            album.title)
+            return self._discogs_conn or connector
+
+        if image_source == 'musicbrainz':
+            mb_conn = self._mb_conn
+            if not mb_conn:
+                logger.warning('image_source=musicbrainz: no MB connector available — '
+                               'falling back to %s images', album.source)
+                return connector
+
+            # If album came from MusicBrainz we already have the MBID
+            if album.source == 'musicbrainz':
+                mbid = album.id
+            else:
+                # Came from Discogs: try to find an MBID via barcode
+                mbid = self._find_mbid_for_images(album, sourcedir, cfg)
+
+            if mbid:
+                caa_images = mb_conn.fetch_image_list(mbid)
+                if caa_images:
+                    album.images = caa_images
+                    logger.info('image_source=musicbrainz: %d CAA image(s) for %r',
+                                len(caa_images), album.title)
+                    return mb_conn
+                logger.info('image_source=musicbrainz: CAA returned no images for %s '
+                            '— falling back to %s images', mbid, album.source)
+            else:
+                logger.info('image_source=musicbrainz: no MBID found for Discogs release %r '
+                            '— falling back to Discogs images', album.title)
+
+        return connector
+
+    def _find_mbid_for_images(self, album, sourcedir: str, cfg) -> Optional[str]:
+        """Attempt to find a MusicBrainz MBID for a Discogs-sourced album.
+
+        Tries (in order):
+          1. Barcode embedded in album.barcode → MB barcode search
+          2. Text search (album title + artist) — only if barcode yields nothing
+
+        Returns None when no confident MBID is found.
+        """
+        # Tier 1: barcode is the fastest and most reliable path
+        barcode = getattr(album, 'barcode', '') or ''
+        if barcode:
+            try:
+                barcode_clean = barcode.replace(' ', '').replace('-', '')
+                result = musicbrainzngs.search_releases(barcode=barcode_clean, limit=3)
+                releases = result.get('release-list', [])
+                if releases:
+                    mbid = releases[0].get('id')
+                    logger.debug('image MBID from barcode %s: %s', barcode_clean, mbid)
+                    return mbid
+            except Exception as exc:
+                logger.debug('Barcode MBID lookup failed: %s', exc)
+
+        # Tier 2: text search (less reliable; skip if no artist/title)
+        from rapidfuzz import fuzz
+        artist = getattr(album, 'artist', '') or ''
+        title  = getattr(album, 'title', '') or ''
+        if artist and title:
+            try:
+                result = musicbrainzngs.search_releases(
+                    artist=artist, release=title, limit=5
+                )
+                for rel in result.get('release-list', []):
+                    score = fuzz.token_sort_ratio(
+                        title.lower(), rel.get('title', '').lower()
+                    )
+                    if score >= 80:
+                        mbid = rel.get('id')
+                        logger.debug('image MBID from text search: %s (score %d)',
+                                     mbid, score)
+                        return mbid
+            except Exception as exc:
+                logger.debug('Text MBID lookup failed: %s', exc)
+
+        return None
 
     @staticmethod
     def _print_summary(results: list[ProcessingResult]) -> None:
