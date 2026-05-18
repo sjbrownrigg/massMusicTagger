@@ -5,13 +5,13 @@ FROM python:3.12-slim
 # shntool    — CUE sheet splitting (fallback for non-FLAC)
 # flac       — FLAC encoding/decoding
 # libdiscid0 — DiscID computation (Tier 5 of MusicBrainz search; optional)
-# chromaprint-tools — fpcalc binary for AcoustID fingerprinting (Tier 6/7; optional)
+# libchromaprint-tools — fpcalc binary for AcoustID fingerprinting (Tier 6/7; optional)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     shntool \
     flac \
     libdiscid0 \
-    chromaprint-tools \
+    libchromaprint-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # ── massMusicTagger ────────────────────────────────────────────────────────────

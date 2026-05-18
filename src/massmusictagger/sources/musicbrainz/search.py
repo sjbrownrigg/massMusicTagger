@@ -15,7 +15,7 @@ Seven-tier strategy (most-certain to least-certain):
 Optional dependencies
 ─────────────────────
   pyacoustid  — tiers 6 & 7 (pip install massmusictagger[acoustid])
-  python-discid — tier 5   (pip install massmusictagger[discid])
+  discid — tier 5   (pip install massmusictagger[discid])
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ class MBSearch:
             self._has_discid = True
         except ImportError:
             self._has_discid = False
-            logger.info('MB tier 5 (DiscID) unavailable: python-discid not installed. '
+            logger.info('MB tier 5 (DiscID) unavailable: discid not installed. '
                         'Install with: pip install massmusictagger[discid]  '
                         '(also requires: apt install libdiscid0)')
 
@@ -68,7 +68,7 @@ class MBSearch:
             self._has_acoustid = False
             logger.info('MB tiers 6 & 7 (AcoustID) unavailable: pyacoustid not installed. '
                         'Install with: pip install massmusictagger[acoustid]  '
-                        '(also requires: apt install chromaprint-tools)')
+                        '(also requires: apt install libchromaprint-tools)')
 
     def search(self, sourcedir: str) -> Optional[str]:
         """Return a MusicBrainz release MBID, or None."""
@@ -272,7 +272,7 @@ class MBSearch:
         CD sectors precisely.  For re-encodes or vinyl rips the hash will not
         match any database entry.
 
-        Requires: python-discid  (pip install massmusictagger[discid])
+        Requires: discid  (pip install massmusictagger[discid])
         System library: libdiscid  (apt install libdiscid0)
         """
         if not self._has_discid:
