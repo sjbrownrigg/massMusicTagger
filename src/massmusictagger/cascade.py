@@ -248,9 +248,33 @@ def _try_musicbrainz(sourcedir, cfg, connector, searcher,
 # ── Shared validation helpers ─────────────────────────────────────────────────
 
 def _local_audio_count(sourcedir: str) -> int:
-    """Return the number of audio files directly in sourcedir."""
+    """Return the number of audio files in sourcedir.
+
+    For multi-disc album roots (CD1/, CD2/ layout), audio files are in
+    subdirectories rather than directly in sourcedir — in that case the
+    counts from all disc subdirs are summed.
+    """
     from discogstagger.discogs_utils import AUDIO_EXTENSIONS
-    return sum(1 for f in os.listdir(sourcedir) if f.lower().endswith(AUDIO_EXTENSIONS))
+
+    def _count_direct(path: str) -> int:
+        try:
+            return sum(1 for f in os.listdir(path)
+                       if f.lower().endswith(AUDIO_EXTENSIONS)
+                       and os.path.isfile(os.path.join(path, f)))
+        except OSError:
+            return 0
+
+    direct = _count_direct(sourcedir)
+    if direct:
+        return direct
+
+    # Multi-disc: sum across immediate subdirectories
+    try:
+        subdirs = [d for d in os.listdir(sourcedir)
+                   if os.path.isdir(os.path.join(sourcedir, d)) and not d.startswith('.')]
+    except OSError:
+        return 0
+    return sum(_count_direct(os.path.join(sourcedir, d)) for d in subdirs)
 
 
 def _validate_id_match(local_count: int, release_count: Optional[int],

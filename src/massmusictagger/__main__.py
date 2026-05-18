@@ -189,11 +189,88 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
         """Return directories that directly contain audio files, skipping cue_done_dir."""
         result = []
         for root, dirs, files in os.walk(start):
-            # Prune the cue done directory from descending
             dirs[:] = [d for d in dirs if d != cue_done_dir]
             if any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files):
                 result.append(root)
         return result
+
+    def _consolidate_multidisc_roots(audio_dirs: list[str], scan_root: str) -> list[str]:
+        """Replace sets of sibling disc directories with their common album parent.
+
+        Multi-disc rips are often stored as:
+            Album/
+              CD1/ ← audio here
+              CD2/ ← audio here
+
+        The walk finds CD1 and CD2 as separate audio dirs, but TaggerUtils needs
+        the parent Album/ so it can detect the disc subdirectory structure.
+
+        Rule: when two or more audio dirs share a common parent that:
+          (a) contains no audio files of its own, and
+          (b) is not the scan root itself
+        replace the siblings with that parent.
+
+        Single-child parents (Album/Tracks/) are also promoted so TaggerUtils
+        can handle the disc-subdir structure consistently.
+        """
+        from collections import defaultdict
+        by_parent: dict[str, list[str]] = defaultdict(list)
+        for d in audio_dirs:
+            by_parent[os.path.dirname(d)].append(d)
+
+        def _parent_has_audio(parent: str) -> bool:
+            try:
+                return any(f.lower().endswith(AUDIO_EXTENSIONS)
+                           for f in os.listdir(parent)
+                           if os.path.isfile(os.path.join(parent, f)))
+            except OSError:
+                return False
+
+        # When ALL audio dirs share the same parent AND there are multiple dirs,
+        # the scan_root exclusion may be lifted (e.g. user passed Liberty/
+        # directly — CD1 and CD2 are both under Liberty/ = scan_root).
+        all_share_one_parent = (
+            len(audio_dirs) > 1
+            and len(set(os.path.dirname(d) for d in audio_dirs)) == 1
+        )
+
+        scan_root_abs = os.path.abspath(scan_root) + os.sep
+
+        seen: set[str] = set()
+        consolidated: list[str] = []
+        for d in audio_dirs:
+            if d in seen:
+                continue
+            parent = os.path.dirname(d)
+            parent_abs = os.path.abspath(parent)
+            siblings = by_parent[parent]
+
+            # Never promote above the scan root — this would collapse an entire
+            # collection into one source dir.
+            if not (parent_abs + os.sep).startswith(scan_root_abs) and parent_abs != os.path.abspath(scan_root):
+                consolidated.append(d)
+                seen.add(d)
+                continue
+
+            parent_is_scan_root = (parent_abs == os.path.abspath(scan_root))
+
+            # Promote siblings to parent when:
+            #   • parent has no audio files of its own
+            #   • parent is not the scan root, OR all dirs share one parent
+            #     (user passed this album dir directly and its disc subdirs are
+            #     all at the same level as scan_root's children)
+            if (not _parent_has_audio(parent)
+                    and len(siblings) >= 1
+                    and (not parent_is_scan_root or all_share_one_parent)):
+                if parent not in seen:
+                    consolidated.append(parent)
+                    seen.add(parent)
+                for sib in siblings:
+                    seen.add(sib)
+            else:
+                consolidated.append(d)
+                seen.add(d)
+        return consolidated
 
     # If the directory itself has audio (single-album run), process it directly
     files_here = os.listdir(source_dir)
@@ -206,24 +283,29 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
     if has_audio_here and has_id_here:
         return [source_dir]
 
+    # source_dir has no direct audio — keep only the subdirs-with-audio check
+    # for the non-search case. The searchdiscogs path handles this via
+    # _consolidate_multidisc_roots below.
+
     # Walk for id.txt directories first
     id_dirs = _walk_id_dirs(source_dir)
-    # Also include root if it has id.txt but we didn't catch it above
     if has_id_here and source_dir not in id_dirs:
         id_dirs = [source_dir] + id_dirs
 
     if not searchdiscogs:
         return id_dirs if id_dirs else ([source_dir] if has_audio_here else [])
 
-    # searchdiscogs=true: also include audio dirs without an ancestor id.txt
+    # searchdiscogs=true: also include audio dirs without an ancestor id.txt,
+    # then consolidate siblings into their multi-disc album parent.
     id_dir_set = set(id_dirs)
-    orphan_audio = [
+    raw_audio = [
         d for d in _walk_audio_dirs(source_dir)
         if not any(
             d == id_d or d.startswith(id_d + os.sep)
             for id_d in id_dir_set
         )
     ]
+    orphan_audio = _consolidate_multidisc_roots(raw_audio, source_dir)
     return id_dirs + orphan_audio
 
 

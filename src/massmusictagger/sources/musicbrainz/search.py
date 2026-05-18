@@ -52,10 +52,10 @@ class MBSearch:
     def search(self, sourcedir: str) -> Optional[str]:
         """Return a MusicBrainz release MBID, or None."""
 
-        # Count local audio files once — used for track count validation.
-        local_count = sum(
-            1 for f in os.listdir(sourcedir) if f.lower().endswith(AUDIO_EXTENSIONS)
-        )
+        # Count local audio files — used for track count validation.
+        # For multi-disc source dirs (CD1/, CD2/ structure) we sum across subdirs.
+        meta = _read_directory_metadata(sourcedir)
+        local_count = meta.get('track_count', 0)
 
         # ── Tier 1: MBID in id.txt ─────────────────────────────────────────
         # User-supplied MBIDs are validated: if the track count doesn't match
@@ -502,11 +502,40 @@ def _read_id_txt(sourcedir: str, cfg, key: str = None) -> Optional[str]:
 
 
 def _read_directory_metadata(sourcedir: str) -> dict:
-    """Read artist/album/file list from the directory."""
+    """Read artist/album/file list from the directory.
+
+    For multi-disc album roots (e.g. Liberty/ containing CD1/ and CD2/),
+    no audio files exist directly in sourcedir.  In that case we descend
+    one level into disc subdirectories, aggregate the total track count,
+    and read metadata from the first file found.
+    """
     audio_files = sorted(
         os.path.join(sourcedir, f) for f in os.listdir(sourcedir)
         if f.lower().endswith(AUDIO_EXTENSIONS)
+        and os.path.isfile(os.path.join(sourcedir, f))
     )
+
+    if not audio_files:
+        # Multi-disc layout: audio is in subdirectories (CD1/, CD2/, ...)
+        try:
+            subdirs = sorted(
+                d for d in os.listdir(sourcedir)
+                if os.path.isdir(os.path.join(sourcedir, d))
+                and not d.startswith('.')
+            )
+        except OSError:
+            return {}
+        all_files: list[str] = []
+        for sub in subdirs:
+            sub_path = os.path.join(sourcedir, sub)
+            sub_audio = sorted(
+                os.path.join(sub_path, f) for f in os.listdir(sub_path)
+                if f.lower().endswith(AUDIO_EXTENSIONS)
+                and os.path.isfile(os.path.join(sub_path, f))
+            )
+            all_files.extend(sub_audio)
+        audio_files = all_files
+
     if not audio_files:
         return {}
 
