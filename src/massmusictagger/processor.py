@@ -204,12 +204,19 @@ class MassProcessor:
             fh.copy_files()
             fh.copy_other_files()
 
-            th = TagHandler(album, cfg)
-            th.tag_album()
+            # existing_tags albums are organised by existing metadata only —
+            # no new tag values are written (files are renamed/copied but not
+            # re-tagged, so original metadata is preserved intact).
+            if album.source != 'existing_tags':
+                th = TagHandler(album, cfg)
+                th.tag_album()
 
-            if connector:
-                fh.get_images(connector)
-            fh.embed_coverart_album()
+                if connector:
+                    fh.get_images(connector)
+                fh.embed_coverart_album()
+            else:
+                logger.info('existing_tags: skipping tag write for %r', album.title)
+
             fh.add_replay_gain_tags()
             fh.create_done_file()
 
