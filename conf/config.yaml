@@ -180,3 +180,8 @@ logging:
 
   level: 20
   config_file: ""
+
+  # Path to a persistent log file.  Leave empty to log to the terminal only.
+  # The directory is created automatically if it does not exist.
+  # Example: log_file: "~/.cache/massmusictagger/mmt.log"
+  log_file: ""

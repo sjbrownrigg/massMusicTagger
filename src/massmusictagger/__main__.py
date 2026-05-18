@@ -67,13 +67,22 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _setup_logging(verbose: bool) -> None:
+def _setup_logging(verbose: bool, log_file: str | None = None) -> None:
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-    )
+    fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt = '%Y-%m-%d %H:%M:%S'
+
+    logging.basicConfig(level=level, format=fmt, datefmt=datefmt)
+
+    if log_file:
+        log_file = os.path.expanduser(log_file)
+        os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+        fh = logging.FileHandler(log_file, encoding='utf-8')
+        fh.setLevel(level)
+        fh.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+        logging.getLogger().addHandler(fh)
+        logging.getLogger(__name__).info('Logging to file: %s', log_file)
+
     # musicbrainzngs logs INFO for every unrecognised XML attribute in the MB
     # API response (e.g. 'uncaught attribute type-id').  These are harmless
     # library-version-lag messages — suppress to WARNING so they don't clutter
@@ -345,7 +354,17 @@ def _undo(dir_path: str, cfg) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     opts = parser.parse_args(argv)
-    _setup_logging(opts.verbose)
+    # Logging — read log_file from config if set (before config is fully loaded,
+    # just peek at the raw value; proper config loading happens next)
+    import configparser as _cp
+    _pre = _cp.RawConfigParser()
+    try:
+        _pre.read(opts.config or _default_config_path())
+        _log_file = (_pre.get('logging', 'log_file')
+                     if _pre.has_option('logging', 'log_file') else None) or None
+    except Exception:
+        _log_file = None
+    _setup_logging(opts.verbose, log_file=_log_file)
 
     config_path = opts.config or _default_config_path()
     if not os.path.exists(config_path):
