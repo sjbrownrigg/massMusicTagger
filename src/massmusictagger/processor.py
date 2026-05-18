@@ -89,12 +89,16 @@ class MassProcessor:
         self.review = review
         self.audit_log_path = audit_log_path
 
-        # Build connectors and searchers once per session (they hold caches)
+        # Build connectors and searchers once per session (they hold caches).
+        # Use _get_priority() so source.priority list is respected, and fall
+        # back gracefully when source.name is absent (e.g. personal config
+        # without the defaults baseline loaded).
         from massmusictagger.source_factory import (
             make_discogs_connector, make_discogs_local_connector,
             make_discogs_search, make_mb_connector, make_mb_search,
         )
-        source = cfg.get('source', 'name') or 'auto'
+        from massmusictagger.cascade import _get_priority
+        priority = _get_priority(cfg)
 
         self._discogs_conn = None
         self._discogs_local_conn = None
@@ -102,12 +106,12 @@ class MassProcessor:
         self._mb_conn = None
         self._mb_search = None
 
-        if source in ('discogs', 'local', 'auto'):
+        if any(s in priority for s in ('discogs', 'local', 'auto')):
             self._discogs_conn = make_discogs_connector(cfg)
             self._discogs_local_conn = make_discogs_local_connector(cfg, self._discogs_conn)
             self._discogs_search = make_discogs_search(cfg)
 
-        if source in ('musicbrainz', 'auto'):
+        if any(s in priority for s in ('musicbrainz', 'auto')):
             try:
                 self._mb_conn = make_mb_connector(cfg)
                 self._mb_search = make_mb_search(cfg)
@@ -146,8 +150,10 @@ class MassProcessor:
         t0 = time.monotonic()
 
         try:
-            from discogstagger.tagger_config import TaggerConfig
-            cfg = TaggerConfig(self.cfg.source_conffile)
+            # Re-use the session-level config rather than re-reading from disk.
+            # Re-reading would drop all extra_configs overrides (credentials,
+            # MB settings, personal format strings) loaded at startup.
+            cfg = self.cfg
 
             done_file = cfg.get('details', 'done_file') or 'dt.done'
             done_path = os.path.join(sourcedir, done_file)
@@ -187,11 +193,19 @@ class MassProcessor:
                 result.elapsed = time.monotonic() - t0
                 return result
 
-            destdir = cfg.get('common', 'dest_dir') or sourcedir
+            destdir = os.path.expanduser(cfg.get('common', 'dest_dir') or sourcedir)
 
             from discogstagger.taggerutils import TaggerUtils, TagHandler, FileHandler
             tu = TaggerUtils(sourcedir, destdir, cfg, album)
             tu._get_target_list()
+
+            # Read technical properties (codec, quality, samplerate, …) from the
+            # source files now that full_path is set.  Then recompute the target
+            # directory name so %codec%, %quality%, etc. resolve correctly in
+            # the format string — mirroring discogstagger3's own call order.
+            tu.gather_addional_properties()
+            album.target_dir = tu.dest_dir_name
+
             result.target_dir = album.target_dir
 
             if self.dry_run:

@@ -130,18 +130,40 @@ def search_and_map(
 
 def _try_discogs(sourcedir, cfg, connector, searcher,
                  release_id_override=None) -> Optional[tuple]:
-    """Return (raw_release, release_id) or None."""
+    """Return (raw_release, release_id) or None.
+
+    DiscogsSearch uses a two-step API (mirroring discogstagger3's __main__.py):
+      1. searcher.getSearchParams(sourcedir)  — read metadata from source files
+      2. searcher.search_discogs()            — execute Discogs API search
+    The result is a lazily-loaded Release object; accessing .tracklist triggers
+    the actual fetch and can raise if the release was deleted (404).
+    """
     if connector is None:
         return None
     try:
         relid = release_id_override or _read_id_txt(sourcedir, cfg)
+        raw = None
+
         if relid is None and searcher is not None:
-            searchdiscogs = cfg.getboolean('batch', 'searchdiscogs') if cfg.has_option('batch', 'searchdiscogs') else False
+            searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
+                             if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
-                relid = searcher.search(sourcedir)
+                searcher.getSearchParams(sourcedir)
+                raw = searcher.search_discogs()   # returns Release or None
+                if raw is not None:
+                    try:
+                        _ = raw.tracklist   # trigger lazy fetch; may raise on 404
+                        relid = raw.id
+                    except Exception as fetch_exc:
+                        logger.warning('Discogs search result fetch failed: %s', fetch_exc)
+                        raw = None
+
         if relid is None:
             return None
-        raw = connector.fetch_release(relid)
+
+        if raw is None:
+            raw = connector.fetch_release(relid)
+
         logger.info('Discogs: matched release %s for %s', relid, sourcedir)
         return raw, relid
     except Exception as exc:
@@ -213,6 +235,7 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     album.images = []
     album.genres = list(mf.genres or [])
     album.styles = []
+    album.format_description = []   # required by TaggerUtils.map_format_description()
     album.country = ''
     album.status = ''
     album.format = ''

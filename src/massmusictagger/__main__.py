@@ -148,9 +148,12 @@ def _default_config_path() -> str:
 
 
 def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
-    """Return a flat list of directories to process."""
-    from discogstagger.tagger_config import TaggerConfig
+    """Return a flat list of audio source directories to process.
 
+    Uses discogstagger3's file utility functions directly (the get_source_dirs
+    helper in discogstagger.__main__ is a closure inside main() and not
+    importable).
+    """
     source_dir = sourcedir_arg or cfg.get('common', 'source_dir') or None
     if source_dir is None:
         logger.error('No source directory specified (use positional arg or config source_dir)')
@@ -161,9 +164,62 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
         logger.error('Source directory does not exist: %s', source_dir)
         sys.exit(1)
 
-    # Use discogstagger3's directory scanner
-    from discogstagger.__main__ import get_source_dirs as _dt3_get_dirs
-    return _dt3_get_dirs(source_dir, cfg)
+    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+
+    id_file = cfg.get('batch', 'id_file') if cfg.has_option('batch', 'id_file') else 'id.txt'
+    searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
+                     if cfg.has_option('batch', 'searchdiscogs') else False)
+
+    def _walk_id_dirs(start):
+        """Return directories that contain the id.txt marker file."""
+        result = []
+        for root, _dirs, files in os.walk(start):
+            if id_file in files:
+                result.append(root)
+        return result
+
+    cue_done_dir = cfg.get('cue', 'cue_done_dir') if cfg.has_option('cue', 'cue_done_dir') else '.cue'
+
+    def _walk_audio_dirs(start):
+        """Return directories that directly contain audio files, skipping cue_done_dir."""
+        result = []
+        for root, dirs, files in os.walk(start):
+            # Prune the cue done directory from descending
+            dirs[:] = [d for d in dirs if d != cue_done_dir]
+            if any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files):
+                result.append(root)
+        return result
+
+    # If the directory itself has audio (single-album run), process it directly
+    files_here = os.listdir(source_dir)
+    has_audio_here = any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files_here)
+    has_id_here = id_file in files_here
+
+    if has_audio_here and not has_id_here and not searchdiscogs:
+        return [source_dir]
+
+    if has_audio_here and has_id_here:
+        return [source_dir]
+
+    # Walk for id.txt directories first
+    id_dirs = _walk_id_dirs(source_dir)
+    # Also include root if it has id.txt but we didn't catch it above
+    if has_id_here and source_dir not in id_dirs:
+        id_dirs = [source_dir] + id_dirs
+
+    if not searchdiscogs:
+        return id_dirs if id_dirs else ([source_dir] if has_audio_here else [])
+
+    # searchdiscogs=true: also include audio dirs without an ancestor id.txt
+    id_dir_set = set(id_dirs)
+    orphan_audio = [
+        d for d in _walk_audio_dirs(source_dir)
+        if not any(
+            d == id_d or d.startswith(id_d + os.sep)
+            for id_d in id_dir_set
+        )
+    ]
+    return id_dirs + orphan_audio
 
 
 def _undo(dir_path: str, cfg) -> None:
@@ -210,8 +266,20 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     from discogstagger.tagger_config import TaggerConfig
-    cfg = TaggerConfig(config_path)
-    cfg.source_conffile = config_path  # let processor re-read per-dir
+
+    # Load massMusicTagger defaults first (lowest priority), then overlay the
+    # user's personal config on top so personal values always win.
+    # The defaults file is expected at conf/config.yaml alongside the personal config.
+    config_dir = os.path.dirname(os.path.abspath(config_path))
+    mmt_defaults = os.path.join(config_dir, 'config.yaml')
+    if (os.path.exists(mmt_defaults)
+            and os.path.abspath(mmt_defaults) != os.path.abspath(config_path)):
+        cfg = TaggerConfig(mmt_defaults)    # baseline defaults
+        cfg._load_yaml(config_path)         # personal overrides on top
+    else:
+        cfg = TaggerConfig(config_path)     # personal config is the only source
+
+    cfg.source_conffile = config_path  # used by _load_extra_configs
 
     # Load extra config files listed in extra_configs.
     # Paths are resolved relative to the primary config file's directory.

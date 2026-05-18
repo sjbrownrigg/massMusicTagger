@@ -16,7 +16,15 @@ from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
 
 
 def _minimal_release(**overrides) -> dict:
-    """Return a minimal MB release dict with all required keys."""
+    """Return a minimal MB release dict matching the musicbrainzngs key names.
+
+    musicbrainzngs parses the MusicBrainz XML API and uses XML-derived key names
+    that differ from the JSON API:
+      'medium-list'       not 'media'
+      'track-list'        not 'tracks'
+      'label-info-list'   not 'label-info'
+      'secondary-type-list' not 'secondary-types'
+    """
     base = {
         'id': 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         'title': 'Test Album',
@@ -32,7 +40,7 @@ def _minimal_release(**overrides) -> dict:
                 'joinphrase': '',
             }
         ],
-        'label-info': [
+        'label-info-list': [
             {
                 'label': {'name': 'Test Label'},
                 'catalog-number': 'TEST-001',
@@ -41,14 +49,14 @@ def _minimal_release(**overrides) -> dict:
         'release-group': {
             'id': 'rg-aaaa-bbbb',
             'primary-type': 'Album',
-            'secondary-types': ['Compilation'],
+            'secondary-type-list': ['Compilation'],
         },
-        'media': [
+        'medium-list': [
             {
                 'position': 1,
                 'format': 'CD',
                 'title': '',
-                'tracks': [
+                'track-list': [
                     {
                         'number': '1',
                         'title': 'Track One',
@@ -147,7 +155,7 @@ class TestAlbumShapeParity(unittest.TestCase):
         self.assertEqual(self.album.format_description, ['Compilation'])
 
     def test_format_description_empty_when_no_secondary_types(self):
-        rg = {'id': 'rg', 'primary-type': 'Album', 'secondary-types': []}
+        rg = {'id': 'rg', 'primary-type': 'Album', 'secondary-type-list': []}
         album = MusicBrainzAlbum(_minimal_release(**{'release-group': rg})).map()
         self.assertEqual(album.format_description, [])
 
@@ -170,7 +178,7 @@ class TestAlbumShapeParity(unittest.TestCase):
     def test_is_compilation_from_various_artist_credit(self):
         credits = [{'name': 'Various Artists',
                     'artist': {'name': 'Various Artists'}, 'joinphrase': ''}]
-        rg = {'id': 'rg', 'primary-type': 'Album', 'secondary-types': []}
+        rg = {'id': 'rg', 'primary-type': 'Album', 'secondary-type-list': []}
         album = MusicBrainzAlbum(
             _minimal_release(**{'artist-credit': credits, 'release-group': rg})
         ).map()
@@ -251,8 +259,8 @@ class TestDiscShape(unittest.TestCase):
         self.assertIsNone(self.disc.discsubtitle)
 
     def test_discsubtitle_set_when_medium_has_title(self):
-        media = [{'position': 1, 'format': 'CD', 'title': 'Disc One', 'tracks': []}]
-        disc = MusicBrainzAlbum(_minimal_release(media=media)).map().discs[0]
+        media = [{'position': 1, 'format': 'CD', 'title': 'Disc One', 'track-list': []}]
+        disc = MusicBrainzAlbum(_minimal_release(**{'medium-list': media})).map().discs[0]
         self.assertEqual(disc.discsubtitle, 'Disc One')
 
 

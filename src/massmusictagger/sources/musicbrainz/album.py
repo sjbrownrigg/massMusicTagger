@@ -56,8 +56,8 @@ class MusicBrainzAlbum:
         album._artist_display = artist_display
         album.sort_artist = artists[0] if artists else ''
 
-        # Label / catalogue number
-        label_info = r.get('label-info', [])
+        # Label / catalogue number — musicbrainzngs uses 'label-info-list' (XML origin)
+        label_info = r.get('label-info-list', [])
         album.labels = self._labels(label_info)
         album.catnumbers = self._catnumbers(label_info)
 
@@ -73,13 +73,14 @@ class MusicBrainzAlbum:
         # primary-type ('Album', 'Single', 'EP', …) → format
         # secondary-types (['Compilation', 'Live', 'Remix', …]) → format_description
         rg = r.get('release-group', {})
-        album.format = rg.get('primary-type', '') or ''
-        album.format_description = list(rg.get('secondary-types') or [])
+        # musicbrainzngs: primary type in 'type' or 'primary-type'; secondary types in 'secondary-type-list'
+        album.format = rg.get('primary-type') or rg.get('type', '') or ''
+        album.format_description = list(rg.get('secondary-type-list') or [])
 
         album.genres = []   # MB genre data requires a separate user-tag lookup
         album.styles = []
 
-        album.media = self._media_string(r.get('media', []))
+        album.media = self._media_string(r.get('medium-list', []))
         album.is_compilation = self._is_compilation(r)
         album.master_id = rg.get('id', None)
 
@@ -94,8 +95,8 @@ class MusicBrainzAlbum:
             if mbid else []
         )
 
-        # Notes from the release annotation (rare but present on some releases)
-        album.notes = r.get('annotation', '') or ''
+        # Notes from the release annotation — key may vary; absent if no annotation
+        album.notes = r.get('annotation', {}).get('text', '') if isinstance(r.get('annotation'), dict) else (r.get('annotation') or '')
 
         # Identifiers: Discogs stores as a typed list; MB doesn't have an
         # equivalent list at this level.  barcode is available as a direct field.
@@ -107,8 +108,8 @@ class MusicBrainzAlbum:
         # mapping them is future work.  Set to empty list for shape consistency.
         album.extraartists = []
 
-        # Build discs
-        album.discs = self._map_mediums(r.get('media', []), album)
+        # Build discs — musicbrainzngs uses 'medium-list' (XML origin), not 'media'
+        album.discs = self._map_mediums(r.get('medium-list', []), album)
         album.disctotal = len(album.discs)
         album.url = f'https://musicbrainz.org/release/{mbid}'
 
@@ -197,7 +198,9 @@ class MusicBrainzAlbum:
                 name = (item.get('artist', {}).get('name') or '').lower()
                 if name in _VARIOUS_ARTIST_NAMES:
                     return True
-        rg_types = (release.get('release-group', {}).get('secondary-types') or [])
+        rg = release.get('release-group', {})
+        # musicbrainzngs: secondary types in 'secondary-type-list'
+        rg_types = rg.get('secondary-type-list') or []
         return 'Compilation' in rg_types
 
     # ── Mediums → Discs ───────────────────────────────────────────────────
@@ -209,12 +212,15 @@ class MusicBrainzAlbum:
             disc = Disc(discno)
             disc.discsubtitle = (medium.get('title') or '').strip() or None
             disc.mediatype = medium.get('format', '')
-            tracks = self._map_tracks(medium.get('tracks', []), album, disc)
+            # musicbrainzngs returns tracks as 'track-list' within each medium
+            tracks = self._map_tracks(medium.get('track-list', []), album, disc)
             disc.tracks = tracks
             discs.append(disc)
         return discs
 
     def _map_tracks(self, raw_tracks: list, album: Album, disc: Disc) -> list[Track]:
+        # musicbrainzngs uses 'track-list' inside each medium, but the tracks
+        # passed here are already the list (unwrapped by _map_mediums).
         tracks: list[Track] = []
         for i, rt in enumerate(raw_tracks, start=1):
             title = (rt.get('title') or rt.get('recording', {}).get('title', '')).strip()
@@ -240,6 +246,7 @@ class MusicBrainzAlbum:
             track.extraartists = []            # shape parity with Discogs tracks
 
             # MB-specific: ISRC and Recording MBID
+            # musicbrainzngs: ISRCs in 'isrc-list' when the 'isrcs' include is used
             recording = rt.get('recording', {})
             isrcs = recording.get('isrc-list', [])
             if isrcs:
