@@ -164,9 +164,11 @@ def _default_config_path() -> str:
 def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
     """Return a flat list of audio source directories to process.
 
-    Uses discogstagger3's file utility functions directly (the get_source_dirs
-    helper in discogstagger.__main__ is a closure inside main() and not
-    importable).
+    Delegates directly to discogstagger3's FileUtils.get_audio_dirs() and
+    FileUtils.walk_dir_tree(), which already handle:
+      • CD/Disc subdirectory detection via regex (Liberty/CD1/, Liberty/CD2/ → Liberty/)
+      • Automatic skipping of already-processed albums (done_file present)
+      • CUE directory exclusion
     """
     source_dir = sourcedir_arg or cfg.get('common', 'source_dir') or None
     if source_dir is None:
@@ -179,109 +181,23 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
         sys.exit(1)
 
     from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from discogstagger.fileutils import FileUtils
 
     id_file = cfg.get('batch', 'id_file') if cfg.has_option('batch', 'id_file') else 'id.txt'
     searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                      if cfg.has_option('batch', 'searchdiscogs') else False)
 
-    def _walk_id_dirs(start):
-        """Return directories that contain the id.txt marker file."""
-        result = []
-        for root, _dirs, files in os.walk(start):
-            if id_file in files:
-                result.append(root)
-        return result
+    # Minimal stub — FileUtils only reads .forceUpdate in read_id_file(), not
+    # in the scanning methods we use here.
+    class _FakeOptions:
+        forceUpdate = False
+        releaseid = None
 
-    cue_done_dir = cfg.get('cue', 'cue_done_dir') if cfg.has_option('cue', 'cue_done_dir') else '.cue'
+    fu = FileUtils(cfg, _FakeOptions())
 
-    def _walk_audio_dirs(start):
-        """Return directories that directly contain audio files, skipping cue_done_dir."""
-        result = []
-        for root, dirs, files in os.walk(start):
-            dirs[:] = [d for d in dirs if d != cue_done_dir]
-            if any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files):
-                result.append(root)
-        return result
-
-    def _consolidate_multidisc_roots(audio_dirs: list[str], scan_root: str) -> list[str]:
-        """Replace sets of sibling disc directories with their common album parent.
-
-        Multi-disc rips are often stored as:
-            Album/
-              CD1/ ← audio here
-              CD2/ ← audio here
-
-        The walk finds CD1 and CD2 as separate audio dirs, but TaggerUtils needs
-        the parent Album/ so it can detect the disc subdirectory structure.
-
-        Rule: when two or more audio dirs share a common parent that:
-          (a) contains no audio files of its own, and
-          (b) is not the scan root itself
-        replace the siblings with that parent.
-
-        Single-child parents (Album/Tracks/) are also promoted so TaggerUtils
-        can handle the disc-subdir structure consistently.
-        """
-        from collections import defaultdict
-        by_parent: dict[str, list[str]] = defaultdict(list)
-        for d in audio_dirs:
-            by_parent[os.path.dirname(d)].append(d)
-
-        def _parent_has_audio(parent: str) -> bool:
-            try:
-                return any(f.lower().endswith(AUDIO_EXTENSIONS)
-                           for f in os.listdir(parent)
-                           if os.path.isfile(os.path.join(parent, f)))
-            except OSError:
-                return False
-
-        # When ALL audio dirs share the same parent AND there are multiple dirs,
-        # the scan_root exclusion may be lifted (e.g. user passed Liberty/
-        # directly — CD1 and CD2 are both under Liberty/ = scan_root).
-        all_share_one_parent = (
-            len(audio_dirs) > 1
-            and len(set(os.path.dirname(d) for d in audio_dirs)) == 1
-        )
-
-        scan_root_abs = os.path.abspath(scan_root) + os.sep
-
-        seen: set[str] = set()
-        consolidated: list[str] = []
-        for d in audio_dirs:
-            if d in seen:
-                continue
-            parent = os.path.dirname(d)
-            parent_abs = os.path.abspath(parent)
-            siblings = by_parent[parent]
-
-            # Never promote above the scan root — this would collapse an entire
-            # collection into one source dir.
-            if not (parent_abs + os.sep).startswith(scan_root_abs) and parent_abs != os.path.abspath(scan_root):
-                consolidated.append(d)
-                seen.add(d)
-                continue
-
-            parent_is_scan_root = (parent_abs == os.path.abspath(scan_root))
-
-            # Promote siblings to parent when:
-            #   • parent has no audio files of its own
-            #   • parent is not the scan root, OR all dirs share one parent
-            #     (user passed this album dir directly and its disc subdirs are
-            #     all at the same level as scan_root's children)
-            if (not _parent_has_audio(parent)
-                    and len(siblings) >= 1
-                    and (not parent_is_scan_root or all_share_one_parent)):
-                if parent not in seen:
-                    consolidated.append(parent)
-                    seen.add(parent)
-                for sib in siblings:
-                    seen.add(sib)
-            else:
-                consolidated.append(d)
-                seen.add(d)
-        return consolidated
-
-    # If the directory itself has audio (single-album run), process it directly
+    # If the directory itself has audio (single-album run), process it directly.
+    # This also covers the common --force case where the user passes a specific
+    # album that already has a done file.
     files_here = os.listdir(source_dir)
     has_audio_here = any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files_here)
     has_id_here = id_file in files_here
@@ -292,29 +208,26 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
     if has_audio_here and has_id_here:
         return [source_dir]
 
-    # source_dir has no direct audio — keep only the subdirs-with-audio check
-    # for the non-search case. The searchdiscogs path handles this via
-    # _consolidate_multidisc_roots below.
-
-    # Walk for id.txt directories first
-    id_dirs = _walk_id_dirs(source_dir)
+    # Walk for id.txt directories (highest priority).
+    id_dirs = fu.walk_dir_tree(source_dir, id_file)
     if has_id_here and source_dir not in id_dirs:
         id_dirs = [source_dir] + id_dirs
 
     if not searchdiscogs:
         return id_dirs if id_dirs else ([source_dir] if has_audio_here else [])
 
-    # searchdiscogs=true: also include audio dirs without an ancestor id.txt,
-    # then consolidate siblings into their multi-disc album parent.
+    # searchdiscogs=true: also include audio dirs without an ancestor id.txt.
+    # FileUtils.get_audio_dirs() handles CD1/CD2 multi-disc layouts internally
+    # and strips trailing '/' — we strip again defensively.
     id_dir_set = set(id_dirs)
-    raw_audio = [
-        d for d in _walk_audio_dirs(source_dir)
+    all_audio = [d.rstrip('/') for d in fu.get_audio_dirs(source_dir)]
+    orphan_audio = [
+        d for d in all_audio
         if not any(
             d == id_d or d.startswith(id_d + os.sep)
             for id_d in id_dir_set
         )
     ]
-    orphan_audio = _consolidate_multidisc_roots(raw_audio, source_dir)
     return id_dirs + orphan_audio
 
 
@@ -354,28 +267,19 @@ def _undo(dir_path: str, cfg) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     opts = parser.parse_args(argv)
-    # Logging — read log_file from config if set (before config is fully loaded,
-    # just peek at the raw value; proper config loading happens next)
-    import configparser as _cp
-    _pre = _cp.RawConfigParser()
-    try:
-        _pre.read(opts.config or _default_config_path())
-        _log_file = (_pre.get('logging', 'log_file')
-                     if _pre.has_option('logging', 'log_file') else None) or None
-    except Exception:
-        _log_file = None
-    _setup_logging(opts.verbose, log_file=_log_file)
 
     config_path = opts.config or _default_config_path()
     if not os.path.exists(config_path):
-        logger.error('Config file not found: %s', config_path)
+        # Can't log this yet — print directly and exit
+        print(f'Config file not found: {config_path}', file=sys.stderr)
         sys.exit(1)
 
     from discogstagger.tagger_config import TaggerConfig
 
+    # Load full config first (TaggerConfig uses pyyaml internally), then
+    # extract log_file so _setup_logging captures every message from startup.
     # Load massMusicTagger defaults first (lowest priority), then overlay the
     # user's personal config on top so personal values always win.
-    # The defaults file is expected at conf/config.yaml alongside the personal config.
     config_dir = os.path.dirname(os.path.abspath(config_path))
     mmt_defaults = os.path.join(config_dir, 'config.yaml')
     if (os.path.exists(mmt_defaults)
@@ -386,10 +290,15 @@ def main(argv: list[str] | None = None) -> None:
         cfg = TaggerConfig(config_path)     # personal config is the only source
 
     cfg.source_conffile = config_path  # used by _load_extra_configs
-
-    # Load extra config files listed in extra_configs.
-    # Paths are resolved relative to the primary config file's directory.
     _load_extra_configs(cfg, config_path)
+
+    # Now that the full config chain is loaded, set up logging (including
+    # the optional log_file from logging.log_file).  The only messages
+    # missed are the handful of DEBUG-level "Loaded extra YAML config" lines
+    # from _load_extra_configs above — not visible at level=20 anyway.
+    _log_file = (cfg.get('logging', 'log_file')
+                 if cfg.has_option('logging', 'log_file') else None) or None
+    _setup_logging(opts.verbose, log_file=_log_file)
 
     # CLI overrides
     if opts.source:
