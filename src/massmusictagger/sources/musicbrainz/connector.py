@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 _INCLUDES = [
     'artists', 'recordings', 'labels', 'media',
     'artist-credits', 'isrcs', 'release-groups',
+    'tags',       # release-group.tag-list → genres
 ]
 
 _CAA_FRONT  = 'https://coverartarchive.org/release/{mbid}/front'

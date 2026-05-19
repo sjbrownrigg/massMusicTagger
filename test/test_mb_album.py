@@ -106,8 +106,19 @@ class TestAlbumShapeParity(unittest.TestCase):
     def test_artist_display(self):
         self.assertIsNotNone(self.album._artist_display)
 
-    def test_sort_artist(self):
-        self.assertEqual(self.album.sort_artist, 'Test Artist')
+    def test_sort_artist_uses_sort_name(self):
+        """sort_artist uses artist sort-name when available."""
+        credits = [{'name': 'deadmau5',
+                    'artist': {'name': 'deadmau5', 'sort-name': 'deadmaus'},
+                    'joinphrase': ''}]
+        album = MusicBrainzAlbum(_minimal_release(**{'artist-credit': credits})).map()
+        self.assertEqual(album.sort_artist, 'deadmaus')
+
+    def test_sort_artist_falls_back_to_display_name(self):
+        """Falls back to first display name when sort-name is absent."""
+        credits = [{'artist': {'name': 'Test Artist'}, 'joinphrase': ''}]
+        album = MusicBrainzAlbum(_minimal_release(**{'artist-credit': credits})).map()
+        self.assertEqual(album.sort_artist, 'Test Artist')
 
     # ── Label / catno ─────────────────────────────────────────────────────
 
@@ -171,8 +182,20 @@ class TestAlbumShapeParity(unittest.TestCase):
 
     # ── Genre / style ─────────────────────────────────────────────────────
 
-    def test_genres_is_list(self):
+    def test_genres_from_release_group_tags(self):
+        """Genres are populated from release-group tag-list, sorted by vote count."""
+        rg = {'id': 'rg', 'primary-type': 'Album', 'secondary-type-list': [],
+              'tag-list': [
+                  {'name': 'electronic', 'count': '5'},
+                  {'name': 'house', 'count': '2'},
+                  {'name': 'techno', 'count': '1'},
+              ]}
+        album = MusicBrainzAlbum(_minimal_release(**{'release-group': rg})).map()
+        self.assertEqual(album.genres, ['electronic', 'house', 'techno'])
+
+    def test_genres_empty_when_no_tags(self):
         self.assertIsInstance(self.album.genres, list)
+        self.assertEqual(self.album.genres, [])
 
     def test_styles_is_list(self):
         self.assertIsInstance(self.album.styles, list)
@@ -321,6 +344,20 @@ class TestTrackShape(unittest.TestCase):
 
     def test_mbid_present(self):
         self.assertEqual(self.track.mbid, '11111111-2222-3333-4444-555555555555')
+
+
+class TestDefensiveFallbacks(unittest.TestCase):
+    """Edge-case artist credit handling."""
+
+    def test_empty_artist_credit_falls_back_to_phrase(self):
+        """When artist-credit is empty, artist-credit-phrase is used."""
+        release = _minimal_release(**{
+            'artist-credit': [],
+            'artist-credit-phrase': 'Various Artists',
+        })
+        album = MusicBrainzAlbum(release).map()
+        self.assertEqual(album.artists, ['Various Artists'])
+        self.assertEqual(album._artist_display, 'Various Artists')
 
 
 class TestArtistCredit(unittest.TestCase):

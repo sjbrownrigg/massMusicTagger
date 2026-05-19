@@ -51,10 +51,24 @@ class MusicBrainzAlbum:
         r = self.release
         mbid = r.get('id', '')
 
-        artists, artist_display = self._map_artist_credit(r.get('artist-credit', []))
+        raw_credits = r.get('artist-credit', [])
+        artists, artist_display = self._map_artist_credit(raw_credits)
+
+        # Defensive fallback: if artist-credit parsing yielded nothing,
+        # use the pre-formatted artist-credit-phrase string.
+        if not artists:
+            phrase = (r.get('artist-credit-phrase') or '').strip()
+            if phrase:
+                artists = [phrase]
+                artist_display = phrase
+
         album = Album(mbid, r.get('title', '').strip(), artists)
         album._artist_display = artist_display
-        album.sort_artist = artists[0] if artists else ''
+
+        # sort_artist: use MB sort-name from the first artist credit's artist dict.
+        # e.g. 'deadmau5' has sort-name 'deadmaus'; 'The Cure' → 'Cure, The'.
+        # Falls back to first display name when sort-name is absent.
+        album.sort_artist = self._sort_name(raw_credits) or (artists[0] if artists else '')
 
         # Label / catalogue number — musicbrainzngs uses 'label-info-list' (XML origin)
         label_info = r.get('label-info-list', [])
@@ -90,8 +104,16 @@ class MusicBrainzAlbum:
         # Prepend the release type so it's available via %format_description% if needed.
         album.format_description = ([release_type] if release_type else []) + secondary_types
 
-        album.genres = []   # MB genre data requires a separate user-tag lookup
-        album.styles = []
+        # Genres from MB community tags on the release-group.
+        # 'tags' include provides tag-list (user-voted genre tags) on the
+        # release-group.  Tags are sorted by vote count, highest first.
+        rg_tags = sorted(
+            (rg.get('tag-list') or []),
+            key=lambda t: int(t.get('count', 0)),
+            reverse=True,
+        )
+        album.genres = [t['name'] for t in rg_tags if t.get('name')]
+        album.styles = []   # MB has no direct styles equivalent
 
         album.media = self._media_string(r.get('medium-list', []))
         album.is_compilation = self._is_compilation(r)
@@ -158,6 +180,20 @@ class MusicBrainzAlbum:
     def _normalise_the(name: str) -> str:
         """Convert 'Artist, The' → 'The Artist'."""
         return _THE_SUFFIX_RE.sub(r"The \g<1>", name) if name else name
+
+    @staticmethod
+    def _sort_name(credits: list) -> str:
+        """Return the sort-name of the first named artist in a credit list.
+
+        MB sort-names follow the convention used by most sorting systems:
+        'deadmau5' → 'deadmaus', 'The Cure' → 'Cure, The'.
+        """
+        for item in credits:
+            if isinstance(item, dict) and 'artist' in item:
+                sn = (item['artist'].get('sort-name') or '').strip()
+                if sn:
+                    return sn
+        return ''
 
     # ── Labels / catalogue numbers ─────────────────────────────────────────
 
@@ -257,7 +293,8 @@ class MusicBrainzAlbum:
             track.discnumber = disc.discnumber
             track.discsubtitle = disc.discsubtitle
             track.mediatype = disc.mediatype   # inherit from medium (shape parity)
-            track.sort_artist = t_artists[0] if t_artists else ''
+            # Use sort-name when per-track credit exists; fall back to display name.
+            track.sort_artist = self._sort_name(tc) or (t_artists[0] if t_artists else '')
             track.position = i - 1
             track.notes = None                 # set if recording annotation present
             track.extraartists = []            # shape parity with Discogs tracks
