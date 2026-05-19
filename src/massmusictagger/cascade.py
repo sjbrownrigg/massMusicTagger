@@ -241,19 +241,33 @@ def _try_musicbrainz(sourcedir, cfg, connector, searcher,
             return raw, release_id_override
 
         # ── 2. MBSearch handles all remaining tiers (incl. tag + text) ────
-        # Validate track count before accepting: AcoustID and text search can
-        # return a release that doesn't match the actual file count (e.g. a
-        # bootleg partial rip).  Fall through to existing_tags on mismatch.
+        # Validate track count AND album artist before accepting.
+        # AcoustID / text search can return a release with a mismatched track
+        # count (partial rip) or no album artist (malformed MB data).
+        # Both cases fall through so existing_tags can organise by metadata.
         if searcher is not None:
             mbid = searcher.search(sourcedir)
             if mbid:
                 raw = connector.fetch_release(mbid)
                 mb_count = _mb_track_count(raw)
-                if _validate_id_match(local_count, mb_count, 'MusicBrainz',
-                                      mbid, from_explicit=False):
-                    logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
-                    return raw, mbid
-                # mismatch — fall through (existing_tags will organise by metadata)
+                if not _validate_id_match(local_count, mb_count, 'MusicBrainz',
+                                          mbid, from_explicit=False):
+                    pass   # mismatch → fall through
+                else:
+                    # Sanity-check: release must have a usable album artist.
+                    # Empty artist-credit → albumartist tag would be absent.
+                    ac = raw.get('artist-credit', []) or []
+                    phrase = (raw.get('artist-credit-phrase') or '').strip()
+                    has_artist = bool(ac or phrase)
+                    if not has_artist:
+                        logger.warning(
+                            'MusicBrainz release %s has no album artist — '
+                            'skipping (malformed MB data?)', mbid,
+                        )
+                    else:
+                        logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
+                        return raw, mbid
+                # mismatch or no artist → fall through (existing_tags will organise)
 
         return None
     except Exception as exc:

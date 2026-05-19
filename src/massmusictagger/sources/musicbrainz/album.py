@@ -104,6 +104,10 @@ class MusicBrainzAlbum:
         # Prepend the release type so it's available via %format_description% if needed.
         album.format_description = ([release_type] if release_type else []) + secondary_types
 
+        # MB provides release type cleanly — no inference needed.
+        album.release_type = release_type or 'Album'
+        album.release_types = album.format_description   # [primary] + [secondary...]
+
         # Genres from MB community tags on the release-group.
         # 'tags' include provides tag-list (user-voted genre tags) on the
         # release-group.  Tags are sorted by vote count, highest first.

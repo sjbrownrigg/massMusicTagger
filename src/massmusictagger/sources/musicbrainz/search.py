@@ -179,17 +179,17 @@ class MBSearch:
             logger.warning('MB API search failed: %s', exc)
             return None
 
-        # Ranking tuple: (fuzzy_title_score, has_date).
-        # Releases with a date are preferred over undated ones at equal title
-        # score — MusicBrainz often has multiple versions of an album and the
-        # one with date data is more likely to be the one the user has.
+        # Ranking tuple: (title_score, artist_score, has_date).
+        # Artist score prevents wrong matches when multiple albums share a title
+        # (e.g. several "The Remixes" albums by different artists with the same
+        # track count).  has_date breaks further ties in favour of documented releases.
         best_mbid: Optional[str] = None
-        best_rank = (-1, 0)   # (score, has_date)
+        best_rank = (-1, -1, 0)   # (title_score, artist_score, has_date)
 
         for rel in result.get('release-list', []):
             candidate_title = rel.get('title', '')
-            score = fuzz.token_sort_ratio(album.lower(), candidate_title.lower())
-            if score < _MIN_TITLE_SCORE:
+            title_score = fuzz.token_sort_ratio(album.lower(), candidate_title.lower())
+            if title_score < _MIN_TITLE_SCORE:
                 continue
             if track_count:
                 candidate_tracks = sum(
@@ -200,17 +200,24 @@ class MBSearch:
                     logger.debug('MB tier 3: skipping %r — track count %d vs %d',
                                  candidate_title, candidate_tracks, track_count)
                     continue
+            # Artist similarity: score the candidate's credited artist against
+            # our search artist.  Zero when no search artist is provided.
+            candidate_artist = (rel.get('artist-credit-phrase') or '').strip()
+            artist_score = (
+                fuzz.token_sort_ratio(artist.lower(), candidate_artist.lower())
+                if artist and candidate_artist else 0
+            )
             has_date = 1 if rel.get('date', '') else 0
-            rank = (score, has_date)
+            rank = (title_score, artist_score, has_date)
             if rank > best_rank:
                 best_rank = rank
                 best_mbid = rel.get('id')
 
         if best_mbid:
-            best_score, best_has_date = best_rank
-            logger.info('MB tier 3: matched %s (score %d%s)',
-                        best_mbid, best_score,
-                        '' if best_has_date else ', no date — lower priority')
+            t_score, a_score, has_date = best_rank
+            logger.info('MB tier 3: matched %s (title=%d artist=%d%s)',
+                        best_mbid, t_score, a_score,
+                        '' if has_date else ', no date')
         else:
             logger.info('MB tier 3: no confident text match')
         return best_mbid
@@ -524,7 +531,15 @@ def _read_directory_metadata(sourcedir: str) -> dict:
     no audio files exist directly in sourcedir.  In that case we descend
     one level into disc subdirectories, aggregate the total track count,
     and read metadata from the first file found.
+
+    Artist preference order:
+      1. albumartist tag — most reliable for compilations with track artists
+      2. artist tag — fallback when albumartist is absent
+      3. Parent directory name — used when both tags are absent or look
+         like a track-specific credit (common for rips without albumartist)
     """
+    import re
+
     audio_files = sorted(
         os.path.join(sourcedir, f) for f in os.listdir(sourcedir)
         if f.lower().endswith(AUDIO_EXTENSIONS)
@@ -561,10 +576,27 @@ def _read_directory_metadata(sourcedir: str) -> dict:
     except Exception:
         return {'files': audio_files, 'track_count': track_count}
 
+    # Prefer albumartist — essential for compilations where track artist ≠ album artist.
+    artist = (mf.albumartist or '').strip()
+    if not artist:
+        artist = (mf.artist or '').strip()
+
+    # Fallback: when no usable artist tag exists, use the parent directory name.
+    # Music libraries are commonly organised as Artist/Album/, so the parent
+    # often contains the correct album artist even when tags are missing.
+    if not artist:
+        parent_name = os.path.basename(os.path.dirname(os.path.abspath(sourcedir)))
+        # Strip leading year and separators: '2010 - The Remixes' → 'The Remixes'
+        # but 'Deadmau5' stays as 'Deadmau5'
+        parent_clean = re.sub(r'^\d{4}\s*[-–]\s*', '', parent_name).strip()
+        if len(parent_clean) > 2 and parent_clean.lower() not in ('music', 'incoming', 'albums', 'artists'):
+            artist = parent_clean
+            logger.debug('No albumartist/artist tag — using parent dir as artist hint: %r', artist)
+
     return {
         'files':       audio_files,
         'track_count': track_count,
-        'artist':      (mf.albumartist or mf.artist or '').strip(),
+        'artist':      artist,
         'album':       (mf.album or '').strip(),
     }
 

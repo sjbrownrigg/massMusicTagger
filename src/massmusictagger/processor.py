@@ -200,6 +200,21 @@ class MassProcessor:
                         album.artist, album.title,
                         result.release_url or result.release_id or '?')
 
+            # Warn when album artist matches the first track's artist — this
+            # indicates a bad match (album-level credit is missing or wrong).
+            if album.discs and album.discs[0].tracks:
+                first_track_artist = album.discs[0].tracks[0].artist or ''
+                if (first_track_artist and album.artist
+                        and first_track_artist.lower() == album.artist.lower()
+                        and len(album.discs[0].tracks) > 1):
+                    logger.warning(
+                        'Album artist "%s" matches first track artist — '
+                        'this may indicate a wrong release match. '
+                        'Check: %s',
+                        album.artist,
+                        result.release_url or result.release_id or 'unknown',
+                    )
+
             if self.review and not self._confirm(sourcedir, album):
                 result.outcome = OUTCOME_SKIPPED
                 result.elapsed = time.monotonic() - t0

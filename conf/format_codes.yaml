@@ -129,6 +129,47 @@ ignored:
   - Transcription
 
 
+# ── Release type mapping (Discogs → MusicBrainz style) ───────────────────────
+# Maps Discogs format descriptions to MusicBrainz release types.
+# Matching is case-insensitive.  Add your own mappings as needed.
+#
+# primary: override the default "Album" primary type
+# secondary: add to the secondary type list (all that match are included)
+# format_name_primary: Discogs format.name → primary type override
+#
+# The resulting album.release_type (primary) and album.release_types (all) are
+# written to the releasetype tag and available as %releasetype% in format strings.
+#
+# Example: a Discogs release with descriptions ["Compilation", "Live"]
+# → release_type = "Album", release_types = ["Album", "Compilation", "Live"]
+
+release_type_map:
+  primary:
+    Single:       Single
+    Maxi-Single:  Maxi-Single
+    EP:           EP
+    Mini-Album:   EP
+
+  format_name_primary:
+    7":          Single     # vinyl singles
+    10":         Single
+    Flexi-disc:  Single
+    Shellac:     Single     # 78 RPM singles
+
+  secondary:
+    Compilation:       Compilation
+    Live:              Live
+    Remix:             Remix
+    Remixes:           Remix
+    Soundtrack:        Soundtrack
+    Cast Recording:    Soundtrack
+    DJ Mix:            DJ-mix
+    Mixtape:           Mixtape/Street
+    Demo:              Demo
+    Interview:         Interview
+    Spokenword:        Spokenword
+
+
 # ── Edition qualifiers ────────────────────────────────────────────────────────
 # These descriptions name a release as a particular edition and are displayed
 # alongside the album title — e.g. "[2012] The Young Gods (Deluxe Edition)"
