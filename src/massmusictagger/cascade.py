@@ -183,7 +183,11 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                 return result
             # mismatch → fall through to search
 
-        # ── 4. DiscogsSearch (track count validated internally) ────────────
+        # ── 4. DiscogsSearch — with track count validation ─────────────────
+        # DiscogsSearch does duration-based scoring but cannot guarantee an
+        # exact track count match (tier-2 / no-duration candidates skip it).
+        # Validate here so mismatches fall through to MB / existing_tags
+        # rather than crashing downstream in _get_target_list().
         if searcher is not None:
             searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                              if cfg.has_option('batch', 'searchdiscogs') else False)
@@ -194,8 +198,13 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                     try:
                         _ = raw.tracklist   # trigger lazy fetch; may raise on 404
                         relid = str(raw.id)
-                        logger.info('Discogs: matched release %s for %s', relid, sourcedir)
-                        return raw, relid
+                        release_count = _discogs_track_count(raw)
+                        if not _validate_id_match(local_count, release_count,
+                                                   'Discogs', relid, from_explicit=False):
+                            raw = None   # track count mismatch → fall through
+                        else:
+                            logger.info('Discogs: matched release %s for %s', relid, sourcedir)
+                            return raw, relid
                     except Exception as fetch_exc:
                         logger.warning('Discogs search result fetch failed: %s', fetch_exc)
 
@@ -232,12 +241,19 @@ def _try_musicbrainz(sourcedir, cfg, connector, searcher,
             return raw, release_id_override
 
         # ── 2. MBSearch handles all remaining tiers (incl. tag + text) ────
+        # Validate track count before accepting: AcoustID and text search can
+        # return a release that doesn't match the actual file count (e.g. a
+        # bootleg partial rip).  Fall through to existing_tags on mismatch.
         if searcher is not None:
             mbid = searcher.search(sourcedir)
             if mbid:
                 raw = connector.fetch_release(mbid)
-                logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
-                return raw, mbid
+                mb_count = _mb_track_count(raw)
+                if _validate_id_match(local_count, mb_count, 'MusicBrainz',
+                                      mbid, from_explicit=False):
+                    logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
+                    return raw, mbid
+                # mismatch — fall through (existing_tags will organise by metadata)
 
         return None
     except Exception as exc:
