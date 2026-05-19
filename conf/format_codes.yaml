@@ -7,18 +7,19 @@
 #   format.descriptions  Album, Single, Limited Edition, 12", …
 #   disctotal            number of records/discs in the release
 #
-# The code is built in five steps applied in order:
+# The code is built in three steps:
 #
-#   1. base_formats     map format.name to a short code (LP, CD, …)
+#   1. base_formats     map format.name to a short code (LP, CD, file, …)
 #   2. vinyl_sizes      if format is Vinyl and a size description is present,
 #                       the size overrides "LP" (12″, 7″, 10″)
-#   3. suffixes         description → type suffix appended to base (S, M, EP, …)
-#                       empty string means "implied by base — suppress"
-#   4. prefixes         description → modifier prepended to everything (L, #)
-#   5. quantity         disctotal > 1 prepends a multiplier (D for 2, 3x, 4x…)
+#   3. quantity         disctotal > 1 prepends a multiplier (D for 2, 3x, 4x…)
 #
-# Descriptions not listed in suffixes, prefixes, vinyl_sizes or ignored_descriptions
-# are silently skipped (they do not produce a warning).
+# Release type (Single, EP, Compilation) and edition qualifiers are NOT part of
+# the format code — use %releasetype% and %edition% in your format strings:
+#
+#   [%format_code% %releasetype% codec-quality]
+#   → [CD Single flac-lossless-44s]
+#   → [DLP Album flac-lossless-44s]
 #
 # The inch mark (") in vinyl sizes is replaced with the double prime (″, U+2033)
 # which is safe in all common filesystem path names.
@@ -60,43 +61,17 @@ vinyl_sizes:
   12":  12″
 
 
-# ── Step 3: description suffixes ─────────────────────────────────────────────
-# Appended to the base/size code.
-# The FIRST matching description wins; later ones are ignored.
-# Empty string means "implied — suppress entirely".
+# ── Step 3: quantity ─────────────────────────────────────────────────────────
+# Applied when disctotal > 1 — multi-disc is a physical property worth encoding.
 #
-# Resulting codes (for CD base): CD, CDS, CDM, CDEP
-# Resulting codes (for LP/12″):  LP, 7″S, 12″M, 12″EP
-
-suffixes:
-  Album:          ""        # implied by LP/CD — no suffix
-  Single:         S         # CDS, 7″S, 12″S
-  Maxi-Single:    M         # CDM, 12″M
-  EP:             EP        # CDEP, 12″EP
-  Mini-Album:     Mini
-  Promo:          P
-  White Label:    WL
-  Unofficial Release: Bootleg
-
-
-# ── Step 4: description prefixes ─────────────────────────────────────────────
-# Prepended to the full code (after base + suffix).
-# ALL matching prefixes are applied (not just the first).
-# Applied in the order they appear here.
+# Type (Single, EP, Compilation) and edition (Limited Edition) are no longer
+# encoded here.  Use %releasetype% and %edition% in your format strings:
 #
-# Examples:  Limited Edition CD Single  →  L + CDS  = LCDS
-#            Numbered Album             →  # + LP    = #LP
-
-prefixes:
-  Limited Edition:  L
-  Numbered:         "#"
-
-
-# ── Step 5: quantity ─────────────────────────────────────────────────────────
-# Applied when disctotal > 1.
-# Named aliases are used first; anything beyond max_alias uses "{n}x" form.
+#   [%format_code% %releasetype% flac-lossless-44s]
+#   → [CD Single flac-lossless-44s]   (1 disc)
+#   → [DCD Album flac-lossless-44s]   (2 discs)
 #
-# Examples with CD base:  D + CD = DCD,  3x + CD = 3xCD
+# Examples:  D + CD = DCD,  3x + LP = 3xLP
 
 quantity_aliases:
   2: D    # Double:  DLP, DCD
