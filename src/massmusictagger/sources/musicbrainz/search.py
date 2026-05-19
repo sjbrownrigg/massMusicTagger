@@ -113,13 +113,26 @@ class MBSearch:
         # ── Read shared directory metadata (artist, album, track count) ────
         meta = _read_directory_metadata(sourcedir)
         audio_files = meta.get('files', [])
+        album_name = meta.get('album', '')
+        track_count_meta = meta.get('track_count', 0)
+        file_artist = meta.get('artist', '')
 
-        # ── Tier 3: Text search ────────────────────────────────────────────
-        mbid = self._text_search(
-            meta.get('artist', ''), meta.get('album', ''), meta.get('track_count', 0)
-        )
-        if mbid:
-            return mbid
+        # ── Tier 3: Text search (multi-artist fallback) ────────────────────
+        # For compilations the file's 'artist' tag is the track artist, not
+        # the album artist.  Try the file artist first, then the parent
+        # directory name (which typically holds the artist for compilations
+        # organised as Artist/Album/).
+        parent_dir = os.path.basename(os.path.dirname(os.path.abspath(sourcedir)))
+        artist_candidates = [file_artist]
+        if parent_dir and parent_dir.lower() not in (
+            '', 'music', 'incoming', 'albums', 'artists', 'sorted',
+        ) and parent_dir != file_artist:
+            artist_candidates.append(parent_dir)
+
+        for artist_candidate in artist_candidates:
+            mbid = self._text_search(artist_candidate, album_name, track_count_meta)
+            if mbid:
+                return mbid
 
         # ── Tier 4: Barcode lookup ─────────────────────────────────────────
         mbid = self._barcode_search(sourcedir)
@@ -173,7 +186,7 @@ class MBSearch:
                     artist, album, track_count)
         try:
             result = musicbrainzngs.search_releases(
-                artist=artist, release=album, limit=10,
+                artist=artist, release=album, limit=25,
             )
         except Exception as exc:
             logger.warning('MB API search failed: %s', exc)
@@ -188,7 +201,13 @@ class MBSearch:
 
         for rel in result.get('release-list', []):
             candidate_title = rel.get('title', '')
-            title_score = fuzz.token_sort_ratio(album.lower(), candidate_title.lower())
+            # Use the higher of token_sort_ratio and partial_token_sort_ratio so
+            # that a short tag like "The Remixes" can match a full title such as
+            # "The Remixes: Unmixed for DJs" (partial match = 91%, full = 56%).
+            title_score = max(
+                fuzz.token_sort_ratio(album.lower(), candidate_title.lower()),
+                fuzz.partial_token_sort_ratio(album.lower(), candidate_title.lower()),
+            )
             if title_score < _MIN_TITLE_SCORE:
                 continue
             if track_count:
