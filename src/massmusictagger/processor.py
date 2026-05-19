@@ -209,6 +209,21 @@ class MassProcessor:
 
             from discogstagger.taggerutils import TaggerUtils, TagHandler, FileHandler
             tu = TaggerUtils(sourcedir, destdir, cfg, album)
+
+            # For MB releases: when compute_edition() finds no keyword match in
+            # format_description (it's built for Discogs-style strings like
+            # 'Deluxe Edition'), use the MB disambiguation field directly as the
+            # edition so it appears in %edition% format strings and folder names.
+            # Example: 'Beatport expanded version (US)' won't match keywords but
+            # IS the edition and should appear as: Album (Beatport expanded version (US))
+            if not tu._edition:
+                mb_disambiguation = getattr(album, 'disambiguation', '') or ''
+                if mb_disambiguation:
+                    tu._edition = mb_disambiguation
+                    # Recompute target_dir now that _edition is set (it was computed
+                    # in TaggerUtils.__init__ before we had _edition).
+                    album.target_dir = tu.dest_dir_name
+
             tu._get_target_list()
 
             # Read technical properties (codec, quality, samplerate, …) from the

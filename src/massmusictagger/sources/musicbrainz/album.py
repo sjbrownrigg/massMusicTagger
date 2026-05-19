@@ -133,6 +133,13 @@ class MusicBrainzAlbum:
         # Notes from the release annotation — key may vary; absent if no annotation
         album.notes = r.get('annotation', {}).get('text', '') if isinstance(r.get('annotation'), dict) else (r.get('annotation') or '')
 
+        # Disambiguation: the string MB uses to distinguish this specific release
+        # from others with the same title.  Examples:
+        #   'Beatport expanded version (US)'
+        #   'Japanese promo with OBI strip'
+        # This is the MB equivalent of Discogs's edition statement.
+        album.disambiguation = (r.get('disambiguation') or '').strip()
+
         # Identifiers: Discogs stores as a typed list; MB doesn't have an
         # equivalent list at this level.  barcode is available as a direct field.
         album.identifiers = []

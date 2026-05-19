@@ -237,6 +237,17 @@ class TestAlbumShapeParity(unittest.TestCase):
     def test_notes(self):
         self.assertEqual(self.album.notes, 'A test annotation.')
 
+    def test_disambiguation_mapped(self):
+        """MB disambiguation field is captured as album.disambiguation."""
+        album = MusicBrainzAlbum(_minimal_release(
+            **{'disambiguation': 'Beatport expanded version (US)'}
+        )).map()
+        self.assertEqual(album.disambiguation, 'Beatport expanded version (US)')
+
+    def test_disambiguation_empty_when_absent(self):
+        album = MusicBrainzAlbum(_minimal_release()).map()
+        self.assertEqual(album.disambiguation, '')
+
     def test_url(self):
         self.assertIn('musicbrainz.org', self.album.url)
         self.assertIn('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee', self.album.url)
