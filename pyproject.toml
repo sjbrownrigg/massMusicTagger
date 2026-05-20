@@ -7,7 +7,7 @@ name = "massmusictagger"
 version = "1.0.0"
 description = "Multi-source mass audio tagger — Discogs and MusicBrainz with cascading fallback"
 requires-python = ">=3.10"
-license = {text = "GPL-2.0-or-later"}
+license = {text = "GPL-3.0-or-later"}
 
 dependencies = [
     # Shared core + Discogs adapter: album model, taggerutils, tag writing,
