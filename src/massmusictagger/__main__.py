@@ -161,7 +161,7 @@ def _default_config_path() -> str:
     return candidate
 
 
-def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
+def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> list[str]:
     """Return a flat list of audio source directories to process.
 
     Delegates directly to discogstagger3's FileUtils.get_audio_dirs() and
@@ -187,10 +187,8 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
     searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                      if cfg.has_option('batch', 'searchdiscogs') else False)
 
-    # Minimal stub — FileUtils only reads .forceUpdate in read_id_file(), not
-    # in the scanning methods we use here.
     class _FakeOptions:
-        forceUpdate = False
+        forceUpdate = force   # when --force, walk past existing .done markers
         releaseid = None
 
     fu = FileUtils(cfg, _FakeOptions())
@@ -340,7 +338,7 @@ def main(argv: list[str] | None = None) -> None:
     if opts.watch:
         _watch_mode(opts, cfg, processor)
     else:
-        source_dirs = _get_source_dirs(cfg, opts.sourcedir)
+        source_dirs = _get_source_dirs(cfg, opts.sourcedir, force=opts.force)
         if not source_dirs:
             logger.warning('No audio source directories found')
             return
