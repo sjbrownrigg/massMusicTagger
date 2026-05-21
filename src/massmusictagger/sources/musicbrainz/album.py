@@ -86,6 +86,7 @@ class MusicBrainzAlbum:
         # Normalise MB "Promotional" → "Promo" to match Discogs vocabulary
         _raw_status = r.get('status', '') or ''
         album.status = 'Promo' if _raw_status.lower() == 'promotional' else _raw_status
+        album.source = 'musicbrainz'
 
         # MusicBrainz records format in two separate places (both are needed):
         #

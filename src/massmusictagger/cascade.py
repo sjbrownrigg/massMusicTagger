@@ -456,7 +456,6 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
         album.format = ''
         album.format_description = []
     album.country = ''
-    album.status = ''
     album.media = ''
     album.notes = ''
     album.is_compilation = bool(mf.comp)
@@ -465,6 +464,29 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     album.barcode = ''
     album.extraartists = []
     album.source = 'existing_tags'
+
+    # ── Read back previously-written tags ─────────────────────────────────────
+    # If the files were tagged by a newer run of discogstagger3/mmt these custom
+    # tags will be present and let us avoid losing info on re-organisation.
+    album.status = getattr(mf, 'discogs_release_status', '') or ''
+    _rt = getattr(mf, 'releasetype', '') or ''
+    if _rt:
+        album.release_type = _rt
+        album.release_types = [_rt]
+    else:
+        album.release_type = ''
+        album.release_types = []
+
+    # ── Infer status from directory name if not embedded ──────────────────────
+    # Directories named with [bootleg] or [promo] (e.g. from a previous manual
+    # tagging run or another tagger) carry status information we can recover.
+    if not album.status:
+        _dirname = os.path.basename(sourcedir.rstrip('/\\'))
+        _dn_lower = _dirname.lower()
+        if '[bootleg]' in _dn_lower or re.search(r'\bbootleg\b', _dn_lower):
+            album.status = 'Bootleg'
+        elif '[promo]' in _dn_lower or re.search(r'\bpromo\b', _dn_lower):
+            album.status = 'Promo'
 
     disc = Disc(1)
     for i, fname in enumerate(audio_files, start=1):
