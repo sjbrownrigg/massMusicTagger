@@ -36,7 +36,7 @@ OUTCOME_DRY_RUN = 'dry_run'
 
 class ProcessingResult:
     __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
-                 'title', 'elapsed', 'error', 'target_dir')
+                 'title', 'albumartist', 'elapsed', 'error', 'target_dir')
 
     def __init__(self, sourcedir: str):
         self.sourcedir = sourcedir
@@ -45,6 +45,7 @@ class ProcessingResult:
         self.release_id: Optional[str] = None
         self.release_url: Optional[str] = None
         self.title: Optional[str] = None
+        self.albumartist: Optional[str] = None
         self.target_dir: Optional[str] = None
         self.elapsed: float = 0.0
         self.error: Optional[str] = None
@@ -56,6 +57,7 @@ class ProcessingResult:
             'source':      self.source,
             'release_id':  self.release_id,
             'release_url': self.release_url,
+            'albumartist': self.albumartist,
             'title':       self.title,
             'target_dir':  self.target_dir,
             'elapsed':     round(self.elapsed, 2),
@@ -192,6 +194,7 @@ class MassProcessor:
             result.release_id = str(album.id)
             result.release_url = getattr(album, 'url', None) or None
             result.title = album.title
+            result.albumartist = getattr(album, 'artist', None)
 
             # Log the matched release clearly — mirrors discogstagger3's
             # "Found release ID / Tagging album" log line, gives a clickable
@@ -448,21 +451,64 @@ class MassProcessor:
 
     @staticmethod
     def _print_summary(results: list[ProcessingResult]) -> None:
-        ok = sum(1 for r in results if r.outcome == OUTCOME_OK)
-        failed = sum(1 for r in results if r.outcome == OUTCOME_FAILED)
+        ok      = sum(1 for r in results if r.outcome == OUTCOME_OK)
+        failed  = sum(1 for r in results if r.outcome == OUTCOME_FAILED)
         skipped = sum(1 for r in results if r.outcome == OUTCOME_SKIPPED)
-        dry = sum(1 for r in results if r.outcome == OUTCOME_DRY_RUN)
-        total = len(results)
+        dry     = sum(1 for r in results if r.outcome == OUTCOME_DRY_RUN)
+        total   = len(results)
+
         console.print(
             f'\n[bold]Summary:[/] {total} processed — '
-            f'[green]{ok} ok[/]  [red]{failed} failed[/]  '
-            f'[yellow]{skipped} skipped[/]  [dim]{dry} dry-run[/]'
+            f'[green]{ok} tagged[/]  [yellow]{skipped} skipped[/]  '
+            f'[red]{failed} failed[/]  [dim]{dry} dry-run[/]'
         )
-        if failed:
-            console.print('[red]Failed directories:[/]')
-            for r in results:
-                if r.outcome == OUTCOME_FAILED:
-                    console.print(f'  [red]{r.sourcedir}[/]: {r.error}')
+
+        # Detailed per-album table — one row per processed directory.
+        tbl = Table(show_header=True, header_style='bold', box=None,
+                    show_edge=False, pad_edge=False, padding=(0, 1))
+        tbl.add_column('',         width=2,  no_wrap=True)   # outcome icon
+        tbl.add_column('Artist – Title',     no_wrap=False, overflow='fold')
+        tbl.add_column('Source',   width=14, no_wrap=True)
+        tbl.add_column('ID / URL',           no_wrap=False, overflow='fold')
+
+        # Outcome → (icon, style)
+        _style = {
+            OUTCOME_OK:      ('✓', 'green'),
+            OUTCOME_FAILED:  ('✗', 'red'),
+            OUTCOME_SKIPPED: ('–', 'yellow'),
+            OUTCOME_DRY_RUN: ('○', 'dim'),
+        }
+
+        _source_colour = {
+            'discogs':       'cyan',
+            'musicbrainz':  'blue',
+            'existing_tags': 'dim',
+        }
+
+        for r in results:
+            icon, style = _style.get(r.outcome, ('?', ''))
+            if r.title:
+                label = f'{r.albumartist} – {r.title}' if r.albumartist else r.title
+            else:
+                import os as _os
+                label = _os.path.basename(r.sourcedir.rstrip('/\\'))
+
+            source_str = r.source or '—'
+            sc = _source_colour.get(source_str, '')
+            source_fmt = f'[{sc}]{source_str}[/]' if sc else source_str
+
+            # Prefer release URL; fall back to bare ID
+            id_str = r.release_url or r.release_id or '—'
+
+            error_suffix = f'  [red dim]{r.error}[/]' if r.error else ''
+            tbl.add_row(
+                f'[{style}]{icon}[/]',
+                f'[{style}]{label}[/]{error_suffix}',
+                source_fmt,
+                f'[dim]{id_str}[/]',
+            )
+
+        console.print(tbl)
 
 
 def _make_progress(total: int) -> Progress:
