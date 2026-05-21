@@ -514,7 +514,12 @@ class MBSearch:
 # ── Module-level helpers ──────────────────────────────────────────────────────
 
 def _read_id_txt(sourcedir: str, cfg, key: str = None) -> Optional[str]:
-    """Read a release ID from the id.txt file in sourcedir."""
+    """Read a release ID from the id.txt file in sourcedir.
+
+    Supports both plain format and the old discogstagger3 INI format:
+      Plain:  bare number for Discogs, key=value for MB/barcode
+      INI:    [source] section header + key=value lines
+    """
     id_file = (cfg.get('batch', 'id_file')
                if cfg.has_option('batch', 'id_file') else 'id.txt')
     path = os.path.join(sourcedir, id_file)
@@ -524,17 +529,19 @@ def _read_id_txt(sourcedir: str, cfg, key: str = None) -> Optional[str]:
         content = fh.read().strip()
     if not content:
         return None
-    if key:
-        for line in content.splitlines():
-            if '=' in line:
+    for line in content.splitlines():
+        line = line.strip()
+        # Skip blank lines, comments, and INI section headers ([source] etc.)
+        if not line or line.startswith('#') or line.startswith('['):
+            continue
+        if '=' in line:
+            if key:
                 k, _, v = line.partition('=')
                 if k.strip().lower() == key.lower():
                     return v.strip() or None
-        return None
-    for line in content.splitlines():
-        line = line.strip()
-        if line and not line.startswith('#') and '=' not in line:
-            return line
+        else:
+            if not key:
+                return line   # bare Discogs ID (numeric)
     return None
 
 

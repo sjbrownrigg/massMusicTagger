@@ -135,22 +135,64 @@ attempts a barcode lookup to find the MBID for Cover Art Archive.
 
 ## id.txt format
 
-Place an `id.txt` file inside the album directory to pin a specific release:
+Place an `id.txt` file inside the album directory to pin a specific release.
+Explicit IDs are validated against the local track count — a mismatch logs a
+warning but still proceeds (you chose this ID deliberately).
+
+### Supported entries
 
 ```
-# Discogs release ID (plain number):
+# Discogs release ID — the number from the release URL:
 4319687
 
-# MusicBrainz release MBID (mbid= key):
+# MusicBrainz release MBID — the UUID from the release URL:
 mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
 
-# Both in one file:
+# Both in one file (uses Discogs for metadata, MB MBID for CAA images):
 4319687
 mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
 
-# Barcode (for MB barcode search):
+# Barcode lookup (MusicBrainz barcode search — useful when no MBID is known):
 barcode=5099749939523
+
+# Old discogstagger3 INI-style format also accepted:
+[source]
+discogs_id=4319687
 ```
 
-Explicit IDs are validated against the local track count. A mismatch produces
-a warning but still proceeds (the user chose this ID deliberately).
+### How to find the Discogs release ID
+
+1. Search for the release at [discogs.com](https://www.discogs.com) and open
+   the release page.
+2. The release ID is the number at the end of the URL:
+   `https://www.discogs.com/release/**4319687**-Artist-Album`
+3. It is also shown at the bottom of the release page under
+   *Release page* → *Discogs release ID*.
+
+Use the most specific pressing — e.g. the original UK first press rather than
+a generic master entry — for the most accurate tracklist and label data.
+
+### How to find the MusicBrainz release MBID
+
+1. Search for the release at [musicbrainz.org](https://musicbrainz.org) and
+   open the **Release** page (not Release Group — the Release has the specific
+   pressing details).
+2. The MBID is the UUID in the URL:
+   `https://musicbrainz.org/release/**4b8a0e1b-249b-4d11-8e6e-42aa23466b96**`
+3. It is also shown on the release page under *Release information* →
+   *MusicBrainz Release ID*.
+
+The MB release page also links to the Cover Art Archive if typed images
+(Front, Back, Medium) are available — useful to confirm before tagging.
+
+### Tip: use both IDs together
+
+When a release exists in both databases, pin both IDs and set
+`image_source: musicbrainz` in your config. massMusicTagger will use Discogs
+for metadata (often more complete for vinyl / older releases) and Cover Art
+Archive for typed, higher-resolution images:
+
+```
+4319687
+mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
+```
