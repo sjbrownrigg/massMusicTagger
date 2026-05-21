@@ -391,6 +391,65 @@ def _read_existing_discogs_id_tag(sourcedir: str) -> Optional[str]:
     return None
 
 
+def _parse_dirname_metadata(dirname: str) -> dict:
+    """Extract structured metadata from a music directory name.
+
+    Handles patterns commonly produced by taggers and rippers:
+      [2009] Album Title
+      (2009) Album Title
+      [2009] (2010) - Album Title [bootleg]
+      [2009-05-21] Album Title
+      Album Title [bootleg] [DCD flac-lossless-44s]
+
+    Returns a dict with keys:
+      years   — list of year strings found (first = likely recording/event year)
+      title   — cleaned album title (dates, status, format bracket stripped)
+      status  — 'Bootleg', 'Promo', or None
+    """
+    name = dirname
+
+    # Strip trailing mmt/dt3 format bracket: ends the dirname and contains a
+    # codec name or quality indicator (e.g. "[DM flac-lossless-44s]", "[.B flac…]")
+    name = re.sub(
+        r'\s*\[[^\]]*(?:flac|mp3|aac|ogg|opus|wav|lossless|lossy|vbr|\d{2,4}kbps|\d{2,3}s)[^\]]*\]\s*$',
+        '', name, flags=re.IGNORECASE,
+    ).strip()
+
+    # Extract and remove status indicators: [bootleg], [promo], [promo-only] etc.
+    status = None
+    def _absorb_status(m):
+        nonlocal status
+        val = m.group(1).lower().strip()
+        if 'bootleg' in val:
+            status = 'Bootleg'
+        elif 'promo' in val:
+            status = 'Promo'
+        return ''
+    name = re.sub(r'\[(bootleg|promo(?:tional)?(?:[- ]\w+)*)\]', _absorb_status, name, flags=re.IGNORECASE)
+    name = name.strip()
+
+    # Extract bracketed / parenthesised dates from the START of the remaining name.
+    # A date token is [YYYY], (YYYY), [YYYY-MM-DD], or (YYYY-MM-DD).
+    years: list[str] = []
+    while True:
+        m = re.match(
+            r'^\s*(?:\[(\d{4}(?:-\d{2}(?:-\d{2})?)?)\]|\((\d{4}(?:-\d{2}(?:-\d{2})?)?)\))\s*',
+            name,
+        )
+        if not m:
+            break
+        years.append((m.group(1) or m.group(2))[:4])   # store 4-digit year only
+        name = name[m.end():]
+
+    # Strip optional " - " or " – " separator left after the date tokens
+    name = re.sub(r'^\s*[-–]\s*', '', name).strip()
+
+    # Collapse internal whitespace
+    title = re.sub(r'\s+', ' ', name).strip() or None
+
+    return {'years': years, 'title': title, 'status': status}
+
+
 def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     """Build a minimal Album from metadata already embedded in audio files.
 
@@ -422,9 +481,26 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
         logger.warning('existing_tags: cannot read tags from %s: %s', first_path, exc)
         return None
 
-    title   = (mf.album or os.path.basename(sourcedir)).strip()
-    artist  = (mf.albumartist or mf.artist or 'Unknown Artist').strip()
-    year    = str(mf.year or '')
+    # Parse current and parent directory names for metadata clues.
+    # These fill gaps when embedded tags are absent — they never override
+    # existing tag values.
+    _dirname  = os.path.basename(sourcedir.rstrip('/\\'))
+    _parentdir = os.path.basename(os.path.dirname(sourcedir.rstrip('/\\')))
+    _dn = _parse_dirname_metadata(_dirname)
+
+    # Artist: embedded albumartist → embedded artist → parent directory name.
+    # The parent directory is almost always the artist folder.
+    _parent_artist = _parentdir if _parentdir not in ('', '.', '..') else ''
+    artist = (mf.albumartist or mf.artist or _parent_artist or 'Unknown Artist').strip()
+
+    # Title: embedded album tag → dirname-derived clean title → dirname as-is.
+    _dn_title = _dn['title']
+    title = (mf.album or _dn_title or _dirname).strip()
+
+    # Year: embedded year → first year found in dirname.
+    _embedded_year = str(mf.year or '')
+    _dirname_year  = _dn['years'][0] if _dn['years'] else ''
+    year = _embedded_year or _dirname_year
 
     album = Album(identifier='0', title=title, artists=[artist])
     album._artist_display = artist
@@ -477,16 +553,17 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
         album.release_type = ''
         album.release_types = []
 
-    # ── Infer status from directory name if not embedded ──────────────────────
-    # Directories named with [bootleg] or [promo] (e.g. from a previous manual
-    # tagging run or another tagger) carry status information we can recover.
-    if not album.status:
-        _dirname = os.path.basename(sourcedir.rstrip('/\\'))
-        _dn_lower = _dirname.lower()
-        if '[bootleg]' in _dn_lower or re.search(r'\bbootleg\b', _dn_lower):
-            album.status = 'Bootleg'
-        elif '[promo]' in _dn_lower or re.search(r'\bpromo\b', _dn_lower):
-            album.status = 'Promo'
+    # ── Enrich status and finalise title ─────────────────────────────────────
+    # Status: embedded tag → dirname hint.
+    if not album.status and _dn['status']:
+        album.status = _dn['status']
+
+    # Title: append [Bootleg] / [Promo] when the status is known and not already
+    # in the title, so the release character is visible in the directory name.
+    if album.status in ('Bootleg', 'Promo'):
+        _bracket = f'[{album.status}]'
+        if _bracket.lower() not in album.title.lower():
+            album.title = album.title + f' {_bracket}'
 
     disc = Disc(1)
     for i, fname in enumerate(audio_files, start=1):
