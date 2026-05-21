@@ -2,6 +2,163 @@
 
 ---
 
+## Version 1.1.0 (2026-05-21)
+
+This release covers improvements across both massMusicTagger and its
+discogstagger3 core library.
+
+---
+
+### massMusicTagger
+
+#### Source cascade
+
+- **id.txt: old discogstagger3 INI format now recognised** — releases
+  previously tagged by dt3 write an `[source]` / `discogs_id=N` style id.txt.
+  The cascade reader now skips INI section headers and also tries the
+  `discogs_id=VALUE` key, so these releases are correctly identified from
+  Discogs rather than falling through to `existing_tags`.
+- **id.txt: `mbid=` also supported in old INI format** — MusicBrainz MBIDs
+  stored as `mbid=<UUID>` inside `[source]` sections are read correctly.
+- **`existing_tags` format recovery** — when no API match is found,
+  `album.format` and `format_description` are now parsed from the embedded
+  `media` tag (`"1 x Cassette Bootleg"` → `format="Cassette"`), so directory
+  names produced by the fallback source include a meaningful format code
+  (`MC.B`, `LP`, …) rather than being blank.
+
+#### MusicBrainz
+
+- **Disambiguation → edition** — the MusicBrainz disambiguation string
+  (e.g. `Beatport expanded version (US)`) is used as the `%edition%` value
+  when `compute_edition()` finds no keyword match in the descriptions list.
+- **DiscID tier 5 crash fixed** — `discid.put()` is now called with
+  positional arguments; the installed library does not accept keyword form.
+- **`Promotional` normalised to `Promo`** — MB's "Promotional" release status
+  is normalised to match Discogs vocabulary so `%status%` is consistent across
+  both sources.
+- **Track count validation extended** — applied to all search result tiers
+  (not only explicit IDs), so a mismatched result falls through to the next
+  source rather than producing an incorrectly-tracked album.
+
+#### Format string variables
+
+- **`%disctotal%`** — added as the canonical name (matches the `disctotal`
+  MediaFile attribute). `%totaldiscs%` remains a working deprecated alias.
+- **`%status%`** — exposes release status (`Official`, `Promo`, `Bootleg`,
+  `Pseudo-Release`) in format strings for use in directory naming.
+- **Digital format code → `DM`** — `File`, `Web`, and `Digital Media` Discogs
+  formats now produce `DM` instead of `file`/`web`.
+
+#### Boolean format functions — `$any`, `$all`, `$neg`
+
+Three new composable boolean functions eliminate deeply-nested `$if1()` chains
+when testing multiple conditions:
+
+- `$any(c1, c2, …)` — `True` if at least one argument is truthy (boolean OR)
+- `$all(c1, c2, …)` — `True` if every argument is truthy (boolean AND)
+- `$neg(cond)` — inverts truthiness (boolean NOT)
+
+All three return `True`/`False` and are designed to nest inside `$if1()`.
+
+#### Documentation
+
+- **id.txt guide** — step-by-step instructions for finding Discogs release IDs
+  and MusicBrainz MBIDs from their respective websites.  Old INI format
+  documented and working.
+- **Combined tag mapping table** in `docs/tagging_reference.md` — every tag
+  written by discogstagger3 and massMusicTagger, with Discogs and MB sources,
+  underlying tag names by format, and image handling.
+
+---
+
+### discogstagger3 (core library, pulled via git dependency)
+
+#### Format code simplification
+
+`%format_code%` now encodes only **physical medium + quantity**.  Release type
+and edition qualifiers have been removed from the format code and are available
+as separate variables:
+
+| Before | After | Now via |
+|---|---|---|
+| `CDS` | `CD` | `%releasetype%` = `Single` |
+| `LCDS` | `CD` | `%edition%` = `Limited Edition` |
+| `7″S` | `7″` | `%releasetype%` = `Single` |
+| `LDCD` | `DCD` | `%edition%` = `Limited Edition` |
+
+New and updated variables:
+
+| Variable | Description |
+|---|---|
+| `%format_base%` | Physical medium without quantity prefix (`CD`, `LP`, `12″`, `DM`) |
+| `%releasetype%` | MB-style release type inferred from Discogs format descriptions |
+| `%digital%` | `'1'` for digital formats, `''` for physical |
+| `%disctotal%` | Total disc count (canonical; `%totaldiscs%` deprecated) |
+| `%status%` | Release status: `Official`, `Promo`, `Bootleg`, `Pseudo-Release` |
+
+#### Vinyl size rules
+
+- **12" vinyl albums → `LP`** — a new `vinyl_sizes_conditional` section in
+  `format_codes.yaml` applies the `12″` code only when a non-album type
+  (`Single`, `Maxi-Single`, `EP`, `Mini-Album`) is in the descriptions.
+  A 12" LP album stays as `LP`; a 12" single still shows `12″`.
+- **7" and 10"** always show the size regardless of release type.
+
+#### Vinyl track position labels
+
+- **Full position preserved** — `disc_and_track_no()` now returns the complete
+  position string (`A1`, `B3`, `C2`) as `real_tracknumber` so that
+  `%tracknumber%` in format strings produces `A1 Title.flac` rather than
+  `01 Title.flac`.
+- **Sides paired onto physical records** — A+B = record 1, C+D = record 2,
+  giving the correct `disctotal` for single and double LPs (previously each
+  side was its own disc, doubling the count).
+- **Letter-only positions** (`A`, `B`) — single-track-per-side releases now
+  correctly produce just `A Title.flac`, not `0A Title.flac`.
+- **`$num()` pass-through** — non-numeric values (vinyl positions) are returned
+  unchanged by `$num()`; zero-padding only applies to bare integers.
+
+#### New tags
+
+| Tag | Source | Description |
+|---|---|---|
+| `barcode` | Discogs/MB | EAN / UPC barcode |
+| `discogs_release_status` | Discogs/MB | `Official`, `Promo`, `Bootleg`, … |
+| `releasetype` | Discogs/MB | MB-style primary release type |
+| `musicbrainz_releaseid` | MB | Release UUID |
+| `musicbrainz_releasegroupid` | MB | Release-group UUID |
+| `musicbrainz_trackid` | MB | Recording UUID per track |
+| `isrc` | MB | ISRC code per track |
+
+#### Custom variables (`[custom-variables]`)
+
+- New `[custom-variables]` INI section for reusable format string fragments
+  referenced as `%__varname__%`.
+- **Nested references** — a custom variable may reference other custom
+  variables (up to 5 expansion passes).
+- **Critical quoting rule** documented — variables that expand to `$function()`
+  calls must not be wrapped in single quotes when used as function arguments.
+
+#### Boolean format functions
+
+`$any()`, `$all()`, `$neg()` — see massMusicTagger section above.  These are
+implemented in discogstagger3 and available in both projects.
+
+#### Bug fixes
+
+- `.done` marker file no longer copied into the sorted output directory when
+  re-tagging with `--force`.
+- Empty year guard prevents `int('')` crash when a release has no date.
+- `labels[0]` IndexError fixed when an album has an empty labels list.
+- Preliminary target directory: technical properties (`%codec%`, `%quality%`,
+  etc.) guarded against `None` to prevent `None--NNone` in directory names.
+
+#### License
+
+GPL-3.0-or-later added to both repositories.
+
+---
+
 ## Version 1.0.0 (2026-05-18)
 
 Initial release of massMusicTagger.
