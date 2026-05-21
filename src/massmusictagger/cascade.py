@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -167,7 +168,9 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
             )
 
         # ── 2. Explicit id.txt Discogs ID ──────────────────────────────────
-        relid = _read_id_txt(sourcedir, cfg)
+        # Support both bare numeric format (new) and "discogs_id=N" key=value
+        # format produced by old discogstagger3 id.txt files.
+        relid = _read_id_txt(sourcedir, cfg) or _read_id_txt(sourcedir, cfg, key='discogs_id')
         if relid:
             return _fetch_discogs_with_validation(
                 relid, connector, sourcedir, local_count, from_explicit=True,
@@ -433,10 +436,27 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     album.images = []
     album.genres = list(mf.genres or [])
     album.styles = []
-    album.format_description = []   # required by TaggerUtils.map_format_description()
+    # Derive album.format and format_description from the embedded media tag so
+    # that format_code / format_base resolve correctly for the directory name.
+    # The media tag written by discogstagger3/mmt is "N x FormatName Desc1, Desc2"
+    # e.g. "1 x Vinyl LP, Album, Repress" → format="Vinyl", descs=["LP","Album","Repress"]
+    _media_raw = (mf.media or '').strip()
+    _m = re.match(r'\d+\s*x\s*(.+)', _media_raw)
+    if _m:
+        _rest = _m.group(1).strip()
+        if _rest.lower().startswith('digital media'):
+            album.format = 'Digital Media'
+            _desc_raw = _rest[len('digital media'):].strip()
+        else:
+            _parts = _rest.split(None, 1)
+            album.format = _parts[0] if _parts else ''
+            _desc_raw = _parts[1] if len(_parts) > 1 else ''
+        album.format_description = [d.strip() for d in _desc_raw.split(',') if d.strip()] if _desc_raw else []
+    else:
+        album.format = ''
+        album.format_description = []
     album.country = ''
     album.status = ''
-    album.format = ''
     album.media = ''
     album.notes = ''
     album.is_compilation = bool(mf.comp)
@@ -500,6 +520,16 @@ def _read_id_txt(sourcedir: str, cfg, key: str = None) -> Optional[str]:
         return None
     for line in content.splitlines():
         line = line.strip()
-        if line and not line.startswith('#') and '=' not in line:
-            return line
+        # Skip blank lines, comments, and INI section headers like "[source]"
+        # (old discogstagger3 wrote id.txt as a ConfigParser file)
+        if not line or line.startswith('#') or line.startswith('['):
+            continue
+        if '=' not in line:
+            if not key:
+                return line   # bare Discogs ID (numeric)
+        else:
+            if key:
+                k, _, v = line.partition('=')
+                if k.strip().lower() == key.lower():
+                    return v.strip() or None
     return None
