@@ -28,7 +28,7 @@ discogstagger3, with a complete combined tag mapping table for both sources.
 | Variable | Description | Discogs | MB |
 |---|---|---|---|
 | `%releasetype%` | Primary release type: `Album`, `Single`, `EP`, `Compilation`, `Live`, `Remix`, … | Inferred from format descriptions via `release_type_map` in `format_codes.yaml` | Read directly from `release-group.primary-type` |
-| `%format_base%` | Physical medium without quantity prefix: `CD`, `LP`, `12″`, `CDr`, `file`. Unlike `%format_code%`, never includes `D`/`3x`/… | Same as `%format_code%` when disctotal=1 | Same |
+| `%format_base%` | Physical medium without quantity prefix: `CD`, `LP`, `12″`, `CDr`, `DM`. Unlike `%format_code%`, never includes `D`/`3x`/… | Same as `%format_code%` when disctotal=1 | Same |
 | `%digital%` | `'1'` for digital formats (`File`, `Web`, `Digital Media`); `''` for physical. Use in custom variables to add per-track counts without enumerating format names. | Based on `formats[0].name` | Based on `medium[0].format` |
 | `%disambiguation%` | MusicBrainz disambiguation string — the edition statement distinguishing this pressing from others with the same title, e.g. `Beatport expanded version (US)`. Used as `%edition%` when `compute_edition()` finds no keyword match. | — | `release.disambiguation` |
 
@@ -46,7 +46,10 @@ massMusicTagger **removes** the release-type suffix and edition prefix from
 | CD Single | `CDS` | `CD` | `%releasetype%` = `Single` | — |
 | Limited CD Single | `LCDS` | `CD` | `%releasetype%` = `Single` | `%edition%` = `Limited Edition` |
 | 7″ Single | `7″S` | `7″` | `%releasetype%` = `Single` | — |
+| 12″ Single | `12″S` | `12″` | `%releasetype%` = `Single` | — |
+| 12″ Album (LP) | `12″` | `LP` | — (Album implicit) | — |
 | Limited 2×CD | `LDCD` | `DCD` | — (Album implicit) | `%edition%` = `Limited Edition` |
+| Digital album | `file` | `DM` | — | — |
 
 Quantity (`DCD`, `3xLP`) is retained as it describes the physical object.
 
