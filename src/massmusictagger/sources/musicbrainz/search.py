@@ -337,12 +337,7 @@ class MBSearch:
         total_sectors = cumulative
 
         try:
-            disc = discid_lib.put(
-                first=1,
-                last=len(durations),
-                sectors=total_sectors,
-                offsets=offsets,
-            )
+            disc = discid_lib.put(1, len(durations), total_sectors, offsets)
             disc_id_str = disc.id
         except Exception as exc:
             logger.debug('MB tier 5: DiscID construction failed: %s', exc)

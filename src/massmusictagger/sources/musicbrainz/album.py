@@ -83,7 +83,9 @@ class MusicBrainzAlbum:
         album.year = date_str[:4] if len(date_str) >= 4 else None
 
         album.country = r.get('country', '') or ''
-        album.status = r.get('status', '') or ''
+        # Normalise MB "Promotional" → "Promo" to match Discogs vocabulary
+        _raw_status = r.get('status', '') or ''
+        album.status = 'Promo' if _raw_status.lower() == 'promotional' else _raw_status
 
         # MusicBrainz records format in two separate places (both are needed):
         #

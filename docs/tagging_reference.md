@@ -31,6 +31,7 @@ discogstagger3, with a complete combined tag mapping table for both sources.
 | `%format_base%` | Physical medium without quantity prefix: `CD`, `LP`, `12″`, `CDr`, `DM`. Unlike `%format_code%`, never includes `D`/`3x`/… | Same as `%format_code%` when disctotal=1 | Same |
 | `%digital%` | `'1'` for digital formats (`File`, `Web`, `Digital Media`); `''` for physical. Use in custom variables to add per-track counts without enumerating format names. | Based on `formats[0].name` | Based on `medium[0].format` |
 | `%disambiguation%` | MusicBrainz disambiguation string — the edition statement distinguishing this pressing from others with the same title, e.g. `Beatport expanded version (US)`. Used as `%edition%` when `compute_edition()` finds no keyword match. | — | `release.disambiguation` |
+| `%status%` | Release status: `Official`, `Promo`, `Bootleg`, `Pseudo-Release`. MB `Promotional` is normalised to `Promo`. Empty string when absent. | `release.status` | `release.status` (normalised) |
 
 ---
 
@@ -62,6 +63,18 @@ file. Reference variables as `%__varname__%` in any format string.
 
 See [`conf/formats.ini`](https://github.com/sjbrownrigg/massMusicTagger/blob/master/conf/formats.ini)
 for syntax, rules, and worked examples.
+
+The shipped `formats_personal.ini` includes a `status_abbr` building block:
+
+```ini
+; .B for Bootleg, .P for Promo, blank for Official
+status_abbr = $if1($stricmp('%status%','bootleg'),'.B',$if1($stricmp('%status%','promo'),'.P',''))
+
+; Append to format_desc:
+format_desc = ...%__medium__%$if1(...)%__status_abbr__%
+```
+
+Results: `LP.B` (bootleg LP), `12″S.P` (promo 12" single), `CD` (official CD).
 
 **Critical rule:** custom variables whose values contain `$function()` calls
 must **not** be wrapped in single quotes when passed as arguments — single
