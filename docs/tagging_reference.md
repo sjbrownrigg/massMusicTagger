@@ -64,6 +64,25 @@ file. Reference variables as `%__varname__%` in any format string.
 See [`conf/formats.ini`](https://github.com/sjbrownrigg/massMusicTagger/blob/master/conf/formats.ini)
 for syntax, rules, and worked examples.
 
+### Boolean logic helpers
+
+Three functions make multi-condition tests inside custom variables readable
+without deep nesting. See the [dt3 reference](https://github.com/sjbrownrigg/discogstagger3/blob/master/docs/tagging_reference.md#boolean-logic----any-all-neg) for full details.
+
+| Function | Meaning |
+|---|---|
+| `$any(c1, c2, …)` | `True` if **any** argument is truthy — boolean OR |
+| `$all(c1, c2, …)` | `True` if **all** arguments are truthy — boolean AND |
+| `$neg(cond)` | Inverts truthiness — boolean NOT |
+
+```ini
+; Single OR Maxi-Single → show 'S' or 'M'
+type_abbr = $if1($any($strcmp('%releasetype%','Single'),$strcmp('%releasetype%','Maxi-Single')),'S','')
+
+; NOT an Album → show releasetype in the bracket
+type_label = $if1($neg($strcmp('%releasetype%','Album')),'%releasetype%','')
+```
+
 The shipped `formats_personal.ini` includes a `status_abbr` building block:
 
 ```ini
