@@ -34,9 +34,9 @@ def make_mb_connector(cfg: 'TaggerConfig') -> 'SourceConnector':
     return MBConnector(cfg)
 
 
-def make_mb_search(cfg: 'TaggerConfig') -> 'SourceSearch':
+def make_mb_search(cfg: 'TaggerConfig', connector=None) -> 'SourceSearch':
     from massmusictagger.sources.musicbrainz.search import MBSearch
-    return MBSearch(cfg)
+    return MBSearch(cfg, connector=connector)
 
 
 def make_discogs_mapper(cfg: 'TaggerConfig', **kwargs) -> 'SourceMapper':

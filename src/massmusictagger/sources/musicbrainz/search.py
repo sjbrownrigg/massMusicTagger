@@ -46,8 +46,9 @@ _MULTI_ACOUSTID_COVERAGE  = 0.5    # at least half the tracks must agree
 class MBSearch:
     """Searches MusicBrainz for a release given a source directory of audio files."""
 
-    def __init__(self, cfg: 'TaggerConfig'):
+    def __init__(self, cfg: 'TaggerConfig', connector=None):
         self.cfg = cfg
+        self._conn = connector   # MBConnector, used for search result caching
 
         # Check optional fingerprinting library availability once at startup
         # so that per-album skip messages are suppressed — the capability check
@@ -182,6 +183,17 @@ class MBSearch:
         if not artist or not album:
             logger.debug('MB tier 3: skipped — missing artist or album')
             return None
+
+        # Search result cache — keyed by artist+album+track_count.
+        # Caches both hits (MBID string) and misses (None) so repeated searches
+        # for unmatched albums don't hit the API on every run.
+        _cache_key = f'text:{artist}|{album}|{track_count}'
+        if self._conn is not None and self._conn._cache_search:
+            _raw = self._conn._load_json(self._conn._search_path(_cache_key))
+            if _raw is not None:   # key exists in cache (may be {"mbid": null})
+                logger.debug('MB tier 3: search cache hit for %r/%r', artist, album)
+                return _raw.get('mbid')
+
         logger.info('MB tier 3: text search — artist=%r album=%r tracks=%d',
                     artist, album, track_count)
         try:
@@ -239,6 +251,10 @@ class MBSearch:
                         '' if has_date else ', no date')
         else:
             logger.info('MB tier 3: no confident text match')
+
+        if self._conn is not None and self._conn._cache_search:
+            self._conn.save_search(_cache_key, best_mbid)
+
         return best_mbid
 
     # ── Tier 4: Barcode ───────────────────────────────────────────────────
@@ -259,6 +275,14 @@ class MBSearch:
             return None
 
         barcode_clean = barcode.replace(' ', '').replace('-', '')
+
+        _cache_key = f'barcode:{barcode_clean}'
+        if self._conn is not None and self._conn._cache_search:
+            _raw = self._conn._load_json(self._conn._search_path(_cache_key))
+            if _raw is not None:
+                logger.debug('MB tier 4: barcode cache hit for %s', barcode_clean)
+                return _raw.get('mbid')
+
         logger.info('MB tier 4: barcode search — %s', barcode_clean)
         try:
             result = musicbrainzngs.search_releases(barcode=barcode_clean, limit=5)
@@ -267,13 +291,15 @@ class MBSearch:
             return None
 
         releases = result.get('release-list', [])
-        if releases:
-            mbid = releases[0].get('id')
+        mbid = releases[0].get('id') if releases else None
+        if mbid:
             logger.info('MB tier 4: barcode matched release %s', mbid)
-            return mbid
+        else:
+            logger.info('MB tier 4: barcode %s not found in MusicBrainz', barcode_clean)
 
-        logger.info('MB tier 4: barcode %s not found in MusicBrainz', barcode_clean)
-        return None
+        if self._conn is not None and self._conn._cache_search:
+            self._conn.save_search(_cache_key, mbid)
+        return mbid
 
     @staticmethod
     def _read_barcode_tag(sourcedir: str) -> Optional[str]:

@@ -120,7 +120,7 @@ class MassProcessor:
         if any(s in priority for s in ('musicbrainz', 'auto')):
             try:
                 self._mb_conn = make_mb_connector(cfg)
-                self._mb_search = make_mb_search(cfg)
+                self._mb_search = make_mb_search(cfg, connector=self._mb_conn)
             except ImportError:
                 logger.warning('MusicBrainz adapter not available — skipping MB path')
 
