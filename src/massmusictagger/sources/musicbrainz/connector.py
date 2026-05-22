@@ -133,8 +133,13 @@ class MBConnector:
             {'uri': str, 'type': 'primary'|'secondary',
              'caa_types': list[str], 'width': None, 'height': None}
 
-        The index JSON is cached alongside the release metadata so repeated
-        runs for the same release don't hit the CAA API.
+        Strategy:
+          1. Try the specific release's CAA index.
+          2. If that returns nothing, fall back to the release GROUP's front
+             cover.  Release groups almost always have front art even when
+             individual pressings don't.
+
+        Both the release index and the group fallback result are cached.
         """
         if self._cache_meta:
             cached = self._load_json(self._caa_path(mbid))
@@ -167,10 +172,32 @@ class MBConnector:
                 'height':    None,
             })
 
-        logger.info('Cover Art Archive: %d image(s) for release %s', len(result), mbid)
+        if result:
+            logger.info('Cover Art Archive: %d image(s) for release %s', len(result), mbid)
+            if self._cache_meta:
+                self._save_json(self._caa_path(mbid), result)
+            return result
+
+        # ── Release group fallback ────────────────────────────────────────────
+        # The specific pressing has no CAA art; try the release group's front
+        # cover.  The release group MBID is in the cached release JSON.
+        rg_id = self._release_group_id(mbid)
+        if rg_id:
+            rg_result = self._fetch_rg_front(rg_id)
+            if rg_result:
+                logger.info(
+                    'Cover Art Archive: no art for release %s — '
+                    'using release group %s front cover', mbid, rg_id,
+                )
+                if self._cache_meta:
+                    self._save_json(self._caa_path(mbid), rg_result)
+                return rg_result
+
+        logger.info('Cover Art Archive: no art found for release %s (release group %s)',
+                    mbid, rg_id or 'unknown')
         if self._cache_meta:
-            self._save_json(self._caa_path(mbid), result)
-        return result
+            self._save_json(self._caa_path(mbid), [])
+        return []
 
     def fetch_image(self, dest_path: str, image_url: str) -> None:
         """Download image_url to dest_path, using a local file cache.
@@ -229,6 +256,40 @@ class MBConnector:
         """Cache an MBID (or None for no-match) for query_key."""
         if self._cache_search:
             self._save_json(self._search_path(query_key), {'mbid': mbid})
+
+    def _release_group_id(self, mbid: str) -> Optional[str]:
+        """Return the release-group MBID for a release, from cache if possible."""
+        cached = self._load_json(self._release_path(mbid))
+        if cached:
+            return (cached.get('release-group') or {}).get('id')
+        return None
+
+    def _fetch_rg_front(self, rg_id: str) -> list[dict]:
+        """Fetch the front cover for a release group from CAA."""
+        import requests
+        url = f'https://coverartarchive.org/release-group/{rg_id}'
+        headers = {'User-Agent': 'massMusicTagger/1.0', 'Accept': 'application/json'}
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            logger.debug('CAA release-group %s failed: %s', rg_id, exc)
+            return []
+        result = []
+        for img in data.get('images', []):
+            types = img.get('types') or []
+            if not img.get('approved', True):
+                continue
+            is_front = img.get('front', False) or 'Front' in types
+            result.append({
+                'uri':       img.get('image') or img.get('url', ''),
+                'type':      'primary' if is_front else 'secondary',
+                'caa_types': types,
+                'width':     None,
+                'height':    None,
+            })
+        return result
 
     # ── Path helpers ─────────────────────────────────────────────────────────
 
