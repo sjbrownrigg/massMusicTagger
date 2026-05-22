@@ -86,6 +86,16 @@ class MBConnector:
         # cache_search is read by MBSearch directly; expose here for logging
         self._cache_search = _cfg_bool(cfg, 'musicbrainz', 'cache_search',   default=True)
 
+        # Delay between CAA requests (seconds).  The Internet Archive applies
+        # IP-based rate limits; a small pause keeps requests within safe bounds.
+        try:
+            self._caa_delay = float(
+                cfg.get('musicbrainz', 'caa_request_delay')
+                if cfg.has_option('musicbrainz', 'caa_request_delay') else 0.5
+            )
+        except ValueError:
+            self._caa_delay = 0.5
+
         # Create subdirectories for enabled cache layers
         if self._cache_meta:
             (self._cache_root / 'releases').mkdir(parents=True, exist_ok=True)
@@ -147,30 +157,43 @@ class MBConnector:
                 logger.debug('MB CAA cache hit: %s', mbid)
                 return cached
 
-        import requests
+        import requests, time
+        if self._caa_delay:
+            time.sleep(self._caa_delay)
+
         url = _CAA_INDEX.format(mbid=mbid)
         headers = {'User-Agent': 'massMusicTagger/1.0', 'Accept': 'application/json'}
         try:
             resp = requests.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
         except Exception as exc:
-            logger.warning('Cover Art Archive index failed for %s: %s', mbid, exc)
-            return []
+            logger.warning('Cover Art Archive network error for %s: %s', mbid, exc)
+            return []   # network error — do not cache
 
-        result: list[dict] = []
-        for img in data.get('images', []):
-            types = img.get('types') or []
-            if not img.get('approved', True):
-                continue
-            is_front = img.get('front', False) or 'Front' in types
-            result.append({
-                'uri':       img.get('image') or img.get('url', ''),
-                'type':      'primary' if is_front else 'secondary',
-                'caa_types': types,
-                'width':     None,
-                'height':    None,
-            })
+        # 404 = release exists in MB but has no CAA art — cache as definitive []
+        # 429 / 503 = rate-limited — do NOT cache; will retry next run
+        if resp.status_code == 404:
+            logger.debug('CAA: no art for release %s (404)', mbid)
+            # fall through to release-group check before caching []
+            data = {}
+        elif resp.status_code in (429, 503):
+            logger.warning(
+                'Cover Art Archive rate-limited (%d) for release %s — '
+                'result NOT cached; will retry next run.  '
+                'Try increasing musicbrainz.caa_request_delay (currently %.1fs).',
+                resp.status_code, mbid, self._caa_delay,
+            )
+            return []   # do not cache — transient throttle
+        elif not resp.ok:
+            logger.warning('Cover Art Archive error %d for %s', resp.status_code, mbid)
+            return []   # unexpected error — do not cache
+        else:
+            try:
+                data = resp.json()
+            except Exception as exc:
+                logger.warning('CAA JSON parse failed for %s: %s', mbid, exc)
+                return []
+
+        result: list[dict] = self._parse_caa_images(data)
 
         if result:
             logger.info('Cover Art Archive: %d image(s) for release %s', len(result), mbid)
@@ -266,16 +289,31 @@ class MBConnector:
 
     def _fetch_rg_front(self, rg_id: str) -> list[dict]:
         """Fetch the front cover for a release group from CAA."""
-        import requests
+        import requests, time
+        if self._caa_delay:
+            time.sleep(self._caa_delay)
         url = f'https://coverartarchive.org/release-group/{rg_id}'
         headers = {'User-Agent': 'massMusicTagger/1.0', 'Accept': 'application/json'}
         try:
             resp = requests.get(url, headers=headers, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
         except Exception as exc:
-            logger.debug('CAA release-group %s failed: %s', rg_id, exc)
+            logger.debug('CAA release-group %s network error: %s', rg_id, exc)
             return []
+        if resp.status_code in (429, 503):
+            logger.warning('Cover Art Archive rate-limited (%d) for release group %s',
+                           resp.status_code, rg_id)
+            return []
+        if not resp.ok:
+            return []
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        return self._parse_caa_images(data)
+
+    @staticmethod
+    def _parse_caa_images(data: dict) -> list[dict]:
+        """Convert a raw CAA response dict into our image list format."""
         result = []
         for img in data.get('images', []):
             types = img.get('types') or []

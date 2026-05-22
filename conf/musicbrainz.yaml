@@ -23,6 +23,13 @@ musicbrainz:
   #   searches/   — text and barcode search results (keyed by query hash)
   cache_directory: "~/.cache/massmusictagger/mb"
 
+  # Delay between Cover Art Archive requests (seconds).
+  # The Internet Archive applies IP-based rate limits; a small pause keeps
+  # requests within safe bounds and prevents your IP being throttled.
+  # Increase if you see "rate-limited (429)" warnings in the log.
+  # Set to 0 to disable (only safe when batch.workers = 1 and cache is warm).
+  caa_request_delay: 0.5
+
   # Cache control — set any flag to false to always re-fetch that layer.
   # Useful when you want to pick up updated metadata without clearing the
   # whole cache: set cache_metadata: false for one run, then re-enable.
