@@ -69,17 +69,35 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _setup_logging(verbose: bool, log_file: str | None = None) -> None:
     level = logging.DEBUG if verbose else logging.INFO
-    fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    datefmt = '%Y-%m-%d %H:%M:%S'
+    full_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt  = '%Y-%m-%d %H:%M:%S'
 
-    logging.basicConfig(level=level, format=fmt, datefmt=datefmt)
+    # Use RichHandler for console output so log messages are queued by Rich
+    # and rendered cleanly above the progress bar rather than interleaving.
+    from rich.logging import RichHandler
+    from massmusictagger.processor import console as _console
+    rich_handler = RichHandler(
+        level=level,
+        console=_console,        # same console used by the progress bar
+        show_time=True,
+        show_path=False,
+        markup=False,
+        rich_tracebacks=False,
+    )
+    logging.basicConfig(
+        level=level,
+        format='%(message)s',    # RichHandler adds its own timestamp/level
+        datefmt=datefmt,
+        handlers=[rich_handler],
+        force=True,              # override any handlers added by imported libs
+    )
 
     if log_file:
         log_file = os.path.expanduser(log_file)
         os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
         fh = logging.FileHandler(log_file, encoding='utf-8')
-        fh.setLevel(level)
-        fh.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+        fh.setLevel(logging.DEBUG)   # file always captures DEBUG for troubleshooting
+        fh.setFormatter(logging.Formatter(full_fmt, datefmt=datefmt))
         logging.getLogger().addHandler(fh)
         logging.getLogger(__name__).info('Logging to file: %s', log_file)
 
