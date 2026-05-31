@@ -27,6 +27,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 console = Console(stderr=True)
 
+
+def _is_ebusy(exc: BaseException) -> bool:
+    """Return True if exc or any chained cause is OSError(EBUSY=16)."""
+    import errno as _errno
+    seen: set[int] = set()
+    e: BaseException | None = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if isinstance(e, OSError) and e.errno == _errno.EBUSY:
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
 # Outcome constants written to the audit log
 OUTCOME_OK      = 'ok'
 OUTCOME_FAILED  = 'failed'
@@ -124,7 +137,7 @@ class MassProcessor:
             except ImportError:
                 logger.warning('MusicBrainz adapter not available — skipping MB path')
 
-    def process_all(self, source_dirs: list[str]) -> list[ProcessingResult]:
+    def process_all(self, source_dirs: list[str], n_ignored: int = 0) -> list[ProcessingResult]:
         """Process all directories, returning a list of results."""
         results: list[ProcessingResult] = []
 
@@ -148,7 +161,7 @@ class MassProcessor:
                         progress.advance(task)
 
         self._write_audit_log(results)
-        self._print_summary(results)
+        self._print_summary(results, n_ignored=n_ignored)
         return results
 
     def _process_one(self, sourcedir: str, **_) -> ProcessingResult:
@@ -303,9 +316,19 @@ class MassProcessor:
             result.outcome = OUTCOME_OK
 
         except Exception as exc:
-            logger.error('Failed to process %s: %s', sourcedir, exc, exc_info=True)
+            if _is_ebusy(exc):
+                logger.warning(
+                    'Cannot tag %s — a file in the output directory is locked by another '
+                    'process (EBUSY).  The files have been copied but tags were not written.  '
+                    'Close any media player or file manager pointing at that folder, then '
+                    'delete the output directory and retry.',
+                    os.path.basename(sourcedir.rstrip('/\\')),
+                )
+                result.error = 'File locked by another process (EBUSY)'
+            else:
+                logger.error('Failed to process %s: %s', sourcedir, exc, exc_info=True)
+                result.error = str(exc)
             result.outcome = OUTCOME_FAILED
-            result.error = str(exc)
 
         result.elapsed = time.monotonic() - t0
         return result
@@ -450,17 +473,20 @@ class MassProcessor:
         return None
 
     @staticmethod
-    def _print_summary(results: list[ProcessingResult]) -> None:
+    def _print_summary(results: list[ProcessingResult], n_ignored: int = 0) -> None:
         ok      = sum(1 for r in results if r.outcome == OUTCOME_OK)
         failed  = sum(1 for r in results if r.outcome == OUTCOME_FAILED)
         skipped = sum(1 for r in results if r.outcome == OUTCOME_SKIPPED)
         dry     = sum(1 for r in results if r.outcome == OUTCOME_DRY_RUN)
         total   = len(results)
 
+        # 'ignored' = albums excluded before processing (done file, no id.txt).
+        # 'skipped' = albums that reached the processor but were skipped (done file or review reject).
+        ignored_part = f'  [dim]{n_ignored} ignored[/]' if n_ignored else ''
         console.print(
             f'\n[bold]Summary:[/] {total} processed — '
             f'[green]{ok} tagged[/]  [yellow]{skipped} skipped[/]  '
-            f'[red]{failed} failed[/]  [dim]{dry} dry-run[/]'
+            f'[red]{failed} failed[/]  [dim]{dry} dry-run[/]{ignored_part}'
         )
 
         # Detailed per-album table — one row per processed directory.
