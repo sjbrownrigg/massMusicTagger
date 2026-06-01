@@ -42,6 +42,12 @@ _TRACK_TOLERANCE = 2
 _MULTI_ACOUSTID_MIN_SCORE = 0.85   # per-track confidence threshold
 _MULTI_ACOUSTID_COVERAGE  = 0.5    # at least half the tracks must agree
 
+# DiscID validation: at least one of title/artist must reach this score against
+# the file-tag hints.  Lower than _MIN_TITLE_SCORE because the DiscID already
+# provides a hard hash-based constraint; this check only guards against
+# coincidental DiscID collisions on digital (non-CD-rip) files.
+_DISCID_MIN_HINT_SCORE = 50
+
 
 class MBSearch:
     """Searches MusicBrainz for a release given a source directory of audio files."""
@@ -141,7 +147,9 @@ class MBSearch:
             return mbid
 
         # ── Tier 5: DiscID (CD TOC hash from file durations) ──────────────
-        mbid = self._discid_search(audio_files)
+        mbid = self._discid_search(audio_files,
+                                   artist_hint=file_artist,
+                                   album_hint=album_name)
         if mbid:
             return mbid
 
@@ -314,7 +322,8 @@ class MBSearch:
 
     # ── Tier 5: DiscID ────────────────────────────────────────────────────
 
-    def _discid_search(self, audio_files: list[str]) -> Optional[str]:
+    def _discid_search(self, audio_files: list[str],
+                       artist_hint: str = '', album_hint: str = '') -> Optional[str]:
         """Tier 5: Construct a MusicBrainz DiscID from audio file durations
         and look it up.
 
@@ -323,6 +332,13 @@ class MBSearch:
         reliable for **exact CD rips** where file durations match the original
         CD sectors precisely.  For re-encodes or vinyl rips the hash will not
         match any database entry.
+
+        artist_hint / album_hint — file-tag values used to validate the match.
+        When a DiscID hit is found, the matched release's artist and title are
+        compared against these hints.  If neither reaches _DISCID_MIN_HINT_SCORE
+        the match is rejected as a false positive.  This guards against
+        coincidental DiscID collisions on single-track digital (non-CD-rip) files,
+        where the low-entropy hash can match unrelated releases.
 
         Requires: discid  (pip install massmusictagger[discid])
         System library: libdiscid  (apt install libdiscid0)
@@ -382,6 +398,34 @@ class MBSearch:
                 releases = result.get('release-list', [])
             if releases:
                 mbid = releases[0].get('id')
+                # Validate against file-tag hints to reject false positives.
+                # DiscID collisions are rare for multi-track CDs but happen
+                # often enough for single-track digital files (low-entropy hash).
+                if artist_hint or album_hint:
+                    matched_title  = releases[0].get('title', '')
+                    matched_artist = releases[0].get('artist-credit-phrase', '')
+                    if not matched_artist:
+                        ac = releases[0].get('artist-credit') or []
+                        if ac and isinstance(ac[0], dict):
+                            matched_artist = (
+                                ac[0].get('artist', {}).get('name', '') or ''
+                            )
+                    scores: list[float] = []
+                    if album_hint and matched_title:
+                        scores.append(fuzz.token_sort_ratio(
+                            album_hint.lower(), matched_title.lower()))
+                    if artist_hint and matched_artist:
+                        scores.append(fuzz.token_sort_ratio(
+                            artist_hint.lower(), matched_artist.lower()))
+                    if scores and max(scores) < _DISCID_MIN_HINT_SCORE:
+                        logger.warning(
+                            'MB tier 5: DiscID matched %s (%r by %r) '
+                            'but title/artist similarity too low (max=%.0f) '
+                            'for expected %r / %r — rejecting false match',
+                            mbid, matched_title, matched_artist, max(scores),
+                            album_hint, artist_hint,
+                        )
+                        return None
                 logger.info('MB tier 5: DiscID matched release %s', mbid)
                 return mbid
         except musicbrainzngs.ResponseError:

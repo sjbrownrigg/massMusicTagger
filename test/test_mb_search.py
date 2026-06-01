@@ -243,6 +243,109 @@ class TestDiscIDTier(unittest.TestCase):
         # total sectors: 4650 + 120*75 = 13650
         self.assertEqual(captured.get('sectors'), 13650)
 
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_false_match_rejected_by_hints(self, mb):
+        """DiscID hit is discarded when both title and artist score below threshold.
+
+        Reproduces the Ohota/Changes → Chicken false-positive seen in production:
+        a 1-track digital file computed the same DiscID as an unrelated CD rip.
+        """
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{
+                    'id': _FAKE_MBID,
+                    'title': 'Chicken',
+                    'artist-credit-phrase': 'The Eighties Matchbox B-Line Disaster',
+                }],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(
+                    fake_files, artist_hint='Ohota', album_hint='Changes'
+                )
+        self.assertIsNone(result)
+
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_artist_match_accepts_hit(self, mb):
+        """DiscID hit is kept when artist score clears the threshold."""
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{
+                    'id': _FAKE_MBID,
+                    'title': 'Completely Different Title',
+                    'artist-credit-phrase': 'Ohota',
+                }],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(
+                    fake_files, artist_hint='Ohota', album_hint='Changes'
+                )
+        self.assertEqual(result, _FAKE_MBID)
+
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_artist_credit_fallback_path(self, mb):
+        """artist-credit list is used when artist-credit-phrase is absent."""
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{
+                    'id': _FAKE_MBID,
+                    'title': 'Chicken',
+                    'artist-credit': [{'artist': {'name': 'The Eighties Matchbox B-Line Disaster'}}],
+                    # no artist-credit-phrase key
+                }],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(
+                    fake_files, artist_hint='Ohota', album_hint='Changes'
+                )
+        self.assertIsNone(result)
+
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_no_hints_skips_validation(self, mb):
+        """When no hints are supplied the DiscID match is accepted unconditionally."""
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{'id': _FAKE_MBID, 'title': 'Unrelated Album'}],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(fake_files)   # no hints
+        self.assertEqual(result, _FAKE_MBID)
+
 
 # ── Tier 7: Multi-track AcoustID ─────────────────────────────────────────────
 
