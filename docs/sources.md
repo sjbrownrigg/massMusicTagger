@@ -74,11 +74,12 @@ Configuration lives in `conf/musicbrainz.yaml` / `conf/musicbrainz_personal.yaml
 |---|---|---|
 | 1 | `id.txt` with `mbid=<UUID>` | — |
 | 2 | Existing `musicbrainz_releaseid` tag (validated) | — |
+| 2.5 | Early AcoustID — runs before text search when `acoustid_early: true` | `pip install massmusictagger[acoustid]` + `apt install libchromaprint-tools` |
 | 3 | Text search — artist + album title + track count (with artist similarity scoring; tries parent directory name if albumartist tag absent) | — |
 | 4 | Barcode lookup via MB API | — |
-| 5 | DiscID — CD TOC hash from file durations | `pip install massmusictagger[discid]` + `apt install libdiscid0` |
-| 6 | Single-track AcoustID fingerprint | `pip install massmusictagger[acoustid]` + `apt install libchromaprint-tools` |
-| 7 | Multi-track AcoustID — all tracks fingerprinted; release with most matching recordings wins | same as tier 6 |
+| 5 | DiscID — CD TOC hash from file durations; validated against embedded artist/title tags to prevent false matches | `pip install massmusictagger[discid]` + `apt install libdiscid0` |
+| 6 | Single-track AcoustID fingerprint (skipped when tier 2.5 fired) | `pip install massmusictagger[acoustid]` + `apt install libchromaprint-tools` |
+| 7 | Multi-track AcoustID — all tracks fingerprinted; release with most matching recordings wins (skipped when tier 2.5 fired) | same as tier 6 |
 
 ### MusicBrainz-specific config keys
 
@@ -86,8 +87,37 @@ Configuration lives in `conf/musicbrainz.yaml` / `conf/musicbrainz_personal.yaml
 musicbrainz:
   user_agent: "YourApp/1.0 (your@email.com)"   # required by MB API
   acoustid_api_key: ""   # register at https://acoustid.org/login
+  acoustid_early: false  # run fingerprinting before text search (tier 2.5)
   cache_directory: "~/.cache/massmusictagger/mb"
+  cache_metadata: true   # release JSON + CAA image index
+  cache_images:   true   # downloaded Cover Art Archive image files
+  cache_search:   true   # text search and barcode search result MBIDs
+  caa_request_delay: 0.5 # seconds between CAA requests (increase if rate-limited)
+  source_hints_file: "conf/source_hints.yaml"  # keyword lists for format hint warnings
 ```
+
+### Source format hints
+
+When `source_hints_file` is set, massMusicTagger checks the source folder name
+against keyword lists to infer whether the files are digital or vinyl-rip origin.
+If the inferred hint conflicts with the matched MB release's medium format, a
+`WARNING` is logged.  The match is still accepted.
+
+```yaml
+# conf/source_hints.yaml
+source_hints:
+  digital:
+    - "24 Bit"
+    - "Remaster"
+    - "WEB"
+    - "Hi-Res"
+  vinyl:
+    - "Vinyl Rip"
+    - "Needle Drop"
+```
+
+Point `source_hints_file` at a personal file (`conf/source_hints_personal.yaml`,
+gitignored) to extend or override the defaults without modifying the shipped file.
 
 ### Installing fingerprinting support
 
@@ -98,6 +128,32 @@ sudo apt install libdiscid0 libchromaprint-tools   # Debian/Ubuntu
 # Python packages
 pip install "massmusictagger[fingerprint]"   # installs both discid + pyacoustid
 ```
+
+---
+
+## Post-processing: source_action
+
+After a successful tag, `details.source_action` controls what happens to the
+source directory:
+
+| Value | Behaviour |
+|---|---|
+| `done_file` | Write a `.done` marker and leave the source in place (default) |
+| `remove` | Delete the source directory (verifies audio files exist in output first) |
+| `move` | Relocate the source directory into an archive tree |
+
+```yaml
+details:
+  source_action: move
+  source_archive_dir: "~/Music/archive"
+  # Path template for source_action=move. Supports all format variables plus:
+  #   %current_folder% — original source directory basename
+  source_move_template: "%source%/%albumartist%/%current_folder%"
+```
+
+The `remove` and `move` actions verify that the output directory contains at
+least one audio file before deleting or moving the source, guarding against
+data loss if the sort step failed silently.
 
 ---
 
