@@ -2,6 +2,129 @@
 
 ---
 
+## Version 1.2.0 (2026-06-01)
+
+---
+
+### massMusicTagger
+
+#### MusicBrainz search improvements
+
+- **`acoustid_early` flag** — AcoustID fingerprinting can now run before text
+  search (tier 2.5) by setting `acoustid_early: true` in
+  `conf/musicbrainz_personal.yaml`.  This prevents popular-artist releases from
+  matching the wrong pressing via title-score alone.  When early AcoustID
+  returns a match, tiers 6-7 are skipped to avoid redundant fingerprinting.
+
+  ```yaml
+  musicbrainz:
+    acoustid_early: true   # run fingerprinting before text search
+  ```
+
+- **Source format hints** — keyword lists in `conf/source_hints.yaml` are
+  matched case-insensitively against the source folder name to infer whether
+  files are digital or vinyl-rip origin.  When the inferred hint conflicts with
+  the matched MB release's medium format, a `WARNING` is logged.  The match is
+  still accepted — this is an audit signal, not a rejection.  Configurable via
+  `musicbrainz.source_hints_file`; override with your own YAML for custom keywords.
+
+- **DiscID false-match validation** — DiscID hits are now checked against the
+  file's embedded artist and album tags using fuzzy scoring.  Hits with a low
+  score on both fields are discarded, preventing false-positive CD-TOC collisions
+  (e.g. a 1-track digital file matching an unrelated CD rip via identical disc
+  length).
+
+- **Normalise MB compound vinyl formats** — MusicBrainz returns compound format
+  strings such as `12" Vinyl` instead of Discogs-style `Vinyl` + size in
+  descriptions.  These are now split into `format='Vinyl'` with the size prepended
+  to `format_description`, so the `vinyl_sizes` lookup in `format_codes.yaml`
+  fires identically for both sources.
+
+#### Format code fixes
+
+- **12" vinyl albums display as `LP`** — the 12" size override now applies only
+  to non-album release types (Single, EP, Maxi-Single).  A 12" LP album stays
+  as `LP`; a 12" single still shows `12″`.  This is configured in
+  `conf/format_codes.yaml` via the new `vinyl_sizes_conditional` section.
+
+#### Source post-processing: `source_action`
+
+A new `details.source_action` config key controls what happens to the source
+directory after a successful tag:
+
+| Value | Behaviour |
+|---|---|
+| `done_file` | Write a `.done` marker and leave source in place (default) |
+| `remove` | Delete the source directory (verifies audio exists in output first) |
+| `move` | Relocate the source into an archive tree |
+
+`source_action: move` uses `source_archive_dir` (root) and
+`source_move_template` (path template supporting all format variables plus
+`%current_folder%` for the original folder name):
+
+```yaml
+details:
+  source_action: move
+  source_archive_dir: "~/Music/archive"
+  source_move_template: "%source%/%albumartist%/%current_folder%"
+```
+
+#### Format string preview tool
+
+`format_preview.py` evaluates format strings against fixture cases defined in
+`conf/preview_cases.yaml` and prints results to stdout.  Useful for checking
+directory naming and custom variable output without running a real tag operation.
+
+```bash
+python format_preview.py           # one-shot
+python format_preview.py --watch   # re-run on file change
+```
+
+The tool loads the same config chain as MMT (base → personal overlay →
+extra_configs), so output matches a real run exactly.
+
+#### MusicBrainz caching
+
+- **CAA image index cached** — the Cover Art Archive image index per release is
+  stored so repeat runs do not re-fetch it.
+- **Search results cached** — text search and barcode search MBIDs are cached
+  keyed by query hash.  Set `cache_search: false` to re-run searches without
+  clearing the cache.
+- **CAA rate limit handling** — 429 responses from the Internet Archive are
+  retried with backoff; 404s (no artwork) are distinguished cleanly.  A
+  configurable `caa_request_delay` (default 0.5 s) keeps requests within safe
+  rate limits.
+- **Release-group CAA fallback** — when a specific pressing has no Cover Art
+  Archive images, massMusicTagger tries the release group's artwork instead.
+
+#### Logging and UI
+
+- **Rich console handler** — the terminal log now uses `RichHandler` for
+  readable, coloured output.  The log file always captures `DEBUG`-level output
+  regardless of console level.
+- **End-of-run summary table** — a per-album table is printed at exit showing
+  the matched source (Discogs, MB, existing_tags), release ID, title, and
+  elapsed time.  Albums that were already tagged in a previous run are tracked
+  and excluded from the summary count.
+- **EBUSY / locked file handling** — file-in-use errors on Windows/NAS mounts
+  are caught and reported cleanly rather than crashing.
+
+#### Tags
+
+- **`tagger_source` tag** — records which source (discogs, musicbrainz,
+  existing_tags) wrote the tags.  Useful for auditing which albums were matched
+  and from where.
+
+#### Bug fixes
+
+- **`--force` on collection directories** — fixed a crash when `--force` was
+  used on a directory containing multiple album subdirectories.
+- **`existing_tags` artist inference** — the current directory name and parent
+  directory name are both tried as artist candidates when the embedded artist
+  tag is absent.
+
+---
+
 ## Version 1.1.0 (2026-05-21)
 
 This release covers improvements across both massMusicTagger and its

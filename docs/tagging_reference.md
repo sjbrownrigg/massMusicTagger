@@ -159,6 +159,7 @@ paths.
 | `musicbrainz_releaseid` | — | — | ✓† | C | — | `release.id` (UUID) |
 | `musicbrainz_releasegroupid` | — | — | ✓† | C | — | `release-group.id` (UUID) |
 | `releasetype` | — | ✓† | ✓† | C | Inferred from format descriptions via `release_type_map` in `format_codes.yaml` | `release-group.primary-type` |
+| `tagger_source` | — | ✓† | ✓† | C | Which source wrote the tags: `discogs`, `musicbrainz`, or `existing_tags` | same |
 
 ---
 
@@ -243,6 +244,7 @@ Full combined table including all discogstagger3 fields plus massMusicTagger add
 | `musicbrainz_trackid` | `MUSICBRAINZ_TRACKID` | `TXXX:MusicBrainz Recording Id` | `----:com.apple.iTunes:MusicBrainz Recording Id` | `MusicBrainz/Track Id` |
 | `musicbrainz_releasegroupid` | `MUSICBRAINZ_RELEASEGROUPID` | `TXXX:MusicBrainz Release Group Id` | `----:com.apple.iTunes:MusicBrainz Release Group Id` | `MusicBrainz/Release Group Id` |
 | `isrc` | `ISRC` | `TXXX:ISRC` | `----:com.apple.iTunes:ISRC` | `WM/ISRC` |
+| `tagger_source` | `TAGGER_SOURCE` | `TXXX:TAGGER_SOURCE` | `----:com.apple.iTunes:TAGGER_SOURCE` | `WM/TaggerSource` |
 | `freedb_id` | `DISCID` | `TXXX:DiscId` | `----:com.apple.iTunes:DISCID` | `DT/discid` |
 | `amg_id` | `AMGID` | `TXXX:AMGID` | `----:com.apple.iTunes:AMG_ID` | `DT/AmgId` |
 
