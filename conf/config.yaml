@@ -150,6 +150,16 @@ details:
   # %year%, %catno%, %format_code%, %edition%, …) plus:
   #   %current_folder% — original source directory basename (unchanged)
   source_move_template: "%source%/%albumartist%/%current_folder%"
+
+  # Path to the source-format hints file (relative to CWD / massMusicTagger root).
+  # Keyword lists matched case-insensitively against the source folder basename
+  # to infer digital vs vinyl origin.  Applied to both Discogs and MusicBrainz:
+  #   Discogs  — rejects candidates whose medium type conflicts (e.g. vinyl LP
+  #              for a "24 Bit" folder); also suppresses year so remaster
+  #              releases on Discogs can surface beyond the original year.
+  #   MB       — logs a WARNING when matched release format conflicts.
+  # Leave empty to disable.
+  source_hints_file: "conf/source_hints.yaml"
   variousartists: Various
   download_only_cover: true
 

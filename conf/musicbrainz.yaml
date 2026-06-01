@@ -22,11 +22,10 @@ musicbrainz:
   # unreliable.  Requires acoustid_api_key.
   acoustid_early: false
 
-  # Path to the source-format hints file (relative to CWD, typically the
-  # massMusicTagger project root).  Keyword lists in that file are matched
-  # against the source folder name to detect digital vs vinyl origin.
-  # Leave empty to disable format-hint checking.
-  source_hints_file: "conf/source_hints.yaml"
+  # source_hints_file is now under [details] in config.yaml (shared by all sources).
+  # Set details.source_hints_file: "" to disable, or override the path here
+  # (musicbrainz.source_hints_file takes precedence over details.source_hints_file).
+  # source_hints_file: ""
 
   # Disk cache directory.  All cache layers live under this root:
   #   releases/   — full release JSON (incl. track listings)

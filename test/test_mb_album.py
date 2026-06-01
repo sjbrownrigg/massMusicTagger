@@ -442,14 +442,22 @@ class TestVinylFormatNormalisation(unittest.TestCase):
         album = self._album_with_format('12" Vinyl')
         self.assertEqual(album.format_description[0], '12"')
 
-    def test_12_inch_vinyl_produces_correct_format_code(self):
-        """End-to-end: format_base should resolve to 12″ (double prime) not '12\" Vinyl'."""
+    def test_12_inch_vinyl_album_produces_lp_format_code(self):
+        """12" Album → LP: 12" is the standard LP size so no size suffix needed."""
         from discogstagger.formatcodes import load_format_codes, compute_format_code
         album = self._album_with_format('12" Vinyl')
         fc = load_format_codes('conf/format_codes.yaml')
         if fc:  # skip if conf not available in test CWD
             code = compute_format_code(album.format, album.format_description, 1, fc)
-            self.assertEqual(code, '12″')  # U+2033 double prime
+            self.assertEqual(code, 'LP')
+
+    def test_12_inch_vinyl_single_produces_12_inch_format_code(self):
+        """12" Single → 12″: conditional vinyl_sizes fires for non-album release types."""
+        from discogstagger.formatcodes import load_format_codes, compute_format_code
+        fc = load_format_codes('conf/format_codes.yaml')
+        if fc:  # skip if conf not available in test CWD
+            code = compute_format_code('Vinyl', ['12"', 'Single'], 1, fc)
+            self.assertEqual(code, '12″')
 
 
 if __name__ == '__main__':

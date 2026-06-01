@@ -176,8 +176,8 @@ class TestFolderFormatHint(unittest.TestCase):
                          _folder_format_hint('/x/24 Bit Collection/Plain Album', self.HINTS))
 
 
-class TestLoadSourceHints(unittest.TestCase):
-    """_load_source_hints() reads keyword lists from YAML, returns {} on error."""
+class TestDiscogsFmtHintInjection(unittest.TestCase):
+    """Format hint is injected into searcher.search_params before search_discogs()."""
 
     def setUp(self):
         import tempfile
@@ -190,9 +190,94 @@ class TestLoadSourceHints(unittest.TestCase):
     def _make_cfg(self, hints_path=''):
         from discogstagger.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
-        if not cfg.has_section('musicbrainz'):
-            cfg.add_section('musicbrainz')
-        cfg.set('musicbrainz', 'source_hints_file', hints_path)
+        if not cfg.has_section('details'):
+            cfg.add_section('details')
+        cfg.set('details', 'source_hints_file', hints_path)
+        if not cfg.has_section('batch'):
+            cfg.add_section('batch')
+        cfg.set('batch', 'searchdiscogs', 'true')
+        return cfg
+
+    def test_digital_hint_injected_and_year_suppressed(self):
+        import yaml
+        from unittest.mock import MagicMock, patch
+        from massmusictagger.cascade import _try_discogs
+
+        hints_file = os.path.join(self.tmpdir, 'hints.yaml')
+        with open(hints_file, 'w') as f:
+            yaml.dump({'source_hints': {'digital': ['24 Bit'], 'vinyl': []}}, f)
+
+        cfg = self._make_cfg(hints_file)
+        connector = MagicMock()
+        connector.fetch_release = MagicMock(return_value=None)
+
+        searcher = MagicMock()
+        searcher.search_params = {'year': '1974', 'tracks': []}
+        searcher.search_discogs.return_value = None
+
+        folder = os.path.join(self.tmpdir, '1974 - Album (24 Bit Remaster)')
+        os.makedirs(folder)
+
+        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
+             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
+             patch('massmusictagger.cascade._local_audio_count', return_value=0):
+            _try_discogs(folder, cfg, connector, searcher)
+
+        self.assertEqual(searcher.search_params.get('format_hint'), 'digital')
+        self.assertNotIn('year', searcher.search_params)
+
+    def test_no_hint_leaves_year_intact(self):
+        import yaml
+        from unittest.mock import MagicMock, patch
+        from massmusictagger.cascade import _try_discogs
+
+        hints_file = os.path.join(self.tmpdir, 'hints.yaml')
+        with open(hints_file, 'w') as f:
+            yaml.dump({'source_hints': {'digital': ['24 Bit'], 'vinyl': []}}, f)
+
+        cfg = self._make_cfg(hints_file)
+        connector = MagicMock()
+        searcher = MagicMock()
+        searcher.search_params = {'year': '1974', 'tracks': []}
+        searcher.search_discogs.return_value = None
+
+        folder = os.path.join(self.tmpdir, '1974 - Plain Album')
+        os.makedirs(folder)
+
+        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
+             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
+             patch('massmusictagger.cascade._local_audio_count', return_value=0):
+            _try_discogs(folder, cfg, connector, searcher)
+
+        self.assertNotIn('format_hint', searcher.search_params)
+        self.assertEqual(searcher.search_params.get('year'), '1974')
+
+
+class TestLoadSourceHints(unittest.TestCase):
+    """_load_source_hints() reads keyword lists from YAML, returns {} on error.
+
+    _load_source_hints() checks details.source_hints_file first (the canonical
+    location), then musicbrainz.source_hints_file as a backward-compat fallback.
+    Tests must clear details.source_hints_file to avoid the default value in
+    config.yaml from shadowing the test-controlled path.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_cfg(self, hints_path=''):
+        from discogstagger.tagger_config import TaggerConfig
+        cfg = TaggerConfig(MMT_CONFIG)
+        if not cfg.has_section('details'):
+            cfg.add_section('details')
+        cfg.set('details', 'source_hints_file', hints_path)
+        if cfg.has_section('musicbrainz') and cfg.has_option('musicbrainz', 'source_hints_file'):
+            cfg.set('musicbrainz', 'source_hints_file', '')
         return cfg
 
     def test_returns_dict_from_valid_yaml(self):
@@ -213,13 +298,34 @@ class TestLoadSourceHints(unittest.TestCase):
         from massmusictagger.cascade import _load_source_hints
         self.assertEqual(_load_source_hints(self._make_cfg('')), {})
 
-    def test_no_musicbrainz_section_returns_empty(self):
+    def test_no_hints_configured_returns_empty(self):
+        """When neither details nor musicbrainz has a source_hints_file, return {}."""
         from massmusictagger.cascade import _load_source_hints
         from discogstagger.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
-        if cfg.has_section('musicbrainz'):
-            cfg.remove_section('musicbrainz')
+        if cfg.has_section('details') and cfg.has_option('details', 'source_hints_file'):
+            cfg.set('details', 'source_hints_file', '')
+        if cfg.has_section('musicbrainz') and cfg.has_option('musicbrainz', 'source_hints_file'):
+            cfg.set('musicbrainz', 'source_hints_file', '')
         self.assertEqual(_load_source_hints(cfg), {})
+
+    def test_musicbrainz_fallback_used_when_details_empty(self):
+        """musicbrainz.source_hints_file is used when details.source_hints_file is empty."""
+        import yaml
+        from massmusictagger.cascade import _load_source_hints
+        from discogstagger.tagger_config import TaggerConfig
+        cfg = TaggerConfig(MMT_CONFIG)
+        if not cfg.has_section('details'):
+            cfg.add_section('details')
+        cfg.set('details', 'source_hints_file', '')
+        hints_file = os.path.join(self.tmpdir, 'mb_hints.yaml')
+        with open(hints_file, 'w') as f:
+            yaml.dump({'source_hints': {'digital': ['WEB']}}, f)
+        if not cfg.has_section('musicbrainz'):
+            cfg.add_section('musicbrainz')
+        cfg.set('musicbrainz', 'source_hints_file', hints_file)
+        result = _load_source_hints(cfg)
+        self.assertEqual(result, {'digital': ['WEB']})
 
 
 if __name__ == '__main__':
