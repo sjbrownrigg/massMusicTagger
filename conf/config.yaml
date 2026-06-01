@@ -135,6 +135,21 @@ details:
   split_discs_extension: '" (disc%DISNO%)"'
   copy_other_files: false
   done_file: dt.done
+
+  # What to do with the source directory after a successful tag operation.
+  #   done_file — write a marker file and leave the source in place (default)
+  #   remove    — delete the source directory (verifies sorted output first)
+  #   move      — relocate the source directory into an archive tree
+  source_action: done_file
+
+  # Root directory for source_action=move (expand ~ paths).
+  source_archive_dir: ""
+
+  # Path template for source_action=move, relative to source_archive_dir.
+  # Supports all standard format variables (%source%, %albumartist%, %album%,
+  # %year%, %catno%, %format_code%, %edition%, …) plus:
+  #   %current_folder% — original source directory basename (unchanged)
+  source_move_template: "%source%/%albumartist%/%current_folder%"
   variousartists: Various
   download_only_cover: true
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -49,7 +50,8 @@ OUTCOME_DRY_RUN = 'dry_run'
 
 class ProcessingResult:
     __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
-                 'title', 'albumartist', 'elapsed', 'error', 'target_dir')
+                 'title', 'albumartist', 'elapsed', 'error', 'target_dir',
+                 'archive_path')
 
     def __init__(self, sourcedir: str):
         self.sourcedir = sourcedir
@@ -60,6 +62,7 @@ class ProcessingResult:
         self.title: Optional[str] = None
         self.albumartist: Optional[str] = None
         self.target_dir: Optional[str] = None
+        self.archive_path: Optional[str] = None
         self.elapsed: float = 0.0
         self.error: Optional[str] = None
 
@@ -73,10 +76,73 @@ class ProcessingResult:
             'albumartist': self.albumartist,
             'title':       self.title,
             'target_dir':  self.target_dir,
+            'archive_path': self.archive_path,
             'elapsed':     round(self.elapsed, 2),
             'error':       self.error,
             'timestamp':   datetime.now(timezone.utc).isoformat(),
         }
+
+
+def _expand_move_template(template: str, tu, sourcedir: str) -> str:
+    """Expand source_move_template using the full dt3 format variable set.
+
+    %current_folder% is pre-substituted before handing the string to
+    tu._value_from_tag_format(), which handles all other tokens (%source%,
+    %albumartist%, %album%, %year%, …) with char_profile sanitisation.
+    """
+    folder = os.path.basename(sourcedir.rstrip('/\\'))
+    t = template.replace('%current_folder%', folder)
+    return tu._value_from_tag_format(t)
+
+
+def _verify_target_or_raise(target_dir: Optional[str]) -> None:
+    """Raise RuntimeError if the tagged output directory contains no audio files.
+
+    Uses os.walk so multi-disc albums with audio in subdirectories (split_discs)
+    are handled correctly.
+    """
+    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    if not target_dir or not os.path.isdir(target_dir):
+        raise RuntimeError(
+            f'source_action remove/move: target directory not found: {target_dir!r}')
+    for _root, _dirs, files in os.walk(target_dir):
+        if any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files):
+            return
+    raise RuntimeError(
+        f'source_action remove/move: no audio files found in target: {target_dir!r}')
+
+
+def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
+    """Apply source_action (done_file / remove / move) after a successful tag."""
+    action = (cfg.get('details', 'source_action') or 'done_file').lower()
+
+    if action == 'remove':
+        _verify_target_or_raise(result.target_dir)
+        logger.warning('Removing source directory: %s', result.sourcedir)
+        shutil.rmtree(result.sourcedir)
+        return
+
+    if action == 'move':
+        _verify_target_or_raise(result.target_dir)
+        archive_root = os.path.expanduser(
+            cfg.get('details', 'source_archive_dir') or '')
+        if not archive_root:
+            logger.warning(
+                'source_action=move but source_archive_dir is not set '
+                '— falling back to done_file')
+        else:
+            template = (cfg.get('details', 'source_move_template')
+                        or '%source%/%albumartist%/%current_folder%')
+            rel = _expand_move_template(template, tu, result.sourcedir)
+            dest = os.path.join(archive_root, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.move(result.sourcedir, dest)
+            result.archive_path = dest
+            logger.info('Archived source to: %s', dest)
+            return
+
+    # default: done_file
+    fh.create_done_file()
 
 
 class MassProcessor:
@@ -311,7 +377,7 @@ class MassProcessor:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 
             fh.add_replay_gain_tags()
-            fh.create_done_file()
+            _post_process_source(result, cfg, fh, tu)
 
             result.outcome = OUTCOME_OK
 
