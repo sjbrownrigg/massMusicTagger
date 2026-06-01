@@ -42,12 +42,19 @@ _TRACK_TOLERANCE = 2
 _MULTI_ACOUSTID_MIN_SCORE = 0.85   # per-track confidence threshold
 _MULTI_ACOUSTID_COVERAGE  = 0.5    # at least half the tracks must agree
 
+# DiscID validation: at least one of title/artist must reach this score against
+# the file-tag hints.  Lower than _MIN_TITLE_SCORE because the DiscID already
+# provides a hard hash-based constraint; this check only guards against
+# coincidental DiscID collisions on digital (non-CD-rip) files.
+_DISCID_MIN_HINT_SCORE = 50
+
 
 class MBSearch:
     """Searches MusicBrainz for a release given a source directory of audio files."""
 
-    def __init__(self, cfg: 'TaggerConfig'):
+    def __init__(self, cfg: 'TaggerConfig', connector=None):
         self.cfg = cfg
+        self._conn = connector   # MBConnector, used for search result caching
 
         # Check optional fingerprinting library availability once at startup
         # so that per-album skip messages are suppressed — the capability check
@@ -117,6 +124,21 @@ class MBSearch:
         track_count_meta = meta.get('track_count', 0)
         file_artist = meta.get('artist', '')
 
+        # ── Tier 2.5: Early AcoustID (if acoustid_early is configured) ──────
+        # Runs fingerprinting before text search to avoid wrong matches on
+        # popular artists where title scoring alone is unreliable.
+        _acoustid_ran_early = False
+        if audio_files and self._is_acoustid_early():
+            _acoustid_ran_early = True
+            mbid = self._acoustid_single(audio_files[0])
+            if mbid:
+                logger.info('MB tier 2.5 (early AcoustID single): %s', mbid)
+                return mbid
+            mbid = self._acoustid_multi(audio_files)
+            if mbid:
+                logger.info('MB tier 2.5 (early AcoustID multi): %s', mbid)
+                return mbid
+
         # ── Tier 3: Text search (multi-artist fallback) ────────────────────
         # For compilations the file's 'artist' tag is the track artist, not
         # the album artist.  Try the file artist first, then the parent
@@ -140,18 +162,20 @@ class MBSearch:
             return mbid
 
         # ── Tier 5: DiscID (CD TOC hash from file durations) ──────────────
-        mbid = self._discid_search(audio_files)
+        mbid = self._discid_search(audio_files,
+                                   artist_hint=file_artist,
+                                   album_hint=album_name)
         if mbid:
             return mbid
 
         # ── Tier 6: Single-track AcoustID ─────────────────────────────────
-        if audio_files:
+        if audio_files and not _acoustid_ran_early:
             mbid = self._acoustid_single(audio_files[0])
             if mbid:
                 return mbid
 
         # ── Tier 7: Multi-track AcoustID ──────────────────────────────────
-        if audio_files:
+        if audio_files and not _acoustid_ran_early:
             mbid = self._acoustid_multi(audio_files)
             if mbid:
                 return mbid
@@ -182,6 +206,17 @@ class MBSearch:
         if not artist or not album:
             logger.debug('MB tier 3: skipped — missing artist or album')
             return None
+
+        # Search result cache — keyed by artist+album+track_count.
+        # Caches both hits (MBID string) and misses (None) so repeated searches
+        # for unmatched albums don't hit the API on every run.
+        _cache_key = f'text:{artist}|{album}|{track_count}'
+        if self._conn is not None and self._conn._cache_search:
+            _raw = self._conn._load_json(self._conn._search_path(_cache_key))
+            if _raw is not None:   # key exists in cache (may be {"mbid": null})
+                logger.debug('MB tier 3: search cache hit for %r/%r', artist, album)
+                return _raw.get('mbid')
+
         logger.info('MB tier 3: text search — artist=%r album=%r tracks=%d',
                     artist, album, track_count)
         try:
@@ -239,6 +274,10 @@ class MBSearch:
                         '' if has_date else ', no date')
         else:
             logger.info('MB tier 3: no confident text match')
+
+        if self._conn is not None and self._conn._cache_search:
+            self._conn.save_search(_cache_key, best_mbid)
+
         return best_mbid
 
     # ── Tier 4: Barcode ───────────────────────────────────────────────────
@@ -259,6 +298,14 @@ class MBSearch:
             return None
 
         barcode_clean = barcode.replace(' ', '').replace('-', '')
+
+        _cache_key = f'barcode:{barcode_clean}'
+        if self._conn is not None and self._conn._cache_search:
+            _raw = self._conn._load_json(self._conn._search_path(_cache_key))
+            if _raw is not None:
+                logger.debug('MB tier 4: barcode cache hit for %s', barcode_clean)
+                return _raw.get('mbid')
+
         logger.info('MB tier 4: barcode search — %s', barcode_clean)
         try:
             result = musicbrainzngs.search_releases(barcode=barcode_clean, limit=5)
@@ -267,13 +314,15 @@ class MBSearch:
             return None
 
         releases = result.get('release-list', [])
-        if releases:
-            mbid = releases[0].get('id')
+        mbid = releases[0].get('id') if releases else None
+        if mbid:
             logger.info('MB tier 4: barcode matched release %s', mbid)
-            return mbid
+        else:
+            logger.info('MB tier 4: barcode %s not found in MusicBrainz', barcode_clean)
 
-        logger.info('MB tier 4: barcode %s not found in MusicBrainz', barcode_clean)
-        return None
+        if self._conn is not None and self._conn._cache_search:
+            self._conn.save_search(_cache_key, mbid)
+        return mbid
 
     @staticmethod
     def _read_barcode_tag(sourcedir: str) -> Optional[str]:
@@ -288,7 +337,8 @@ class MBSearch:
 
     # ── Tier 5: DiscID ────────────────────────────────────────────────────
 
-    def _discid_search(self, audio_files: list[str]) -> Optional[str]:
+    def _discid_search(self, audio_files: list[str],
+                       artist_hint: str = '', album_hint: str = '') -> Optional[str]:
         """Tier 5: Construct a MusicBrainz DiscID from audio file durations
         and look it up.
 
@@ -297,6 +347,13 @@ class MBSearch:
         reliable for **exact CD rips** where file durations match the original
         CD sectors precisely.  For re-encodes or vinyl rips the hash will not
         match any database entry.
+
+        artist_hint / album_hint — file-tag values used to validate the match.
+        When a DiscID hit is found, the matched release's artist and title are
+        compared against these hints.  If neither reaches _DISCID_MIN_HINT_SCORE
+        the match is rejected as a false positive.  This guards against
+        coincidental DiscID collisions on single-track digital (non-CD-rip) files,
+        where the low-entropy hash can match unrelated releases.
 
         Requires: discid  (pip install massmusictagger[discid])
         System library: libdiscid  (apt install libdiscid0)
@@ -356,6 +413,34 @@ class MBSearch:
                 releases = result.get('release-list', [])
             if releases:
                 mbid = releases[0].get('id')
+                # Validate against file-tag hints to reject false positives.
+                # DiscID collisions are rare for multi-track CDs but happen
+                # often enough for single-track digital files (low-entropy hash).
+                if artist_hint or album_hint:
+                    matched_title  = releases[0].get('title', '')
+                    matched_artist = releases[0].get('artist-credit-phrase', '')
+                    if not matched_artist:
+                        ac = releases[0].get('artist-credit') or []
+                        if ac and isinstance(ac[0], dict):
+                            matched_artist = (
+                                ac[0].get('artist', {}).get('name', '') or ''
+                            )
+                    scores: list[float] = []
+                    if album_hint and matched_title:
+                        scores.append(fuzz.token_sort_ratio(
+                            album_hint.lower(), matched_title.lower()))
+                    if artist_hint and matched_artist:
+                        scores.append(fuzz.token_sort_ratio(
+                            artist_hint.lower(), matched_artist.lower()))
+                    if scores and max(scores) < _DISCID_MIN_HINT_SCORE:
+                        logger.warning(
+                            'MB tier 5: DiscID matched %s (%r by %r) '
+                            'but title/artist similarity too low (max=%.0f) '
+                            'for expected %r / %r — rejecting false match',
+                            mbid, matched_title, matched_artist, max(scores),
+                            album_hint, artist_hint,
+                        )
+                        return None
                 logger.info('MB tier 5: DiscID matched release %s', mbid)
                 return mbid
         except musicbrainzngs.ResponseError:
@@ -499,6 +584,13 @@ class MBSearch:
         except Exception as exc:
             logger.debug('MB track-count validation failed for %s: %s', mbid, exc)
             return True   # fail open: trust the MBID rather than silently dropping it
+
+    def _is_acoustid_early(self) -> bool:
+        """Return True when AcoustID should run before text search."""
+        try:
+            return self.cfg.getboolean('musicbrainz', 'acoustid_early')
+        except Exception:
+            return False
 
     def _acoustid_api_key(self) -> Optional[str]:
         try:

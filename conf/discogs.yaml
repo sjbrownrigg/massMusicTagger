@@ -23,3 +23,12 @@ source:
   discogs: discogs_id
   amg:     amg_id
   local:   discogs_id
+
+# ── Discogs cache (managed by discogstagger3) ─────────────────────────────────
+# Cache directory is set via the top-level 'cache.directory' key (see config.yaml).
+# Layout under that directory:
+#   releases/   — full release JSON
+#   images/     — downloaded cover art (keyed by URL hash)
+#   master_versions/ — ordered version IDs for a master release
+#   searches/   — search result IDs (keyed by query hash)
+# All layers are enabled when cache.directory is set and disabled when empty.

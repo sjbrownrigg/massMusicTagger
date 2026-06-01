@@ -53,12 +53,24 @@ base_formats:
 
 
 # ── Step 2: vinyl size descriptions (only applied when base_format = "Vinyl") ─
-# These override "LP" when the size is explicitly listed in descriptions.
+# vinyl_sizes:            applied unconditionally (7", 10" are non-standard sizes
+#                         that always communicate useful information).
+# vinyl_sizes_conditional: applied only when a non-album release type is present.
+#                         12" is the standard LP size, so 12" + Album = LP.
+# vinyl_non_album_types:  descriptions that trigger the conditional sizes.
 
 vinyl_sizes:
   7":   7″     # ″ = double prime U+2033  (safe in filenames)
   10":  10″
-  12":  12″
+
+vinyl_sizes_conditional:
+  12":  12″    # 12" Single/EP/Maxi-Single → 12″; 12" Album → LP
+
+vinyl_non_album_types:
+  - Single
+  - EP
+  - Maxi-Single
+  - Mini-Album
 
 
 # ── Step 3: quantity ─────────────────────────────────────────────────────────

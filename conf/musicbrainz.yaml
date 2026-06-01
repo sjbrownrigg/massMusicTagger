@@ -16,5 +16,35 @@ musicbrainz:
   # Leave empty to skip AcoustID tiers.
   acoustid_api_key: ""
 
-  # Disk cache directory for MusicBrainz release JSON.
+  # Run AcoustID fingerprinting before text search (tiers 6-7 are skipped
+  # when this fires).  Costs fpcalc CPU + AcoustID network call on every
+  # album; most effective for popular artists where title scoring is
+  # unreliable.  Requires acoustid_api_key.
+  acoustid_early: false
+
+  # Path to the source-format hints file (relative to CWD, typically the
+  # massMusicTagger project root).  Keyword lists in that file are matched
+  # against the source folder name to detect digital vs vinyl origin.
+  # Leave empty to disable format-hint checking.
+  source_hints_file: "conf/source_hints.yaml"
+
+  # Disk cache directory.  All cache layers live under this root:
+  #   releases/   — full release JSON (incl. track listings)
+  #   caa/        — Cover Art Archive image index per release
+  #   images/     — downloaded CAA image files (keyed by URL hash)
+  #   searches/   — text and barcode search results (keyed by query hash)
   cache_directory: "~/.cache/massmusictagger/mb"
+
+  # Delay between Cover Art Archive requests (seconds).
+  # The Internet Archive applies IP-based rate limits; a small pause keeps
+  # requests within safe bounds and prevents your IP being throttled.
+  # Increase if you see "rate-limited (429)" warnings in the log.
+  # Set to 0 to disable (only safe when batch.workers = 1 and cache is warm).
+  caa_request_delay: 0.5
+
+  # Cache control — set any flag to false to always re-fetch that layer.
+  # Useful when you want to pick up updated metadata without clearing the
+  # whole cache: set cache_metadata: false for one run, then re-enable.
+  cache_metadata: true   # release JSON + CAA image index
+  cache_images:   true   # downloaded Cover Art Archive image files
+  cache_search:   true   # text search and barcode search result MBIDs

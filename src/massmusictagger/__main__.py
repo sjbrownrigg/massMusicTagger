@@ -69,17 +69,35 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _setup_logging(verbose: bool, log_file: str | None = None) -> None:
     level = logging.DEBUG if verbose else logging.INFO
-    fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    datefmt = '%Y-%m-%d %H:%M:%S'
+    full_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    datefmt  = '%Y-%m-%d %H:%M:%S'
 
-    logging.basicConfig(level=level, format=fmt, datefmt=datefmt)
+    # Use RichHandler for console output so log messages are queued by Rich
+    # and rendered cleanly above the progress bar rather than interleaving.
+    from rich.logging import RichHandler
+    from massmusictagger.processor import console as _console
+    rich_handler = RichHandler(
+        level=level,
+        console=_console,        # same console used by the progress bar
+        show_time=True,
+        show_path=False,
+        markup=False,
+        rich_tracebacks=False,
+    )
+    logging.basicConfig(
+        level=level,
+        format='%(message)s',    # RichHandler adds its own timestamp/level
+        datefmt=datefmt,
+        handlers=[rich_handler],
+        force=True,              # override any handlers added by imported libs
+    )
 
     if log_file:
         log_file = os.path.expanduser(log_file)
         os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
         fh = logging.FileHandler(log_file, encoding='utf-8')
-        fh.setLevel(level)
-        fh.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+        fh.setLevel(logging.DEBUG)   # file always captures DEBUG for troubleshooting
+        fh.setFormatter(logging.Formatter(full_fmt, datefmt=datefmt))
         logging.getLogger().addHandler(fh)
         logging.getLogger(__name__).info('Logging to file: %s', log_file)
 
@@ -161,13 +179,19 @@ def _default_config_path() -> str:
     return candidate
 
 
-def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
-    """Return a flat list of audio source directories to process.
+def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tuple[list[str], int]:
+    """Return (dirs_to_process, n_ignored).
 
-    Delegates directly to discogstagger3's FileUtils.get_audio_dirs() and
-    FileUtils.walk_dir_tree(), which already handle:
-      • CD/Disc subdirectory detection via regex (Liberty/CD1/, Liberty/CD2/ → Liberty/)
-      • Automatic skipping of already-processed albums (done_file present)
+    dirs_to_process — flat list of audio directories to tag.
+    n_ignored       — count of directories that already have a done file and
+                      were silently excluded before reaching the processor.
+                      Directories that DO reach the processor but are skipped
+                      there (e.g. id.txt albums) are NOT counted here —
+                      they appear in the processor's own SKIPPED results.
+
+    Delegates to discogstagger3's FileUtils for:
+      • CD/Disc subdirectory detection (Liberty/CD1/ → Liberty/)
+      • done_file exclusion (get_audio_dirs skips them)
       • CUE directory exclusion
     """
     source_dir = sourcedir_arg or cfg.get('common', 'source_dir') or None
@@ -187,10 +211,8 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
     searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                      if cfg.has_option('batch', 'searchdiscogs') else False)
 
-    # Minimal stub — FileUtils only reads .forceUpdate in read_id_file(), not
-    # in the scanning methods we use here.
     class _FakeOptions:
-        forceUpdate = False
+        forceUpdate = force   # when --force, walk past existing .done markers
         releaseid = None
 
     fu = FileUtils(cfg, _FakeOptions())
@@ -203,10 +225,10 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
     has_id_here = id_file in files_here
 
     if has_audio_here and not has_id_here and not searchdiscogs:
-        return [source_dir]
+        return [source_dir], 0
 
     if has_audio_here and has_id_here:
-        return [source_dir]
+        return [source_dir], 0
 
     # Walk for id.txt directories (highest priority).
     id_dirs = fu.walk_dir_tree(source_dir, id_file)
@@ -214,7 +236,8 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
         id_dirs = [source_dir] + id_dirs
 
     if not searchdiscogs:
-        return id_dirs if id_dirs else ([source_dir] if has_audio_here else [])
+        dirs = id_dirs if id_dirs else ([source_dir] if has_audio_here else [])
+        return dirs, _count_ignored(source_dir, dirs, cfg, force)
 
     # searchdiscogs=true: also include audio dirs without an ancestor id.txt.
     # FileUtils.get_audio_dirs() handles CD1/CD2 multi-disc layouts internally
@@ -228,7 +251,29 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None) -> list[str]:
             for id_d in id_dir_set
         )
     ]
-    return id_dirs + orphan_audio
+    dirs = id_dirs + orphan_audio
+    return dirs, _count_ignored(source_dir, dirs, cfg, force)
+
+
+def _count_ignored(source_dir: str, source_dirs: list[str], cfg, force: bool) -> int:
+    """Count album directories excluded because they already have a done file.
+
+    Only counts directories that are NOT already in source_dirs (those go
+    through the processor and are reported as OUTCOME_SKIPPED there).
+    Directories at the top of a known CD1/CD2 tree are counted once.
+    """
+    if force:
+        return 0
+    done_file = cfg.get('details', 'done_file') or 'dt.done'
+    src_set = {os.path.normpath(d) for d in source_dirs}
+    n = 0
+    for root, dirs, files in os.walk(source_dir, topdown=True):
+        if root == source_dir:
+            continue
+        if done_file in files and os.path.normpath(root) not in src_set:
+            n += 1
+            dirs[:] = []   # don't descend — done dir's children are part of this album
+    return n
 
 
 def _undo(dir_path: str, cfg) -> None:
@@ -340,17 +385,25 @@ def main(argv: list[str] | None = None) -> None:
     if opts.watch:
         _watch_mode(opts, cfg, processor)
     else:
-        source_dirs = _get_source_dirs(cfg, opts.sourcedir)
+        source_dirs, n_ignored = _get_source_dirs(cfg, opts.sourcedir, force=opts.force)
         if not source_dirs:
-            logger.warning('No audio source directories found')
+            if n_ignored:
+                logger.info('All %d album(s) already tagged — nothing to do', n_ignored)
+            else:
+                logger.warning('No audio source directories found')
             return
-        logger.info('Processing %d director%s with source=%s, workers=%d%s',
+        from massmusictagger.cascade import _get_priority
+        _priority = _get_priority(cfg)
+        _ignored_note = f', {n_ignored} previously tagged' if n_ignored else ''
+        _flags = (' [DRY RUN]' if opts.dry_run else '') + (' [FORCE]' if opts.force else '')
+        logger.info('Processing %d director%s%s | source priority: %s | workers=%d%s',
                     len(source_dirs),
                     'y' if len(source_dirs) == 1 else 'ies',
-                    cfg.get('source', 'name') or 'auto',
+                    _ignored_note,
+                    ' → '.join(_priority) or 'auto',
                     workers,
-                    ' [DRY RUN]' if opts.dry_run else '')
-        processor.process_all(source_dirs)
+                    _flags)
+        processor.process_all(source_dirs, n_ignored=n_ignored)
 
 
 def _watch_mode(opts, cfg, processor) -> None:
@@ -379,12 +432,12 @@ def _watch_mode(opts, cfg, processor) -> None:
 
     try:
         while True:
-            source_dirs = _get_source_dirs(cfg, source_root)
+            source_dirs, n_ignored = _get_source_dirs(cfg, source_root)
             new_dirs = [d for d in source_dirs if d not in processed]
             if new_dirs:
                 logger.info('Found %d new director%s to process',
                             len(new_dirs), 'y' if len(new_dirs) == 1 else 'ies')
-                processor.process_all(new_dirs)
+                processor.process_all(new_dirs, n_ignored=n_ignored)
                 processed.update(new_dirs)
             time.sleep(poll_interval)
     except KeyboardInterrupt:

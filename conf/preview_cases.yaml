@@ -1,0 +1,190 @@
+# Format string preview test cases.
+# Run: python format_preview.py [--watch]
+#
+# format_strings: what to evaluate for each case.
+#   - Section names from [file-formatting] (dir, song, va_song, nfo, m3u)
+#   - Raw format strings: "%albumartist%/[%year%] %album%"
+#   - Custom variable references: "%__format_desc__%"
+#
+# cases: metadata values to inject.
+#   Required: name, format, descriptions, artist, title, year
+#   Optional: catno, label, disctotal (default 1), status (default Official),
+#             source (default discogs), releasetype (default Album),
+#             is_compilation (default false), track_title, disc_title,
+#             codec (default flac), quality, genres, styles
+
+format_strings:
+  - dir
+  - song
+  - "%__format_desc__%"
+  - "%__type_abbr__%"
+  - discs
+
+cases:
+  - name: "CD Album"
+    format: CD
+    descriptions: [Album]
+    artist: "Test Artist"
+    title: "Test Album"
+    year: "2020"
+    catno: "TEST-001"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Album
+
+  - name: "CD Single"
+    format: CD
+    descriptions: [Single]
+    artist: "Test Artist"
+    title: "Test Single"
+    year: "2023"
+    catno: "TEST-S01"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Single
+
+  - name: "Double CD Album"
+    format: CD
+    descriptions: [Album]
+    artist: "Test Artist"
+    title: "Test Double Album"
+    year: "2019"
+    catno: "TEST-DCD"
+    disctotal: 2
+    status: Official
+    source: discogs
+    releasetype: Album
+
+  - name: "LP Album (Vinyl)"
+    format: Vinyl
+    descriptions: ["12\"", Album]
+    artist: "Test Artist"
+    title: "Test LP"
+    year: "2021"
+    catno: "TEST-LP"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Album
+
+  - name: "12-inch Single (Vinyl)"
+    format: Vinyl
+    descriptions: ["12\"", Single]
+    artist: "Test Artist"
+    title: "Test Single"
+    year: "2023"
+    catno: "TEST-12S"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Single
+
+  - name: "12-inch Maxi-Single (Vinyl)"
+    format: Vinyl
+    descriptions: ["12\"", Maxi-Single]
+    artist: "Test Artist"
+    title: "Test Maxi"
+    year: "2022"
+    catno: "TEST-12M"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Maxi-Single
+
+  - name: "12-inch EP (Vinyl)"
+    format: Vinyl
+    descriptions: ["12\"", EP]
+    artist: "Test Artist"
+    title: "Test EP"
+    year: "2022"
+    catno: "TEST-12EP"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: EP
+
+  - name: "7-inch Single (Vinyl)"
+    format: Vinyl
+    descriptions: ["7\"", Single]
+    artist: "Test Artist"
+    title: "Test 7-inch"
+    year: "2020"
+    catno: "TEST-7S"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Single
+
+  - name: "7-inch EP (Vinyl)"
+    format: Vinyl
+    descriptions: ["7\"", EP]
+    artist: "Test Artist"
+    title: "Test 7-inch EP"
+    year: "2020"
+    catno: "TEST-7EP"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: EP
+
+  - name: "Digital Album (FLAC)"
+    format: File
+    descriptions: [Album, FLAC]
+    artist: "Test Artist"
+    title: "Test Digital Album"
+    year: "2021"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Album
+    codec: flac
+    quality: lossless
+
+  - name: "Digital Single"
+    format: File
+    descriptions: [Single, FLAC]
+    artist: "Test Artist"
+    title: "Test Digital Single"
+    year: "2023"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Single
+    codec: flac
+
+  - name: "Digital Compilation"
+    format: File
+    descriptions: [Album, Compilation, FLAC]
+    artist: Various
+    title: "Test Compilation"
+    year: "2021"
+    disctotal: 1
+    status: Official
+    source: discogs
+    releasetype: Album
+    is_compilation: true
+
+  - name: "MusicBrainz 12-inch Vinyl"
+    format: Vinyl
+    descriptions: ["12\"", Album]
+    artist: "Test Artist"
+    title: "Test MB LP"
+    year: "2021"
+    disctotal: 1
+    status: Official
+    source: musicbrainz
+    releasetype: Album
+
+  - name: "Limited CD (Bootleg)"
+    format: CD
+    descriptions: [Album, "Limited Edition"]
+    artist: "Test Artist"
+    title: "Test Bootleg"
+    year: "2018"
+    catno: "BOOT-001"
+    disctotal: 1
+    status: Bootleg
+    source: discogs
+    releasetype: Album

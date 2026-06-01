@@ -86,6 +86,7 @@ class MusicBrainzAlbum:
         # Normalise MB "Promotional" → "Promo" to match Discogs vocabulary
         _raw_status = r.get('status', '') or ''
         album.status = 'Promo' if _raw_status.lower() == 'promotional' else _raw_status
+        album.source = 'musicbrainz'
 
         # MusicBrainz records format in two separate places (both are needed):
         #
@@ -99,12 +100,25 @@ class MusicBrainzAlbum:
         # consistent with Discogs (e.g. 'CD', 'Vinyl') rather than 'Album'/'Single'.
         rg = r.get('release-group', {})
         medium_list = r.get('medium-list', [])
-        album.format = (medium_list[0].get('format', '') if medium_list else '') or ''
+        _raw_fmt = (medium_list[0].get('format', '') if medium_list else '') or ''
         release_type = rg.get('primary-type') or rg.get('type', '') or ''
         secondary_types = list(rg.get('secondary-type-list') or [])
+
+        # MB compound vinyl formats like '12" Vinyl', '7" Vinyl', '10" Vinyl'.
+        # Normalise to base='Vinyl' + prepend the size descriptor so that
+        # format_codes.yaml vinyl_sizes lookup fires identically to Discogs.
+        _vinyl_size_m = re.match(r'^(\d+")\s+Vinyl$', _raw_fmt)
+        if _vinyl_size_m:
+            album.format = 'Vinyl'
+            _vinyl_size = [_vinyl_size_m.group(1)]
+        else:
+            album.format = _raw_fmt
+            _vinyl_size = []
+
         # format_description mirrors Discogs: physical descriptors like 'Compilation', 'Live'.
-        # Prepend the release type so it's available via %format_description% if needed.
-        album.format_description = ([release_type] if release_type else []) + secondary_types
+        # Prepend vinyl size (if any) then release type so both are available via
+        # %format_description% and compute_format_code sees the size for vinyl_sizes lookup.
+        album.format_description = _vinyl_size + ([release_type] if release_type else []) + secondary_types
 
         # MB provides release type cleanly — no inference needed.
         album.release_type = release_type or 'Album'

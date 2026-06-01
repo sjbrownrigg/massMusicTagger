@@ -138,5 +138,89 @@ class TestIdTxtReader(unittest.TestCase):
         self.assertIsNone(self._read())
 
 
+# ── Source format hints ────────────────────────────────────────────────────────
+
+class TestFolderFormatHint(unittest.TestCase):
+    """_folder_format_hint() classifies a folder by keyword matching."""
+
+    HINTS = {'digital': ['24 Bit', 'Remaster'], 'vinyl': ['Vinyl Rip']}
+
+    def test_digital_keyword_matched(self):
+        from massmusictagger.cascade import _folder_format_hint
+        self.assertEqual('digital',
+                         _folder_format_hint('/x/Artist/2020 - Album (24 Bit)', self.HINTS))
+
+    def test_vinyl_keyword_matched(self):
+        from massmusictagger.cascade import _folder_format_hint
+        self.assertEqual('vinyl',
+                         _folder_format_hint('/x/Artist/Album Vinyl Rip', self.HINTS))
+
+    def test_no_match_returns_empty(self):
+        from massmusictagger.cascade import _folder_format_hint
+        self.assertEqual('',
+                         _folder_format_hint('/x/Artist/Plain Album', self.HINTS))
+
+    def test_empty_hints_returns_empty(self):
+        from massmusictagger.cascade import _folder_format_hint
+        self.assertEqual('', _folder_format_hint('/x/any', {}))
+
+    def test_case_insensitive(self):
+        from massmusictagger.cascade import _folder_format_hint
+        self.assertEqual('digital',
+                         _folder_format_hint('/x/24 bit album', self.HINTS))
+
+    def test_uses_basename_only(self):
+        """Keyword in a parent directory component is not matched."""
+        from massmusictagger.cascade import _folder_format_hint
+        self.assertEqual('',
+                         _folder_format_hint('/x/24 Bit Collection/Plain Album', self.HINTS))
+
+
+class TestLoadSourceHints(unittest.TestCase):
+    """_load_source_hints() reads keyword lists from YAML, returns {} on error."""
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_cfg(self, hints_path=''):
+        from discogstagger.tagger_config import TaggerConfig
+        cfg = TaggerConfig(MMT_CONFIG)
+        if not cfg.has_section('musicbrainz'):
+            cfg.add_section('musicbrainz')
+        cfg.set('musicbrainz', 'source_hints_file', hints_path)
+        return cfg
+
+    def test_returns_dict_from_valid_yaml(self):
+        import yaml
+        from massmusictagger.cascade import _load_source_hints
+        hints_file = os.path.join(self.tmpdir, 'hints.yaml')
+        with open(hints_file, 'w') as f:
+            yaml.dump({'source_hints': {'digital': ['WEB'], 'vinyl': ['Vinyl Rip']}}, f)
+        result = _load_source_hints(self._make_cfg(hints_file))
+        self.assertEqual(result, {'digital': ['WEB'], 'vinyl': ['Vinyl Rip']})
+
+    def test_missing_file_returns_empty(self):
+        from massmusictagger.cascade import _load_source_hints
+        result = _load_source_hints(self._make_cfg('/nonexistent/hints.yaml'))
+        self.assertEqual(result, {})
+
+    def test_empty_path_returns_empty(self):
+        from massmusictagger.cascade import _load_source_hints
+        self.assertEqual(_load_source_hints(self._make_cfg('')), {})
+
+    def test_no_musicbrainz_section_returns_empty(self):
+        from massmusictagger.cascade import _load_source_hints
+        from discogstagger.tagger_config import TaggerConfig
+        cfg = TaggerConfig(MMT_CONFIG)
+        if cfg.has_section('musicbrainz'):
+            cfg.remove_section('musicbrainz')
+        self.assertEqual(_load_source_hints(cfg), {})
+
+
 if __name__ == '__main__':
     unittest.main()

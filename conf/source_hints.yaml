@@ -1,0 +1,30 @@
+# Folder-name keywords used to infer the likely source format before
+# making API calls.  Matching is case-insensitive substring search on
+# the source folder's basename.  First matching list wins.
+#
+# When a keyword matches and the matched MB release's medium format
+# conflicts, a WARNING is logged.  The match is still used — this is
+# an audit signal, not a hard rejection.
+#
+# Override by creating conf/source_hints_personal.yaml (gitignored)
+# and pointing musicbrainz.source_hints_file at it.
+
+source_hints:
+  digital:
+    - "24 Bit"
+    - "24bit"
+    - "24-Bit"
+    - "Remaster"
+    - "Remastered"
+    - "WEB"
+    - "Hi-Res"
+    - "Hi Res"
+    - "HDTRACKS"
+    - "96kHz"
+    - "88.2kHz"
+    - "192kHz"
+  vinyl:
+    - "Vinyl Rip"
+    - "VinylRip"
+    - "Needle Drop"
+    - "Phono"

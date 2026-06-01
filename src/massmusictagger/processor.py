@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -27,6 +28,19 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 console = Console(stderr=True)
 
+
+def _is_ebusy(exc: BaseException) -> bool:
+    """Return True if exc or any chained cause is OSError(EBUSY=16)."""
+    import errno as _errno
+    seen: set[int] = set()
+    e: BaseException | None = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if isinstance(e, OSError) and e.errno == _errno.EBUSY:
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
 # Outcome constants written to the audit log
 OUTCOME_OK      = 'ok'
 OUTCOME_FAILED  = 'failed'
@@ -36,7 +50,8 @@ OUTCOME_DRY_RUN = 'dry_run'
 
 class ProcessingResult:
     __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
-                 'title', 'elapsed', 'error', 'target_dir')
+                 'title', 'albumartist', 'elapsed', 'error', 'target_dir',
+                 'archive_path')
 
     def __init__(self, sourcedir: str):
         self.sourcedir = sourcedir
@@ -45,7 +60,9 @@ class ProcessingResult:
         self.release_id: Optional[str] = None
         self.release_url: Optional[str] = None
         self.title: Optional[str] = None
+        self.albumartist: Optional[str] = None
         self.target_dir: Optional[str] = None
+        self.archive_path: Optional[str] = None
         self.elapsed: float = 0.0
         self.error: Optional[str] = None
 
@@ -56,12 +73,76 @@ class ProcessingResult:
             'source':      self.source,
             'release_id':  self.release_id,
             'release_url': self.release_url,
+            'albumartist': self.albumartist,
             'title':       self.title,
             'target_dir':  self.target_dir,
+            'archive_path': self.archive_path,
             'elapsed':     round(self.elapsed, 2),
             'error':       self.error,
             'timestamp':   datetime.now(timezone.utc).isoformat(),
         }
+
+
+def _expand_move_template(template: str, tu, sourcedir: str) -> str:
+    """Expand source_move_template using the full dt3 format variable set.
+
+    %current_folder% is pre-substituted before handing the string to
+    tu._value_from_tag_format(), which handles all other tokens (%source%,
+    %albumartist%, %album%, %year%, …) with char_profile sanitisation.
+    """
+    folder = os.path.basename(sourcedir.rstrip('/\\'))
+    t = template.replace('%current_folder%', folder)
+    return tu._value_from_tag_format(t)
+
+
+def _verify_target_or_raise(target_dir: Optional[str]) -> None:
+    """Raise RuntimeError if the tagged output directory contains no audio files.
+
+    Uses os.walk so multi-disc albums with audio in subdirectories (split_discs)
+    are handled correctly.
+    """
+    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    if not target_dir or not os.path.isdir(target_dir):
+        raise RuntimeError(
+            f'source_action remove/move: target directory not found: {target_dir!r}')
+    for _root, _dirs, files in os.walk(target_dir):
+        if any(f.lower().endswith(AUDIO_EXTENSIONS) for f in files):
+            return
+    raise RuntimeError(
+        f'source_action remove/move: no audio files found in target: {target_dir!r}')
+
+
+def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
+    """Apply source_action (done_file / remove / move) after a successful tag."""
+    action = (cfg.get('details', 'source_action') or 'done_file').lower()
+
+    if action == 'remove':
+        _verify_target_or_raise(result.target_dir)
+        logger.warning('Removing source directory: %s', result.sourcedir)
+        shutil.rmtree(result.sourcedir)
+        return
+
+    if action == 'move':
+        _verify_target_or_raise(result.target_dir)
+        archive_root = os.path.expanduser(
+            cfg.get('details', 'source_archive_dir') or '')
+        if not archive_root:
+            logger.warning(
+                'source_action=move but source_archive_dir is not set '
+                '— falling back to done_file')
+        else:
+            template = (cfg.get('details', 'source_move_template')
+                        or '%source%/%albumartist%/%current_folder%')
+            rel = _expand_move_template(template, tu, result.sourcedir)
+            dest = os.path.join(archive_root, rel)
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.move(result.sourcedir, dest)
+            result.archive_path = dest
+            logger.info('Archived source to: %s', dest)
+            return
+
+    # default: done_file
+    fh.create_done_file()
 
 
 class MassProcessor:
@@ -118,11 +199,11 @@ class MassProcessor:
         if any(s in priority for s in ('musicbrainz', 'auto')):
             try:
                 self._mb_conn = make_mb_connector(cfg)
-                self._mb_search = make_mb_search(cfg)
+                self._mb_search = make_mb_search(cfg, connector=self._mb_conn)
             except ImportError:
                 logger.warning('MusicBrainz adapter not available — skipping MB path')
 
-    def process_all(self, source_dirs: list[str]) -> list[ProcessingResult]:
+    def process_all(self, source_dirs: list[str], n_ignored: int = 0) -> list[ProcessingResult]:
         """Process all directories, returning a list of results."""
         results: list[ProcessingResult] = []
 
@@ -146,7 +227,7 @@ class MassProcessor:
                         progress.advance(task)
 
         self._write_audit_log(results)
-        self._print_summary(results)
+        self._print_summary(results, n_ignored=n_ignored)
         return results
 
     def _process_one(self, sourcedir: str, **_) -> ProcessingResult:
@@ -192,6 +273,7 @@ class MassProcessor:
             result.release_id = str(album.id)
             result.release_url = getattr(album, 'url', None) or None
             result.title = album.title
+            result.albumartist = getattr(album, 'artist', None)
 
             # Log the matched release clearly — mirrors discogstagger3's
             # "Found release ID / Tagging album" log line, gives a clickable
@@ -295,14 +377,24 @@ class MassProcessor:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 
             fh.add_replay_gain_tags()
-            fh.create_done_file()
+            _post_process_source(result, cfg, fh, tu)
 
             result.outcome = OUTCOME_OK
 
         except Exception as exc:
-            logger.error('Failed to process %s: %s', sourcedir, exc, exc_info=True)
+            if _is_ebusy(exc):
+                logger.warning(
+                    'Cannot tag %s — a file in the output directory is locked by another '
+                    'process (EBUSY).  The files have been copied but tags were not written.  '
+                    'Close any media player or file manager pointing at that folder, then '
+                    'delete the output directory and retry.',
+                    os.path.basename(sourcedir.rstrip('/\\')),
+                )
+                result.error = 'File locked by another process (EBUSY)'
+            else:
+                logger.error('Failed to process %s: %s', sourcedir, exc, exc_info=True)
+                result.error = str(exc)
             result.outcome = OUTCOME_FAILED
-            result.error = str(exc)
 
         result.elapsed = time.monotonic() - t0
         return result
@@ -447,22 +539,68 @@ class MassProcessor:
         return None
 
     @staticmethod
-    def _print_summary(results: list[ProcessingResult]) -> None:
-        ok = sum(1 for r in results if r.outcome == OUTCOME_OK)
-        failed = sum(1 for r in results if r.outcome == OUTCOME_FAILED)
+    def _print_summary(results: list[ProcessingResult], n_ignored: int = 0) -> None:
+        ok      = sum(1 for r in results if r.outcome == OUTCOME_OK)
+        failed  = sum(1 for r in results if r.outcome == OUTCOME_FAILED)
         skipped = sum(1 for r in results if r.outcome == OUTCOME_SKIPPED)
-        dry = sum(1 for r in results if r.outcome == OUTCOME_DRY_RUN)
-        total = len(results)
+        dry     = sum(1 for r in results if r.outcome == OUTCOME_DRY_RUN)
+        total   = len(results)
+
+        # 'ignored' = albums excluded before processing (done file, no id.txt).
+        # 'skipped' = albums that reached the processor but were skipped (done file or review reject).
+        ignored_part = f'  [dim]{n_ignored} ignored[/]' if n_ignored else ''
         console.print(
             f'\n[bold]Summary:[/] {total} processed — '
-            f'[green]{ok} ok[/]  [red]{failed} failed[/]  '
-            f'[yellow]{skipped} skipped[/]  [dim]{dry} dry-run[/]'
+            f'[green]{ok} tagged[/]  [yellow]{skipped} skipped[/]  '
+            f'[red]{failed} failed[/]  [dim]{dry} dry-run[/]{ignored_part}'
         )
-        if failed:
-            console.print('[red]Failed directories:[/]')
-            for r in results:
-                if r.outcome == OUTCOME_FAILED:
-                    console.print(f'  [red]{r.sourcedir}[/]: {r.error}')
+
+        # Detailed per-album table — one row per processed directory.
+        tbl = Table(show_header=True, header_style='bold', box=None,
+                    show_edge=False, pad_edge=False, padding=(0, 1))
+        tbl.add_column('',         width=2,  no_wrap=True)   # outcome icon
+        tbl.add_column('Artist – Title',     no_wrap=False, overflow='fold')
+        tbl.add_column('Source',   width=14, no_wrap=True)
+        tbl.add_column('ID / URL',           no_wrap=False, overflow='fold')
+
+        # Outcome → (icon, style)
+        _style = {
+            OUTCOME_OK:      ('✓', 'green'),
+            OUTCOME_FAILED:  ('✗', 'red'),
+            OUTCOME_SKIPPED: ('–', 'yellow'),
+            OUTCOME_DRY_RUN: ('○', 'dim'),
+        }
+
+        _source_colour = {
+            'discogs':       'cyan',
+            'musicbrainz':  'blue',
+            'existing_tags': 'dim',
+        }
+
+        for r in results:
+            icon, style = _style.get(r.outcome, ('?', ''))
+            if r.title:
+                label = f'{r.albumartist} – {r.title}' if r.albumartist else r.title
+            else:
+                import os as _os
+                label = _os.path.basename(r.sourcedir.rstrip('/\\'))
+
+            source_str = r.source or '—'
+            sc = _source_colour.get(source_str, '')
+            source_fmt = f'[{sc}]{source_str}[/]' if sc else source_str
+
+            # Prefer release URL; fall back to bare ID
+            id_str = r.release_url or r.release_id or '—'
+
+            error_suffix = f'  [red dim]{r.error}[/]' if r.error else ''
+            tbl.add_row(
+                f'[{style}]{icon}[/]',
+                f'[{style}]{label}[/]{error_suffix}',
+                source_fmt,
+                f'[dim]{id_str}[/]',
+            )
+
+        console.print(tbl)
 
 
 def _make_progress(total: int) -> Progress:

@@ -243,6 +243,109 @@ class TestDiscIDTier(unittest.TestCase):
         # total sectors: 4650 + 120*75 = 13650
         self.assertEqual(captured.get('sectors'), 13650)
 
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_false_match_rejected_by_hints(self, mb):
+        """DiscID hit is discarded when both title and artist score below threshold.
+
+        Reproduces the Ohota/Changes → Chicken false-positive seen in production:
+        a 1-track digital file computed the same DiscID as an unrelated CD rip.
+        """
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{
+                    'id': _FAKE_MBID,
+                    'title': 'Chicken',
+                    'artist-credit-phrase': 'The Eighties Matchbox B-Line Disaster',
+                }],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(
+                    fake_files, artist_hint='Ohota', album_hint='Changes'
+                )
+        self.assertIsNone(result)
+
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_artist_match_accepts_hit(self, mb):
+        """DiscID hit is kept when artist score clears the threshold."""
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{
+                    'id': _FAKE_MBID,
+                    'title': 'Completely Different Title',
+                    'artist-credit-phrase': 'Ohota',
+                }],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(
+                    fake_files, artist_hint='Ohota', album_hint='Changes'
+                )
+        self.assertEqual(result, _FAKE_MBID)
+
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_artist_credit_fallback_path(self, mb):
+        """artist-credit list is used when artist-credit-phrase is absent."""
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{
+                    'id': _FAKE_MBID,
+                    'title': 'Chicken',
+                    'artist-credit': [{'artist': {'name': 'The Eighties Matchbox B-Line Disaster'}}],
+                    # no artist-credit-phrase key
+                }],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(
+                    fake_files, artist_hint='Ohota', album_hint='Changes'
+                )
+        self.assertIsNone(result)
+
+    @patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs')
+    def test_discid_no_hints_skips_validation(self, mb):
+        """When no hints are supplied the DiscID match is accepted unconditionally."""
+        mb.get_releases_by_discid.return_value = {
+            'disc': {
+                'id': self.FAKE_DISC_ID,
+                'release-list': [{'id': _FAKE_MBID, 'title': 'Unrelated Album'}],
+            }
+        }
+        fake_files = ['/fake/01.flac']
+        search = _make_search(discid=True)
+        with patch(
+            'massmusictagger.sources.musicbrainz.search.MediaFile',
+            side_effect=[_make_mock_mf(240.0)],
+        ):
+            fake_discid_lib = _make_mock_discid_lib(self.FAKE_DISC_ID)
+            with patch.dict('sys.modules', {'discid': fake_discid_lib}):
+                result = search._discid_search(fake_files)   # no hints
+        self.assertEqual(result, _FAKE_MBID)
+
 
 # ── Tier 7: Multi-track AcoustID ─────────────────────────────────────────────
 
@@ -350,6 +453,85 @@ class TestMultiTrackAcoustID(unittest.TestCase):
         # Test that we don't crash rather than pinning the result.
         # (If you want strict >50%, adjust _MULTI_ACOUSTID_COVERAGE to 0.51)
         self.assertIsNotNone(result)  # one of the two releases wins
+
+
+# ── Tier 2.5: Early AcoustID ─────────────────────────────────────────────────
+
+class TestAcoustIDEarly(unittest.TestCase):
+    """acoustid_early moves fingerprinting before text search."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    _META = {'files': ['/f/01.flac'], 'album': 'Test', 'track_count': 1, 'artist': 'A'}
+
+    def test_early_flag_false_by_default(self):
+        search = _make_search(acoustid=True)
+        self.assertFalse(search._is_acoustid_early())
+
+    def test_early_flag_true_when_configured(self):
+        search = _make_search(acoustid=True, **{'musicbrainz.acoustid_early': 'true'})
+        self.assertTrue(search._is_acoustid_early())
+
+    def test_acoustid_fires_before_text_search_when_early(self):
+        """Early AcoustID returns MBID; text search is never called."""
+        search = _make_search(acoustid=True, **{
+            'musicbrainz.acoustid_api_key': 'TESTKEY',
+            'musicbrainz.acoustid_early': 'true',
+        })
+        with patch('massmusictagger.sources.musicbrainz.search._read_directory_metadata',
+                   return_value=self._META), \
+             patch('massmusictagger.sources.musicbrainz.search._read_id_txt',
+                   return_value=None), \
+             patch.object(search, '_read_existing_releaseid_tag', return_value=None), \
+             patch.object(search, '_acoustid_single', return_value=_FAKE_MBID) as mock_asingle, \
+             patch.object(search, '_text_search', return_value=None) as mock_text:
+            result = search.search(self.tmpdir)
+        self.assertEqual(result, _FAKE_MBID)
+        mock_asingle.assert_called_once()
+        mock_text.assert_not_called()
+
+    def test_tiers_6_7_skipped_when_early_ran(self):
+        """When early AcoustID ran (returning None), tiers 6-7 are not repeated."""
+        meta = {'files': ['/f/01.flac', '/f/02.flac'], 'album': 'T', 'track_count': 2, 'artist': 'A'}
+        search = _make_search(acoustid=True, **{
+            'musicbrainz.acoustid_api_key': 'TESTKEY',
+            'musicbrainz.acoustid_early': 'true',
+        })
+        with patch('massmusictagger.sources.musicbrainz.search._read_directory_metadata',
+                   return_value=meta), \
+             patch('massmusictagger.sources.musicbrainz.search._read_id_txt',
+                   return_value=None), \
+             patch.object(search, '_read_existing_releaseid_tag', return_value=None), \
+             patch.object(search, '_acoustid_single', return_value=None) as mock_asingle, \
+             patch.object(search, '_acoustid_multi', return_value=None) as mock_amulti, \
+             patch.object(search, '_text_search', return_value=None), \
+             patch.object(search, '_barcode_search', return_value=None), \
+             patch.object(search, '_discid_search', return_value=None):
+            search.search(self.tmpdir)
+        self.assertEqual(mock_asingle.call_count, 1)  # early only, not again at tier 6
+        self.assertEqual(mock_amulti.call_count, 1)   # early only, not again at tier 7
+
+    def test_tiers_6_7_still_run_when_early_flag_false(self):
+        """Without acoustid_early, AcoustID runs only at tiers 6-7."""
+        search = _make_search(acoustid=True, **{
+            'musicbrainz.acoustid_api_key': 'TESTKEY',
+        })
+        with patch('massmusictagger.sources.musicbrainz.search._read_directory_metadata',
+                   return_value=self._META), \
+             patch('massmusictagger.sources.musicbrainz.search._read_id_txt',
+                   return_value=None), \
+             patch.object(search, '_read_existing_releaseid_tag', return_value=None), \
+             patch.object(search, '_acoustid_single', return_value=_FAKE_MBID) as mock_asingle, \
+             patch.object(search, '_text_search', return_value=None), \
+             patch.object(search, '_barcode_search', return_value=None), \
+             patch.object(search, '_discid_search', return_value=None):
+            result = search.search(self.tmpdir)
+        self.assertEqual(result, _FAKE_MBID)
+        self.assertEqual(mock_asingle.call_count, 1)  # tier 6 only
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
