@@ -196,6 +196,28 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                              if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
                 searcher.getSearchParams(sourcedir)
+
+                # ── Source format hint ─────────────────────────────────────
+                # Infer digital/vinyl origin from folder-name keywords and
+                # inject into search_params so _compareRelease() can reject
+                # format-conflicting candidates (e.g. vinyl LP for a 24-bit
+                # remaster folder).  When the hint is "digital" the year is
+                # also suppressed: the original album year (e.g. 1974) would
+                # restrict results to 1974 pressings (all vinyl), bypassing
+                # the actual remaster release on Discogs.
+                _fmt_hint = _folder_format_hint(sourcedir, _load_source_hints(cfg))
+                if _fmt_hint:
+                    searcher.search_params['format_hint'] = _fmt_hint
+                    if _fmt_hint == 'digital':
+                        _yr = searcher.search_params.pop('year', None)
+                        if _yr:
+                            logger.debug(
+                                'Format hint "digital": suppressed year %s '
+                                'from Discogs search so remaster releases can '
+                                'surface (folder: %s)',
+                                _yr, os.path.basename(sourcedir),
+                            )
+
                 raw = searcher.search_discogs()
                 if raw is not None:
                     try:
@@ -218,11 +240,21 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
 
 
 def _load_source_hints(cfg) -> dict:
-    """Return source_hints dict from the configured YAML file, or {}."""
-    try:
-        path = (cfg.get('musicbrainz', 'source_hints_file') or '').strip()
-    except Exception:
-        return {}
+    """Return source_hints dict from the configured YAML file, or {}.
+
+    Tries details.source_hints_file first (shared by all sources), then
+    musicbrainz.source_hints_file for backward compatibility.
+    """
+    path = ''
+    for section, key in (('details', 'source_hints_file'),
+                          ('musicbrainz', 'source_hints_file')):
+        try:
+            p = (cfg.get(section, key) or '').strip()
+            if p:
+                path = p
+                break
+        except Exception:
+            pass
     if not path:
         return {}
     path = os.path.normpath(os.path.expanduser(path))

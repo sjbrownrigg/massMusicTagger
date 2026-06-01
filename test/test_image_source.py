@@ -38,9 +38,13 @@ def _make_cfg(**overrides):
 class TestFetchImageList(unittest.TestCase):
 
     def _connector(self):
+        from pathlib import Path
         from massmusictagger.sources.musicbrainz.connector import MBConnector
         conn = MBConnector.__new__(MBConnector)
-        conn._cache_dir = '/tmp'
+        conn._cache_root = Path('/tmp/test_mbt_cache')
+        conn._cache_meta = False
+        conn._cache_images = False
+        conn._caa_delay = 0
         return conn
 
     def _mock_caa_response(self, images):
@@ -112,9 +116,9 @@ class TestFetchImageList(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_404_returns_empty_list(self):
-        import requests
         resp = MagicMock()
-        resp.raise_for_status.side_effect = requests.HTTPError('404')
+        resp.status_code = 404
+        resp.ok = False
         conn = self._connector()
         with patch('requests.get', return_value=resp):
             result = conn.fetch_image_list(_MBID)
