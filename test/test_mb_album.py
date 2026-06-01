@@ -404,5 +404,53 @@ class TestArtistCredit(unittest.TestCase):
         self.assertIn('M83', album.artists)
 
 
+class TestVinylFormatNormalisation(unittest.TestCase):
+    """MB compound vinyl format strings are normalised to Vinyl + size descriptor."""
+
+    def _album_with_format(self, mb_format: str) -> object:
+        r = _minimal_release()
+        r['medium-list'][0]['format'] = mb_format
+        return MusicBrainzAlbum(r).map()
+
+    def test_12_inch_vinyl_format_normalised(self):
+        album = self._album_with_format('12" Vinyl')
+        self.assertEqual(album.format, 'Vinyl')
+        self.assertIn('12"', album.format_description)
+
+    def test_7_inch_vinyl_format_normalised(self):
+        album = self._album_with_format('7" Vinyl')
+        self.assertEqual(album.format, 'Vinyl')
+        self.assertIn('7"', album.format_description)
+
+    def test_10_inch_vinyl_format_normalised(self):
+        album = self._album_with_format('10" Vinyl')
+        self.assertEqual(album.format, 'Vinyl')
+        self.assertIn('10"', album.format_description)
+
+    def test_plain_vinyl_unchanged(self):
+        album = self._album_with_format('Vinyl')
+        self.assertEqual(album.format, 'Vinyl')
+        self.assertNotIn('7"', album.format_description)
+        self.assertNotIn('12"', album.format_description)
+
+    def test_cd_format_unchanged(self):
+        album = self._album_with_format('CD')
+        self.assertEqual(album.format, 'CD')
+
+    def test_vinyl_size_precedes_release_type_in_format_description(self):
+        """Size descriptor sits first so compute_format_code desc_set lookup works."""
+        album = self._album_with_format('12" Vinyl')
+        self.assertEqual(album.format_description[0], '12"')
+
+    def test_12_inch_vinyl_produces_correct_format_code(self):
+        """End-to-end: format_base should resolve to 12″ (double prime) not '12\" Vinyl'."""
+        from discogstagger.formatcodes import load_format_codes, compute_format_code
+        album = self._album_with_format('12" Vinyl')
+        fc = load_format_codes('conf/format_codes.yaml')
+        if fc:  # skip if conf not available in test CWD
+            code = compute_format_code(album.format, album.format_description, 1, fc)
+            self.assertEqual(code, '12″')  # U+2033 double prime
+
+
 if __name__ == '__main__':
     unittest.main()
