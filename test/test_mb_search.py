@@ -455,6 +455,85 @@ class TestMultiTrackAcoustID(unittest.TestCase):
         self.assertIsNotNone(result)  # one of the two releases wins
 
 
+# ── Tier 2.5: Early AcoustID ─────────────────────────────────────────────────
+
+class TestAcoustIDEarly(unittest.TestCase):
+    """acoustid_early moves fingerprinting before text search."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    _META = {'files': ['/f/01.flac'], 'album': 'Test', 'track_count': 1, 'artist': 'A'}
+
+    def test_early_flag_false_by_default(self):
+        search = _make_search(acoustid=True)
+        self.assertFalse(search._is_acoustid_early())
+
+    def test_early_flag_true_when_configured(self):
+        search = _make_search(acoustid=True, **{'musicbrainz.acoustid_early': 'true'})
+        self.assertTrue(search._is_acoustid_early())
+
+    def test_acoustid_fires_before_text_search_when_early(self):
+        """Early AcoustID returns MBID; text search is never called."""
+        search = _make_search(acoustid=True, **{
+            'musicbrainz.acoustid_api_key': 'TESTKEY',
+            'musicbrainz.acoustid_early': 'true',
+        })
+        with patch('massmusictagger.sources.musicbrainz.search._read_directory_metadata',
+                   return_value=self._META), \
+             patch('massmusictagger.sources.musicbrainz.search._read_id_txt',
+                   return_value=None), \
+             patch.object(search, '_read_existing_releaseid_tag', return_value=None), \
+             patch.object(search, '_acoustid_single', return_value=_FAKE_MBID) as mock_asingle, \
+             patch.object(search, '_text_search', return_value=None) as mock_text:
+            result = search.search(self.tmpdir)
+        self.assertEqual(result, _FAKE_MBID)
+        mock_asingle.assert_called_once()
+        mock_text.assert_not_called()
+
+    def test_tiers_6_7_skipped_when_early_ran(self):
+        """When early AcoustID ran (returning None), tiers 6-7 are not repeated."""
+        meta = {'files': ['/f/01.flac', '/f/02.flac'], 'album': 'T', 'track_count': 2, 'artist': 'A'}
+        search = _make_search(acoustid=True, **{
+            'musicbrainz.acoustid_api_key': 'TESTKEY',
+            'musicbrainz.acoustid_early': 'true',
+        })
+        with patch('massmusictagger.sources.musicbrainz.search._read_directory_metadata',
+                   return_value=meta), \
+             patch('massmusictagger.sources.musicbrainz.search._read_id_txt',
+                   return_value=None), \
+             patch.object(search, '_read_existing_releaseid_tag', return_value=None), \
+             patch.object(search, '_acoustid_single', return_value=None) as mock_asingle, \
+             patch.object(search, '_acoustid_multi', return_value=None) as mock_amulti, \
+             patch.object(search, '_text_search', return_value=None), \
+             patch.object(search, '_barcode_search', return_value=None), \
+             patch.object(search, '_discid_search', return_value=None):
+            search.search(self.tmpdir)
+        self.assertEqual(mock_asingle.call_count, 1)  # early only, not again at tier 6
+        self.assertEqual(mock_amulti.call_count, 1)   # early only, not again at tier 7
+
+    def test_tiers_6_7_still_run_when_early_flag_false(self):
+        """Without acoustid_early, AcoustID runs only at tiers 6-7."""
+        search = _make_search(acoustid=True, **{
+            'musicbrainz.acoustid_api_key': 'TESTKEY',
+        })
+        with patch('massmusictagger.sources.musicbrainz.search._read_directory_metadata',
+                   return_value=self._META), \
+             patch('massmusictagger.sources.musicbrainz.search._read_id_txt',
+                   return_value=None), \
+             patch.object(search, '_read_existing_releaseid_tag', return_value=None), \
+             patch.object(search, '_acoustid_single', return_value=_FAKE_MBID) as mock_asingle, \
+             patch.object(search, '_text_search', return_value=None), \
+             patch.object(search, '_barcode_search', return_value=None), \
+             patch.object(search, '_discid_search', return_value=None):
+            result = search.search(self.tmpdir)
+        self.assertEqual(result, _FAKE_MBID)
+        self.assertEqual(mock_asingle.call_count, 1)  # tier 6 only
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_mock_mf(duration):

@@ -217,6 +217,45 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
         return None
 
 
+def _load_source_hints(cfg) -> dict:
+    """Return source_hints dict from the configured YAML file, or {}."""
+    try:
+        path = (cfg.get('musicbrainz', 'source_hints_file') or '').strip()
+    except Exception:
+        return {}
+    if not path:
+        return {}
+    path = os.path.normpath(os.path.expanduser(path))
+    try:
+        import yaml as _yaml
+        with open(path, encoding='utf-8') as f:
+            data = _yaml.safe_load(f) or {}
+        return data.get('source_hints', {})
+    except FileNotFoundError:
+        logger.debug('source_hints_file not found: %s', path)
+        return {}
+    except Exception as exc:
+        logger.warning('Failed to load source hints from %s: %s', path, exc)
+        return {}
+
+
+def _folder_format_hint(sourcedir: str, hints: dict) -> str:
+    """Return 'digital', 'vinyl', or '' based on folder name keywords."""
+    if not hints:
+        return ''
+    folder = os.path.basename(sourcedir.rstrip('/\\'))
+    folder_lower = folder.lower()
+    for kw in hints.get('digital', []):
+        if str(kw).lower() in folder_lower:
+            logger.debug("Format hint 'digital' matched keyword %r in %r", kw, folder)
+            return 'digital'
+    for kw in hints.get('vinyl', []):
+        if str(kw).lower() in folder_lower:
+            logger.debug("Format hint 'vinyl' matched keyword %r in %r", kw, folder)
+            return 'vinyl'
+    return ''
+
+
 def _try_musicbrainz(sourcedir, cfg, connector, searcher,
                      release_id_override=None) -> Optional[tuple]:
     """Return (raw_release, mbid) or None.
@@ -268,7 +307,31 @@ def _try_musicbrainz(sourcedir, cfg, connector, searcher,
                             'skipping (malformed MB data?)', mbid,
                         )
                     else:
-                        logger.info('MusicBrainz: matched release %s for %s', mbid, sourcedir)
+                        # Format hint check — warn when folder clues conflict
+                        # with matched medium format (audit signal, not rejection).
+                        _fmt_hint = _folder_format_hint(
+                            sourcedir, _load_source_hints(cfg))
+                        if _fmt_hint:
+                            _mediums = [m.get('format', '').lower()
+                                        for m in raw.get('medium-list', [])]
+                            _is_vinyl   = any('vinyl'   in f for f in _mediums)
+                            _is_digital = any('digital' in f for f in _mediums)
+                            if _fmt_hint == 'digital' and _is_vinyl:
+                                logger.warning(
+                                    'Format hint mismatch: folder suggests digital '
+                                    'but MB release %s contains vinyl media — '
+                                    'consider setting an id.txt override (folder: %s)',
+                                    mbid, os.path.basename(sourcedir),
+                                )
+                            elif _fmt_hint == 'vinyl' and _is_digital:
+                                logger.warning(
+                                    'Format hint mismatch: folder suggests vinyl '
+                                    'but MB release %s contains digital media '
+                                    '(folder: %s)',
+                                    mbid, os.path.basename(sourcedir),
+                                )
+                        logger.info('MusicBrainz: matched release %s for %s',
+                                    mbid, sourcedir)
                         return raw, mbid
                 # mismatch or no artist → fall through (existing_tags will organise)
 

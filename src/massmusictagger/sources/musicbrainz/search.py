@@ -124,6 +124,21 @@ class MBSearch:
         track_count_meta = meta.get('track_count', 0)
         file_artist = meta.get('artist', '')
 
+        # ── Tier 2.5: Early AcoustID (if acoustid_early is configured) ──────
+        # Runs fingerprinting before text search to avoid wrong matches on
+        # popular artists where title scoring alone is unreliable.
+        _acoustid_ran_early = False
+        if audio_files and self._is_acoustid_early():
+            _acoustid_ran_early = True
+            mbid = self._acoustid_single(audio_files[0])
+            if mbid:
+                logger.info('MB tier 2.5 (early AcoustID single): %s', mbid)
+                return mbid
+            mbid = self._acoustid_multi(audio_files)
+            if mbid:
+                logger.info('MB tier 2.5 (early AcoustID multi): %s', mbid)
+                return mbid
+
         # ── Tier 3: Text search (multi-artist fallback) ────────────────────
         # For compilations the file's 'artist' tag is the track artist, not
         # the album artist.  Try the file artist first, then the parent
@@ -154,13 +169,13 @@ class MBSearch:
             return mbid
 
         # ── Tier 6: Single-track AcoustID ─────────────────────────────────
-        if audio_files:
+        if audio_files and not _acoustid_ran_early:
             mbid = self._acoustid_single(audio_files[0])
             if mbid:
                 return mbid
 
         # ── Tier 7: Multi-track AcoustID ──────────────────────────────────
-        if audio_files:
+        if audio_files and not _acoustid_ran_early:
             mbid = self._acoustid_multi(audio_files)
             if mbid:
                 return mbid
@@ -569,6 +584,13 @@ class MBSearch:
         except Exception as exc:
             logger.debug('MB track-count validation failed for %s: %s', mbid, exc)
             return True   # fail open: trust the MBID rather than silently dropping it
+
+    def _is_acoustid_early(self) -> bool:
+        """Return True when AcoustID should run before text search."""
+        try:
+            return self.cfg.getboolean('musicbrainz', 'acoustid_early')
+        except Exception:
+            return False
 
     def _acoustid_api_key(self) -> Optional[str]:
         try:
