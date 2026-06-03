@@ -313,6 +313,26 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     opts = parser.parse_args(argv)
 
+    # Show help when invoked with no arguments and no persistent source_dir
+    # is configured — avoids a confusing error about missing source directory.
+    if (not opts.sourcedir and not opts.watch and not opts.undo):
+        config_path = opts.config or _default_config_path()
+        if os.path.exists(config_path):
+            try:
+                from discogstagger.tagger_config import TaggerConfig
+                _cfg = TaggerConfig(config_path)
+                _has_source = bool(
+                    _cfg.has_option('common', 'source_dir')
+                    and (_cfg.get('common', 'source_dir') or '').strip()
+                )
+            except Exception:
+                _has_source = False
+        else:
+            _has_source = False
+        if not _has_source:
+            parser.print_help()
+            sys.exit(0)
+
     config_path = opts.config or _default_config_path()
     if not os.path.exists(config_path):
         # Can't log this yet — print directly and exit
