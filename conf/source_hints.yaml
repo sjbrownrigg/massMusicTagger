@@ -1,21 +1,25 @@
-# Folder-name keywords used to infer the likely source format before
-# making API calls.  Matching is case-insensitive substring search on
-# the source folder's basename.  First matching list wins.
+# Folder-name keywords used to infer the likely source format or edition
+# before making API calls.  Matching is case-insensitive substring search on
+# the source folder's basename.
 #
-# When a keyword matches and the matched MB release's medium format
-# conflicts, a WARNING is logged.  The match is still used — this is
-# an audit signal, not a hard rejection.
+# digital / vinyl — hard format gate: releases whose medium type conflicts
+#   with the detected hint are rejected outright in _compareRelease().
+#   Only use keywords that unambiguously imply a specific medium.
+#
+# descriptor_boost — soft scoring signal: when a keyword is matched,
+#   Discogs candidates whose descriptions contain a matching keyword receive
+#   a score bonus, improving their rank without rejecting non-matching ones.
+#   Use for edition/mastering qualifiers that apply across medium types
+#   (e.g. "Remastered" is equally valid on CD or vinyl).
 #
 # Override by creating conf/source_hints_personal.yaml (gitignored)
-# and pointing musicbrainz.source_hints_file at it.
+# and pointing details.source_hints_file at it.
 
 source_hints:
   digital:
     - "24 Bit"
     - "24bit"
     - "24-Bit"
-    - "Remaster"
-    - "Remastered"
     - "WEB"
     - "Hi-Res"
     - "Hi Res"
@@ -28,3 +32,8 @@ source_hints:
     - "VinylRip"
     - "Needle Drop"
     - "Phono"
+  descriptor_boost:
+    - "Remaster"
+    - "Remastered"
+    - "Live"
+    - "Deluxe"

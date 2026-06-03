@@ -205,7 +205,8 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                 # also suppressed: the original album year (e.g. 1974) would
                 # restrict results to 1974 pressings (all vinyl), bypassing
                 # the actual remaster release on Discogs.
-                _fmt_hint = _folder_format_hint(sourcedir, _load_source_hints(cfg))
+                _hints = _load_source_hints(cfg)
+                _fmt_hint = _folder_format_hint(sourcedir, _hints)
                 if _fmt_hint:
                     searcher.search_params['format_hint'] = _fmt_hint
                     if _fmt_hint == 'digital':
@@ -217,6 +218,9 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                                 'surface (folder: %s)',
                                 _yr, os.path.basename(sourcedir),
                             )
+                _desc_hints = _folder_descriptor_hints(sourcedir, _hints)
+                if _desc_hints:
+                    searcher.search_params['descriptor_hints'] = _desc_hints
 
                 raw = searcher.search_discogs()
                 if raw is not None:
@@ -286,6 +290,25 @@ def _folder_format_hint(sourcedir: str, hints: dict) -> str:
             logger.debug("Format hint 'vinyl' matched keyword %r in %r", kw, folder)
             return 'vinyl'
     return ''
+
+
+def _folder_descriptor_hints(sourcedir: str, hints: dict) -> list:
+    """Return descriptor_boost keywords matched in the folder name.
+
+    Unlike format hints (which hard-reject mismatched releases), these are
+    passed to the Discogs searcher as a soft scoring signal: candidates whose
+    Discogs descriptions include a matched keyword receive a ranking bonus.
+    """
+    if not hints:
+        return []
+    folder = os.path.basename(sourcedir.rstrip('/\\'))
+    folder_lower = folder.lower()
+    matched = []
+    for kw in hints.get('descriptor_boost', []):
+        if str(kw).lower() in folder_lower:
+            logger.debug("Descriptor hint %r matched in %r", kw, folder)
+            matched.append(kw)
+    return matched
 
 
 def _try_musicbrainz(sourcedir, cfg, connector, searcher,
