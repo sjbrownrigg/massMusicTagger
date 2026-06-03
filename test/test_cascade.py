@@ -141,9 +141,14 @@ class TestIdTxtReader(unittest.TestCase):
 # ── Source format hints ────────────────────────────────────────────────────────
 
 class TestFolderFormatHint(unittest.TestCase):
-    """_folder_format_hint() classifies a folder by keyword matching."""
+    """_folder_format_hint() classifies a folder by keyword matching.
 
-    HINTS = {'digital': ['24 Bit', 'Remaster'], 'vinyl': ['Vinyl Rip']}
+    Note: 'Remaster'/'Remastered' are NOT in the digital hints — they live in
+    descriptor_boost because remasters exist on vinyl too.  Only keywords that
+    unambiguously imply a specific medium belong in digital/vinyl.
+    """
+
+    HINTS = {'digital': ['24 Bit'], 'vinyl': ['Vinyl Rip']}
 
     def test_digital_keyword_matched(self):
         from massmusictagger.cascade import _folder_format_hint
@@ -251,6 +256,48 @@ class TestDiscogsFmtHintInjection(unittest.TestCase):
 
         self.assertNotIn('format_hint', searcher.search_params)
         self.assertEqual(searcher.search_params.get('year'), '1974')
+
+
+class TestFolderDescriptorHints(unittest.TestCase):
+    """_folder_descriptor_hints() returns matched descriptor_boost keywords."""
+
+    HINTS = {'descriptor_boost': ['Remaster', 'Remastered', 'Live']}
+
+    def test_remastered_matched(self):
+        from massmusictagger.cascade import _folder_descriptor_hints
+        result = _folder_descriptor_hints('/x/Artist/2002 - Album (Remastered)', self.HINTS)
+        self.assertIn('Remastered', result)
+
+    def test_live_matched(self):
+        from massmusictagger.cascade import _folder_descriptor_hints
+        result = _folder_descriptor_hints('/x/Artist/Album Live At Carnegie Hall', self.HINTS)
+        self.assertIn('Live', result)
+
+    def test_no_match_returns_empty_list(self):
+        from massmusictagger.cascade import _folder_descriptor_hints
+        result = _folder_descriptor_hints('/x/Artist/Plain Album', self.HINTS)
+        self.assertEqual(result, [])
+
+    def test_empty_hints_returns_empty_list(self):
+        from massmusictagger.cascade import _folder_descriptor_hints
+        self.assertEqual(_folder_descriptor_hints('/x/any', {}), [])
+
+    def test_multiple_keywords_all_returned(self):
+        from massmusictagger.cascade import _folder_descriptor_hints
+        result = _folder_descriptor_hints('/x/Artist/Album Live (Remastered)', self.HINTS)
+        self.assertIn('Remastered', result)
+        self.assertIn('Live', result)
+
+    def test_uses_basename_only(self):
+        from massmusictagger.cascade import _folder_descriptor_hints
+        result = _folder_descriptor_hints('/x/Remastered Collection/Plain Album', self.HINTS)
+        self.assertEqual(result, [])
+
+    def test_remaster_no_longer_a_digital_format_hint(self):
+        """Remaster belongs in descriptor_boost, not digital — it applies to vinyl too."""
+        from massmusictagger.cascade import _folder_format_hint
+        digital_only_hints = {'digital': ['24 Bit', 'WEB'], 'vinyl': ['Vinyl Rip']}
+        self.assertEqual('', _folder_format_hint('/x/Album (Remastered)', digital_only_hints))
 
 
 class TestLoadSourceHints(unittest.TestCase):
