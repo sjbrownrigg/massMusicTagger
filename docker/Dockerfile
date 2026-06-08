@@ -1,12 +1,14 @@
 FROM python:3.12-slim
 
 # ── OS dependencies ────────────────────────────────────────────────────────────
+# git        — required by pip to install massmusictagger from a git+https URL
 # ffmpeg     — audio decoding, ReplayGain (r128gain wraps it), CUE splitting
 # shntool    — CUE sheet splitting (fallback for non-FLAC)
 # flac       — FLAC encoding/decoding
 # libdiscid0 — DiscID computation (Tier 5 of MusicBrainz search; optional)
 # libchromaprint-tools — fpcalc binary for AcoustID fingerprinting (Tier 6/7; optional)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
     ffmpeg \
     shntool \
     flac \
