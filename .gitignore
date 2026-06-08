@@ -8,3 +8,5 @@ build/
 *.log
 conf/*_personal.yaml
 conf/*_personal.ini
+docker/.env
+docker/docker-compose.override.yml
