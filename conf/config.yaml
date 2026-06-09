@@ -102,8 +102,8 @@ details:
   embed_coverart: true
   image_policy: prefer_larger
   char_profile: linux
-  char_substitutions: conf/char_substitutions.yaml
-  format_codes: conf/format_codes.yaml
+  char_substitutions: ""
+  format_codes: ""
   path_sep_replacement: ""
   control_replacement: ""
   use_style: false
