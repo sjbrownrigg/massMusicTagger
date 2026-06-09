@@ -498,7 +498,7 @@ def _read_existing_discogs_id_tag(sourcedir: str) -> Optional[str]:
     try:
         from discogstagger.mediafile_ext import MediaFile
         for f in sorted(os.listdir(sourcedir)):
-            if f.lower().endswith(AUDIO_EXTENSIONS):
+            if f.lower().endswith(AUDIO_EXTENSIONS) and os.path.isfile(os.path.join(sourcedir, f)):
                 mf = MediaFile(os.path.join(sourcedir, f))
                 did = getattr(mf, 'discogs_id', None)
                 if did:
@@ -587,6 +587,7 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     audio_files = sorted(
         f for f in os.listdir(sourcedir)
         if f.lower().endswith(AUDIO_EXTENSIONS)
+        and os.path.isfile(os.path.join(sourcedir, f))
     )
     if not audio_files:
         logger.warning('existing_tags: no audio files in %s', sourcedir)

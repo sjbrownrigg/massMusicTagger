@@ -94,12 +94,17 @@ def _setup_logging(verbose: bool, log_file: str | None = None) -> None:
 
     if log_file:
         log_file = os.path.expanduser(log_file)
-        os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
-        fh = logging.FileHandler(log_file, encoding='utf-8')
-        fh.setLevel(logging.DEBUG)   # file always captures DEBUG for troubleshooting
-        fh.setFormatter(logging.Formatter(full_fmt, datefmt=datefmt))
-        logging.getLogger().addHandler(fh)
-        logging.getLogger(__name__).info('Logging to file: %s', log_file)
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+            fh = logging.FileHandler(log_file, encoding='utf-8')
+            fh.setLevel(logging.DEBUG)   # file always captures DEBUG for troubleshooting
+            fh.setFormatter(logging.Formatter(full_fmt, datefmt=datefmt))
+            logging.getLogger().addHandler(fh)
+            logging.getLogger(__name__).info('Logging to file: %s', log_file)
+        except OSError as exc:
+            logging.getLogger(__name__).warning(
+                'Could not set up log file %s (%s) — logging to console only', log_file, exc
+            )
 
     # musicbrainzngs logs INFO for every unrecognised XML attribute in the MB
     # API response (e.g. 'uncaught attribute type-id').  These are harmless

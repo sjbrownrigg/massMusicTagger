@@ -30,6 +30,8 @@ common:
 source:
 # ─────────────────────────────────────────────────────────────────────────────
 
+  # Try Discogs first (id.txt or search), then MusicBrainz, then organise from
+  # existing tags if neither API returns a confident match.
   priority:
     - discogs
     - musicbrainz
@@ -42,19 +44,21 @@ details:
   keep_original: true
   embed_coverart: true
   image_policy: prefer_larger
+  image_source: musicbrainz
 
-  # linux profile: no character substitutions (filenames stored on NFS)
-  # Use 'windows' if your NAS serves files to Windows clients via SMB.
-  char_profile: linux
-  char_substitutions: /app/conf/char_substitutions.yaml
-  format_codes: /app/conf/format_codes.yaml
+  # Windows/Samba profile: replaces characters illegal on NTFS/SMB shares
+  char_profile: windows
+  char_substitutions: conf/char_substitutions.yaml
+  format_codes: conf/format_codes.yaml
 
+  # Replace embedded slashes with hyphens rather than removing them
   path_sep_replacement: "-"
   control_replacement: ""
 
   use_style: false
   keep_tags: freedb_id
 
+  # Preserve original capitalisation for all path segments
   case_dir:     preserve
   case_disc:    preserve
   case_song:    preserve
@@ -63,7 +67,13 @@ details:
   case_m3u:     preserve
 
   use_folder_jpg: true
-  use_anv: true
+  use_anv: false           # use canonical Discogs name, not sleeve credit variant
+
+  # Move source directory to archive after successful tagging
+  source_action: move
+  source_archive_dir: "~/Music/archive"
+  source_move_template: "%source%/%albumartist%/%current_folder%"
+
   variousartists: "Various Artists"
 
   split_discs_folder: true
@@ -75,12 +85,49 @@ details:
   download_only_cover: false
 
 # ─────────────────────────────────────────────────────────────────────────────
+cue:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  # Subdirectory where processed CUE sheets and source images are stashed.
+  # This directory is excluded from subsequent directory scans.
+  cue_done_dir: .cue
+
+  # Automatically split CUE+image files found in source directories.
+  parse_cue_files: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+m4a:
+# ─────────────────────────────────────────────────────────────────────────────
+# .m4a files may contain either ALAC (lossless) or AAC (lossy) audio.
+# These settings control what happens to each before tagging proceeds.
+
+  # Detect and convert .m4a files found in source directories before tagging.
+  convert_m4a_files: true
+
+  # ALAC (lossless) handling:
+  #   convert_to_flac — transcode losslessly to FLAC (recommended; matches
+  #                     the format the rest of the library standardises on)
+  #   keep            — leave as .m4a and tag in place
+  alac_action: convert_to_flac
+
+  # AAC (lossy) handling — converting lossy audio to FLAC just inflates file
+  # size with no quality gain, so that option is intentionally not offered:
+  #   keep            — leave as .m4a and tag in place
+  #   convert_to_mp3  — re-encode to MP3 (lossy-to-lossy, e.g. for compatibility)
+  #   convert_to_ogg  — re-encode to Ogg Vorbis (lossy-to-lossy)
+  aac_action: convert_to_ogg
+
+  # Subdirectory where original .m4a files are stashed after a conversion.
+  # This directory is excluded from subsequent directory scans.
+  m4a_done_dir: .m4a
+
+# ─────────────────────────────────────────────────────────────────────────────
 batch:
 # ─────────────────────────────────────────────────────────────────────────────
 
   id_file: id.txt
   searchdiscogs: true
-  tracklength_tolerance: 5.0
+  tracklength_tolerance: 10.0
   title_similarity_threshold: 60
   workers: 2                              # concurrent worker threads
   audit_log: /cache/audit.json            # persisted in the cache volume
@@ -92,6 +139,12 @@ cache:
   directory: /cache/discogs               # Discogs API response cache
 
 # ─────────────────────────────────────────────────────────────────────────────
+tags:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  encoder: ""
+
+# ─────────────────────────────────────────────────────────────────────────────
 replaygain:
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -99,15 +152,9 @@ replaygain:
   application: r128gain
 
 # ─────────────────────────────────────────────────────────────────────────────
-cue:
-# ─────────────────────────────────────────────────────────────────────────────
-
-  cue_done_dir: .cue
-  parse_cue_files: true
-
-# ─────────────────────────────────────────────────────────────────────────────
 logging:
 # ─────────────────────────────────────────────────────────────────────────────
 
   level: 20     # 10=DEBUG  20=INFO  30=WARNING
+  log_file: ""    # Docker streams stdout — no separate log file needed
   config_file: ""

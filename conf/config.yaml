@@ -180,8 +180,8 @@ m4a:
 # .m4a files may contain either ALAC (lossless) or AAC (lossy) audio.
 # These settings control what happens to each before tagging proceeds.
 
-  # Detect and process .m4a files found in source directories.
-  process_m4a_files: false
+  # Detect and convert .m4a files found in source directories before tagging.
+  convert_m4a_files: false
 
   # ALAC (lossless) handling:
   #   convert_to_flac — transcode losslessly to FLAC (recommended; matches

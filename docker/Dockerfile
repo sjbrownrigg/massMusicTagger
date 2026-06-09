@@ -41,6 +41,10 @@ COPY conf/format_codes.yaml       /app/conf/format_codes.yaml
 # /music/sorted    — destination directory (bind-mounted from host)
 # /config          — user-supplied config and credentials (bind-mounted)
 # /cache           — Discogs + MusicBrainz API response cache (named volume)
+#
+# Pre-create /cache in the image so Docker initialises the named volume with
+# correct ownership (root) and mode (777) on first use.
+RUN mkdir -p /cache && chmod 777 /cache
 
 ENTRYPOINT ["mmt"]
 CMD ["-c", "/config/config_personal.yaml", "-w"]
