@@ -356,6 +356,11 @@ def main(argv: list[str] | None = None) -> None:
 
     cfg.source_conffile = config_path  # used by _load_extra_configs
     _load_extra_configs(cfg, config_path)
+    # Re-apply the personal config last so its own key/value pairs take
+    # precedence over anything loaded by extra_configs (e.g. the baseline
+    # config.yaml sets source_dir: "" which would otherwise overwrite the
+    # user's source_dir: /music/incoming).
+    cfg._load_yaml(config_path)
 
     # Now that the full config chain is loaded, set up logging (including
     # the optional log_file from logging.log_file).  The only messages
