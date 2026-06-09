@@ -163,14 +163,42 @@ details:
   variousartists: Various
   download_only_cover: true
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 cue:
 # ─────────────────────────────────────────────────────────────────────────────
 
+  # Subdirectory where processed CUE sheets and source images are stashed.
+  # This directory is excluded from subsequent directory scans.
   cue_done_dir: .cue
+
+  # Automatically split CUE+image files found in source directories.
   parse_cue_files: false
 
+# ─────────────────────────────────────────────────────────────────────────────
+m4a:
+# ─────────────────────────────────────────────────────────────────────────────
+# .m4a files may contain either ALAC (lossless) or AAC (lossy) audio.
+# These settings control what happens to each before tagging proceeds.
+
+  # Detect and process .m4a files found in source directories.
+  process_m4a_files: false
+
+  # ALAC (lossless) handling:
+  #   convert_to_flac — transcode losslessly to FLAC (recommended; matches
+  #                     the format the rest of the library standardises on)
+  #   keep            — leave as .m4a and tag in place
+  alac_action: convert_to_flac
+
+  # AAC (lossy) handling — converting lossy audio to FLAC just inflates file
+  # size with no quality gain, so that option is intentionally not offered:
+  #   keep            — leave as .m4a and tag in place
+  #   convert_to_mp3  — re-encode to MP3 (lossy-to-lossy, e.g. for compatibility)
+  #   convert_to_ogg  — re-encode to Ogg Vorbis (lossy-to-lossy)
+  aac_action: keep
+
+  # Subdirectory where original .m4a files are stashed after a conversion.
+  # This directory is excluded from subsequent directory scans.
+  m4a_done_dir: .m4a
 
 # ─────────────────────────────────────────────────────────────────────────────
 tags:

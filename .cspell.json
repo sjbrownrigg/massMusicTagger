@@ -20,7 +20,8 @@
     "asin", "isrc",
     "Spokenword", "Mixtape", "bandcamp",
     "massmusictagger", "pyyaml", "mako",
-    "acoustid", "discid"
+    "acoustid", "discid",
+    "expanduser", "PUID", "PGID", "cifs", "forceuid", "forcegid"
   ],
   "ignorePaths": [
     ".git",
