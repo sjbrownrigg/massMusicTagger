@@ -568,6 +568,32 @@ def _parse_dirname_metadata(dirname: str) -> dict:
     return {'years': years, 'title': title, 'status': status}
 
 
+def _clean_fallback_title(fname: str) -> str:
+    """Derive a track title from a bare filename when no title tag exists.
+
+    Strips trailing audio extensions and leading track-number prefixes
+    (e.g. "01 ", "01-", "01.") repeatedly, so that re-running existing_tags
+    on files it previously named (e.g. "01-Artist-01 Title.mp3.mp3") doesn't
+    snowball duplicate track numbers and extensions into the title on every
+    pass — each run converges to the same cleaned title instead.
+    """
+    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+
+    name = fname
+    while True:
+        base, ext = os.path.splitext(name)
+        if ext.lower() in AUDIO_EXTENSIONS:
+            name = base
+        else:
+            break
+    while True:
+        m = re.match(r'^\d{1,3}[\s._-]+(.*)$', name)
+        if not m:
+            break
+        name = m.group(1)
+    return name.strip() or fname
+
+
 def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     """Build a minimal Album from metadata already embedded in audio files.
 
@@ -689,11 +715,11 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
         fpath = os.path.join(sourcedir, fname)
         try:
             tmf = MediaFile(fpath)
-            track_title  = (tmf.title or fname).strip()
+            track_title  = (tmf.title or _clean_fallback_title(fname)).strip()
             track_artist = (tmf.artist or artist).strip()
             track_artists = [track_artist]
         except Exception:
-            track_title  = fname
+            track_title  = _clean_fallback_title(fname)
             track_artists = [artist]
         track = Track(i, track_title, track_artists)
         track._artist_display = track_artists[0]

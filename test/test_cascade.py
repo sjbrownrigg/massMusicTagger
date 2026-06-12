@@ -94,6 +94,56 @@ class TestExistingTagsFallback(unittest.TestCase):
         self.assertEqual(len(album.discs[0].tracks), 3)
 
 
+class TestCleanFallbackTitle(unittest.TestCase):
+    """_clean_fallback_title() derives a stable title from a bare filename.
+
+    Regression: existing_tags fallback used the raw filename (with
+    extension) as the track title when no title tag was present. On
+    repeated existing_tags runs (no source/discogs/musicbrainz match,
+    no tags ever written), this snowballed into filenames like
+    '01 01 01-Deathboy-...mp3.mp3.mp3.mp3'.
+    """
+
+    def test_strips_extension(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        self.assertEqual(
+            _clean_fallback_title('Amphetamine Zoo - DeathBoy.mp3'),
+            'Amphetamine Zoo - DeathBoy')
+
+    def test_strips_leading_track_number_with_space(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        self.assertEqual(
+            _clean_fallback_title('01 Amphetamine Zoo - DeathBoy.mp3'),
+            'Amphetamine Zoo - DeathBoy')
+
+    def test_strips_leading_track_number_with_hyphen(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        self.assertEqual(
+            _clean_fallback_title('01-Amphetamine Zoo - DeathBoy.mp3'),
+            'Amphetamine Zoo - DeathBoy')
+
+    def test_strips_accumulated_extensions_and_prefixes(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        self.assertEqual(
+            _clean_fallback_title(
+                '01 01 01-Deathboy-Amphetamine Zoo - DeathBoy.mp3.mp3.mp3.mp3'),
+            'Deathboy-Amphetamine Zoo - DeathBoy')
+
+    def test_idempotent_on_cleaned_title(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        cleaned = _clean_fallback_title('01 Amphetamine Zoo - DeathBoy.mp3')
+        self.assertEqual(_clean_fallback_title(cleaned), cleaned)
+
+    def test_no_extension_or_prefix_returned_unchanged(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        self.assertEqual(_clean_fallback_title('Plain Title'), 'Plain Title')
+
+    def test_extensionless_all_digits_falls_back_to_original(self):
+        from massmusictagger.cascade import _clean_fallback_title
+        # Degenerate case: stripping would leave nothing — keep the original.
+        self.assertEqual(_clean_fallback_title('01'), '01')
+
+
 class TestIdTxtReader(unittest.TestCase):
     """_read_id_txt() returns the right value for various id.txt formats."""
 
