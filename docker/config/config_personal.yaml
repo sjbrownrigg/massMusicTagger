@@ -71,7 +71,10 @@ details:
 
   # Move source directory to archive after successful tagging
   source_action: move
-  source_archive_dir: "~/Music/archive"
+  # Must be a path under /music — it's the only host-mounted directory.
+  # "~/Music/archive" resolves to /root/Music/archive inside the container,
+  # which is NOT bind-mounted and is lost on container recreation.
+  source_archive_dir: "/music/archive"
   source_move_template: "%source%/%albumartist%/%current_folder%"
 
   variousartists: "Various Artists"
