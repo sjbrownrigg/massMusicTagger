@@ -112,14 +112,39 @@ def _verify_target_or_raise(target_dir: Optional[str]) -> None:
         f'source_action remove/move: no audio files found in target: {target_dir!r}')
 
 
+def _cleanup_empty_parents(path: str, root: str) -> None:
+    """Remove now-empty parent directories of `path`, stopping at `root`.
+
+    Used after source_action=remove/move so that an artist/label folder
+    left empty by removing its last release doesn't linger in source_dir.
+    """
+    root = os.path.normpath(root)
+    current = os.path.normpath(path)
+    while True:
+        parent = os.path.dirname(current)
+        if parent == current or parent == root or not parent.startswith(root + os.sep):
+            break
+        try:
+            if os.listdir(parent):
+                break
+            os.rmdir(parent)
+            logger.info('Removed empty source directory: %s', parent)
+        except OSError:
+            break
+        current = parent
+
+
 def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
     """Apply source_action (done_file / remove / move) after a successful tag."""
     action = (cfg.get('details', 'source_action') or 'done_file').lower()
+    source_root = os.path.expanduser(cfg.get('common', 'source_dir') or '')
 
     if action == 'remove':
         _verify_target_or_raise(result.target_dir)
         logger.warning('Removing source directory: %s', result.sourcedir)
         shutil.rmtree(result.sourcedir)
+        if source_root:
+            _cleanup_empty_parents(result.sourcedir, source_root)
         return
 
     if action == 'move':
@@ -139,6 +164,8 @@ def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
             shutil.move(result.sourcedir, dest)
             result.archive_path = dest
             logger.info('Archived source to: %s', dest)
+            if source_root:
+                _cleanup_empty_parents(result.sourcedir, source_root)
             return
 
     # default: done_file

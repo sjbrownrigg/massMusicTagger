@@ -8,6 +8,7 @@ import pytest
 
 from massmusictagger.processor import (
     ProcessingResult,
+    _cleanup_empty_parents,
     _expand_move_template,
     _post_process_source,
     _verify_target_or_raise,
@@ -18,13 +19,14 @@ from massmusictagger.processor import (
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _make_cfg(action='done_file', archive_dir='', template=''):
+def _make_cfg(action='done_file', archive_dir='', template='', source_dir=''):
     cfg = MagicMock()
     def _get(section, key):
         return {
             ('details', 'source_action'):       action,
             ('details', 'source_archive_dir'):  archive_dir,
             ('details', 'source_move_template'): template,
+            ('common', 'source_dir'):           source_dir,
         }.get((section, key), '')
     cfg.get.side_effect = _get
     return cfg
@@ -250,3 +252,97 @@ class TestPostProcessSource:
                 fh, MagicMock(),
             )
         mock_move.assert_not_called()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _cleanup_empty_parents
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCleanupEmptyParents:
+
+    def test_removes_empty_artist_folder(self, tmp_path):
+        root = tmp_path / 'incoming'
+        artist = root / 'The Fair Sex'
+        artist.mkdir(parents=True)
+        # Album dir already removed/moved by the caller — only the now-empty
+        # artist folder remains.
+        _cleanup_empty_parents(str(artist / 'Thin Walls'), str(root))
+        assert not artist.exists()
+        assert root.exists()
+
+    def test_removes_multiple_empty_levels(self, tmp_path):
+        root = tmp_path / 'incoming'
+        nested = root / 'Various' / 'Sublabel'
+        nested.mkdir(parents=True)
+        _cleanup_empty_parents(str(nested / 'Album'), str(root))
+        assert not (root / 'Various').exists()
+        assert root.exists()
+
+    def test_keeps_non_empty_parent(self, tmp_path):
+        root = tmp_path / 'incoming'
+        artist = root / 'The Fair Sex'
+        artist.mkdir(parents=True)
+        (artist / 'Other Album').mkdir()
+        _cleanup_empty_parents(str(artist / 'Thin Walls'), str(root))
+        assert artist.exists()
+
+    def test_does_not_remove_root_itself(self, tmp_path):
+        root = tmp_path / 'incoming'
+        root.mkdir()
+        _cleanup_empty_parents(str(root / 'Album'), str(root))
+        assert root.exists()
+
+    def test_path_outside_root_is_ignored(self, tmp_path):
+        root = tmp_path / 'incoming'
+        other = tmp_path / 'elsewhere' / 'Artist'
+        other.mkdir(parents=True)
+        # Should not raise or remove anything outside root.
+        _cleanup_empty_parents(str(other / 'Album'), str(root))
+        assert other.exists()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _post_process_source — empty-parent cleanup integration
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPostProcessSourceCleanup:
+
+    @patch('massmusictagger.processor._verify_target_or_raise')
+    def test_remove_cleans_up_empty_artist_folder(self, _verify, tmp_path):
+        root = tmp_path / 'incoming'
+        album = root / 'The Fair Sex' / 'Thin Walls'
+        album.mkdir(parents=True)
+        (album / 'track.flac').write_bytes(b'')
+
+        fh = MagicMock()
+        r = _make_result(sourcedir=str(album))
+        _post_process_source(r, _make_cfg('remove', source_dir=str(root)), fh, MagicMock())
+
+        assert not album.exists()
+        assert not (root / 'The Fair Sex').exists()
+        assert root.exists()
+
+    @patch('massmusictagger.processor._verify_target_or_raise')
+    def test_move_cleans_up_empty_artist_folder(self, _verify, tmp_path):
+        root = tmp_path / 'incoming'
+        album = root / 'The Fair Sex' / 'Thin Walls'
+        album.mkdir(parents=True)
+        (album / 'track.flac').write_bytes(b'')
+        archive = tmp_path / 'archive'
+
+        tu = MagicMock()
+        tu._value_from_tag_format.return_value = 'discogs/The Fair Sex/Thin Walls'
+        fh = MagicMock()
+        r = _make_result(sourcedir=str(album))
+        _post_process_source(
+            r,
+            _make_cfg('move', archive_dir=str(archive),
+                      template='%source%/%albumartist%/%current_folder%',
+                      source_dir=str(root)),
+            fh, tu,
+        )
+
+        assert not album.exists()
+        assert not (root / 'The Fair Sex').exists()
+        assert root.exists()
+        assert (archive / 'discogs/The Fair Sex/Thin Walls' / 'track.flac').exists()
