@@ -240,6 +240,48 @@ class TestPostProcessSource:
             '%source%/%albumartist%/Folder'
         )
 
+    @patch('massmusictagger.processor._verify_target_or_raise')
+    @patch('os.makedirs')
+    @patch('shutil.move')
+    @patch('os.path.exists')
+    def test_move_suffixes_dest_when_already_exists(
+            self, mock_exists, mock_move, mock_makedirs, mock_verify):
+        # First dest exists, second does not → should move to dest (2)
+        mock_exists.side_effect = lambda p: p.endswith('My Album')
+        tu = MagicMock()
+        tu._value_from_tag_format.return_value = 'discogs/Artist/My Album'
+        r = _make_result(sourcedir='/src/My Album')
+        _post_process_source(
+            r,
+            _make_cfg('move', archive_dir='/archive', template='%source%/%albumartist%/%current_folder%'),
+            MagicMock(), tu,
+        )
+        expected = '/archive/discogs/Artist/My Album (2)'
+        mock_move.assert_called_once_with('/src/My Album', expected)
+        assert r.archive_path == expected
+
+    @patch('massmusictagger.processor._verify_target_or_raise')
+    @patch('os.makedirs')
+    @patch('shutil.move')
+    @patch('os.path.exists')
+    def test_move_increments_suffix_past_existing_numbered_dirs(
+            self, mock_exists, mock_move, mock_makedirs, mock_verify):
+        # Both dest and dest (2) exist → should move to dest (3)
+        existing = {'/archive/discogs/Artist/My Album',
+                    '/archive/discogs/Artist/My Album (2)'}
+        mock_exists.side_effect = lambda p: p in existing
+        tu = MagicMock()
+        tu._value_from_tag_format.return_value = 'discogs/Artist/My Album'
+        r = _make_result(sourcedir='/src/My Album')
+        _post_process_source(
+            r,
+            _make_cfg('move', archive_dir='/archive', template='%source%/%albumartist%/%current_folder%'),
+            MagicMock(), tu,
+        )
+        expected = '/archive/discogs/Artist/My Album (3)'
+        mock_move.assert_called_once_with('/src/My Album', expected)
+        assert r.archive_path == expected
+
     @patch('massmusictagger.processor._verify_target_or_raise',
            side_effect=RuntimeError('no audio'))
     @patch('shutil.move')

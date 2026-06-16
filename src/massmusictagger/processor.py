@@ -160,6 +160,11 @@ def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
                         or '%source%/%albumartist%/%current_folder%')
             rel = _expand_move_template(template, tu, result.sourcedir)
             dest = os.path.join(archive_root, rel)
+            if os.path.exists(dest):
+                n = 2
+                while os.path.exists(f'{dest} ({n})'):
+                    n += 1
+                dest = f'{dest} ({n})'
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             shutil.move(result.sourcedir, dest)
             result.archive_path = dest
