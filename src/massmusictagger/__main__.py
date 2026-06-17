@@ -124,7 +124,7 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
     from massmusictagger.cascade import _get_priority
 
     here = os.path.dirname(os.path.abspath(__file__))
-    sample = os.path.abspath(os.path.join(here, '..', '..', '..', 'conf', 'config_sample.yaml'))
+    sample = os.path.abspath(os.path.join(here, '..', '..', 'conf', 'config_sample.yaml'))
 
     issues: list[tuple[str, str]] = []
 
@@ -225,7 +225,7 @@ def _load_extra_configs(cfg, primary_config_path: str) -> None:
 def _default_config_path() -> str:
     """Return conf/config.yaml at the repo root, falling back to conf/config_sample.yaml."""
     here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.abspath(os.path.join(here, '..', '..', '..'))
+    repo_root = os.path.abspath(os.path.join(here, '..', '..'))
     candidate = os.path.join(repo_root, 'conf', 'config.yaml')
     if os.path.exists(candidate):
         return candidate
@@ -392,7 +392,7 @@ def main(argv: list[str] | None = None) -> None:
     config_path = opts.config or _default_config_path()
     if not os.path.exists(config_path):
         here = os.path.dirname(os.path.abspath(__file__))
-        sample = os.path.abspath(os.path.join(here, '..', '..', '..', 'conf', 'config_sample.yaml'))
+        sample = os.path.abspath(os.path.join(here, '..', '..', 'conf', 'config_sample.yaml'))
         print(
             f'Config file not found: {config_path}\n'
             f'\n'
@@ -408,7 +408,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if not opts.config and config_path.endswith('config_sample.yaml'):
         here = os.path.dirname(os.path.abspath(__file__))
-        expected = os.path.abspath(os.path.join(here, '..', '..', '..', 'conf', 'config.yaml'))
+        expected = os.path.abspath(os.path.join(here, '..', '..', 'conf', 'config.yaml'))
         print(
             f'Warning: conf/config.yaml not found — running from the sample config.\n'
             f'  Copy it and fill in your settings:\n'
