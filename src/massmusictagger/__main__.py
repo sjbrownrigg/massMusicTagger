@@ -351,20 +351,19 @@ def main(argv: list[str] | None = None) -> None:
     # Load massMusicTagger defaults first (lowest priority), then overlay the
     # user's personal config on top so personal values always win.
     config_dir = os.path.dirname(os.path.abspath(config_path))
-    mmt_defaults = os.path.join(config_dir, 'config.yaml')
+    mmt_defaults = os.path.join(config_dir, 'config_sample.yaml')
     if (os.path.exists(mmt_defaults)
             and os.path.abspath(mmt_defaults) != os.path.abspath(config_path)):
         cfg = TaggerConfig(mmt_defaults)    # baseline defaults
-        cfg._load_yaml(config_path)         # personal overrides on top
+        cfg._load_yaml(config_path)         # user config on top
     else:
-        cfg = TaggerConfig(config_path)     # personal config is the only source
+        cfg = TaggerConfig(config_path)     # user config is the only source
 
     cfg.source_conffile = config_path  # used by _load_extra_configs
     _load_extra_configs(cfg, config_path)
-    # Re-apply the personal config last so its own key/value pairs take
-    # precedence over anything loaded by extra_configs (e.g. the baseline
-    # config.yaml sets source_dir: "" which would otherwise overwrite the
-    # user's source_dir: /music/incoming).
+    # Re-apply the user config last so its own key/value pairs take
+    # precedence over anything loaded by extra_configs (e.g. config_sample.yaml
+    # sets source_dir: "" which would otherwise overwrite the user's value).
     cfg._load_yaml(config_path)
 
     # Now that the full config chain is loaded, set up logging (including

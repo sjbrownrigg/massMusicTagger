@@ -6,7 +6,9 @@ build/
 .venv/
 .pytest_cache/
 *.log
-conf/*_personal.yaml
-conf/*_personal.ini
+conf/config.yaml
+conf/discogs.yaml
+conf/musicbrainz.yaml
+conf/formats.ini
 docker/.env
 docker/docker-compose.override.yml

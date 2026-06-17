@@ -24,15 +24,15 @@ RUN pip install --no-cache-dir \
     "massmusictagger[fingerprint] @ git+https://github.com/sjbrownrigg/massMusicTagger.git@master"
 
 # ── Bundled application defaults ───────────────────────────────────────────────
-# The massMusicTagger default configs are copied into /app/conf/ so they are
+# The massMusicTagger sample configs are copied into /app/conf/ so they are
 # always available regardless of what the user mounts at /config.
-# The user's personal config (at /config/config_personal.yaml) references
-# these via extra_configs using absolute /app/conf/ paths.
+# The user's config (at /config/config.yaml) references these via extra_configs
+# using absolute /app/conf/ paths.
 WORKDIR /app
-COPY conf/config.yaml     /app/conf/config.yaml
-COPY conf/discogs.yaml    /app/conf/discogs.yaml
-COPY conf/musicbrainz.yaml /app/conf/musicbrainz.yaml
-COPY conf/formats.ini      /app/conf/formats.ini
+COPY conf/config_sample.yaml      /app/conf/config_sample.yaml
+COPY conf/discogs_sample.yaml     /app/conf/discogs_sample.yaml
+COPY conf/musicbrainz_sample.yaml /app/conf/musicbrainz_sample.yaml
+COPY conf/formats_sample.ini      /app/conf/formats_sample.ini
 COPY conf/char_substitutions.yaml /app/conf/char_substitutions.yaml
 COPY conf/format_codes.yaml       /app/conf/format_codes.yaml
 
@@ -47,4 +47,4 @@ COPY conf/format_codes.yaml       /app/conf/format_codes.yaml
 RUN mkdir -p /cache && chmod 777 /cache
 
 ENTRYPOINT ["mmt"]
-CMD ["-c", "/config/config_personal.yaml", "-w"]
+CMD ["-c", "/config/config.yaml", "-w"]

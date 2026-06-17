@@ -1,21 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# massMusicTagger — Docker personal configuration
+# massMusicTagger — Docker sample configuration
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # Copy this file to your CONFIG_DIR on the NAS (the directory bound to /config
-# in the container) and customise the values below.
+# in the container), rename it config.yaml, and customise the values below.
 #
 # The massMusicTagger default configs are bundled in the image at /app/conf/.
 # extra_configs loads them first (lowest priority) then overlays your personal
 # settings and credentials (highest priority).
 
 extra_configs:
-  - /app/conf/config.yaml              # massMusicTagger baseline defaults
-  - /app/conf/discogs.yaml             # Discogs source defaults
-  - /app/conf/musicbrainz.yaml         # MusicBrainz source defaults
-  - /config/discogs_personal.yaml      # Your Discogs credentials
-  - /config/musicbrainz_personal.yaml  # Your MusicBrainz/AcoustID settings
-  - /config/formats_personal.ini       # Optional: custom format strings
+  - /app/conf/config_sample.yaml       # massMusicTagger baseline defaults
+  - /app/conf/discogs_sample.yaml      # Discogs source defaults
+  - /app/conf/musicbrainz_sample.yaml  # MusicBrainz source defaults
+  - /config/discogs.yaml               # Your Discogs credentials
+  - /config/musicbrainz.yaml           # Your MusicBrainz/AcoustID settings
+  - /config/formats.ini                # Optional: custom format strings
 
 # ─────────────────────────────────────────────────────────────────────────────
 common:
@@ -55,7 +55,6 @@ details:
   path_sep_replacement: "-"
   control_replacement: ""
 
-  use_style: false
   keep_tags: freedb_id
 
   # Preserve original capitalisation for all path segments
@@ -79,9 +78,7 @@ details:
 
   variousartists: "Various Artists"
 
-  split_discs_folder: true
   split_discs: true
-  split_discs_extension: '" (disc%DISNO%)"'
 
   copy_other_files: true
   done_file: .done
@@ -123,6 +120,37 @@ m4a:
   # Subdirectory where original .m4a files are stashed after a conversion.
   # This directory is excluded from subsequent directory scans.
   m4a_done_dir: .m4a
+
+# ─────────────────────────────────────────────────────────────────────────────
+conversion:
+# ─────────────────────────────────────────────────────────────────────────────
+# Encoder settings shared by every audio conversion performed by cue and m4a
+# processing above (CUE splitting and .m4a → FLAC/MP3/Ogg Vorbis conversion).
+
+  # FLAC compression level: 0-8.
+  #   0 — fastest encode,  largest files
+  #   5 — flac/ffmpeg default
+  #   8 — slowest encode,  smallest files (recommended if file size matters)
+  # Always lossless regardless of level — only encode time and file size change.
+  flac_compression_level: 8
+
+  # MP3 encoding quality for AAC -> MP3 conversion (libmp3lame VBR -q:a scale).
+  # 0 (best/largest) .. 9 (worst/smallest). Common choices:
+  #   0 — ~220-260 kbps (transparent)
+  #   2 — ~170-210 kbps (near-transparent, recommended default)
+  #   4 — ~145-185 kbps
+  #   6 — ~115-150 kbps
+  #   9 — ~65-105 kbps
+  mp3_quality: 2
+
+  # Ogg Vorbis encoding quality for AAC -> Ogg conversion (libvorbis -q:a scale).
+  # -1 (worst/smallest) .. 10 (best/largest). Common choices:
+  #   1 — ~70 kbps
+  #   3 — ~112 kbps
+  #   5 — ~160 kbps (recommended default)
+  #   7 — ~224 kbps
+  #   9 — ~320 kbps
+  ogg_quality: 9
 
 # ─────────────────────────────────────────────────────────────────────────────
 batch:
