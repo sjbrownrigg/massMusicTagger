@@ -464,7 +464,7 @@ def _fetch_discogs_with_validation(relid: str, connector, sourcedir: str,
     try:
         raw = connector.fetch_release(relid)
         _ = raw.tracklist   # trigger lazy fetch; raises on 404
-        release_count = _discogs_track_count(raw)
+        release_count = _discogs_track_count(raw, local_count=local_count)
         if not _validate_id_match(local_count, release_count, 'Discogs',
                                    relid, from_explicit=from_explicit):
             return None   # stale embedded tag; caller falls through
@@ -475,11 +475,21 @@ def _fetch_discogs_with_validation(relid: str, connector, sourcedir: str,
         return None
 
 
-def _discogs_track_count(raw) -> Optional[int]:
-    """Return total taggable track count from a Discogs Release object."""
-    from discogstagger.discogs_utils import build_flat_tracklist
+def _discogs_track_count(raw, local_count: Optional[int] = None) -> Optional[int]:
+    """Return total taggable track count from a Discogs Release object.
+
+    When local_count is supplied and the flat count mismatches, tries the
+    lettered sub-track merge (13a+13b+13c → 13) as a fallback so that
+    explicit-ID validation doesn't emit a spurious mismatch warning.
+    """
+    from discogstagger.discogs_utils import build_flat_tracklist, merge_indexed_subtracks
     try:
-        return len(build_flat_tracklist(raw.tracklist))
+        flat = build_flat_tracklist(raw.tracklist)
+        if local_count is not None and len(flat) != local_count:
+            merged = merge_indexed_subtracks(flat)
+            if merged is not None and len(merged) == local_count:
+                return len(merged)
+        return len(flat)
     except Exception:
         return None
 
