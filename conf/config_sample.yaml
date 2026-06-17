@@ -1,21 +1,34 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# massMusicTagger — shared default configuration
+# massMusicTagger — sample configuration
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Contains only settings that are not specific to any metadata source.
-# Source-specific defaults live in their own named files:
-#   conf/discogs.yaml       — Discogs API settings
-#   conf/musicbrainz.yaml   — MusicBrainz API settings
+# DO NOT edit, rename, or delete this file.  It documents every available
+# setting with comments, and serves as the fallback config when no
+# conf/config.yaml is present.
 #
-# Usage: create conf/config_personal.yaml (gitignored) with your overrides,
-# and list extra files to load via extra_configs:
+# Installation
+# ────────────
+# 1. Copy this file to conf/config.yaml
+# 2. Edit conf/config.yaml — set your paths, credentials, and preferences.
+# 3. Copy conf/discogs_sample.yaml → conf/discogs.yaml and add credentials.
+# 4. Copy conf/musicbrainz_sample.yaml → conf/musicbrainz.yaml and add credentials.
+# 5. Copy conf/formats_sample.ini → conf/formats.ini and customise.
+# 6. conf/config.yaml, conf/discogs.yaml, conf/musicbrainz.yaml, and
+#    conf/formats.ini are gitignored — never commit credentials.
+#
+# Usage:
+#   mmt -c conf/config.yaml
+#
+# Source-specific settings and credentials live in their own named files,
+# loaded via extra_configs.  Example extra_configs in conf/config.yaml:
 #
 #   extra_configs:
-#     - conf/discogs_personal.yaml
-#     - conf/musicbrainz_personal.yaml
-#     - conf/formats_personal.ini
+#     - conf/discogs.yaml
+#     - conf/musicbrainz.yaml
+#     - conf/formats.ini
 #
-# massMusicTagger loads this file first, then any extra_configs in order.
+# This file is NEVER edited directly.  It is the reference documentation for
+# all settings and is loaded by massMusicTagger as the programmatic baseline.
 
 # ─────────────────────────────────────────────────────────────────────────────
 common:
@@ -106,7 +119,6 @@ details:
   format_codes: ""
   path_sep_replacement: ""
   control_replacement: ""
-  use_style: false
   keep_tags: freedb_id
   case_dir:     lower
   case_disc:    lower
@@ -130,9 +142,7 @@ details:
   #   • Often higher resolution (no size cap like Discogs)
   #   • Community-curated; approved flag filters out poor submissions
   image_source: auto
-  split_discs_folder: false
   split_discs: false
-  split_discs_extension: '" (disc%DISNO%)"'
   copy_other_files: false
   done_file: dt.done
 
@@ -199,6 +209,39 @@ m4a:
   # Subdirectory where original .m4a files are stashed after a conversion.
   # This directory is excluded from subsequent directory scans.
   m4a_done_dir: .m4a
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+conversion:
+# ─────────────────────────────────────────────────────────────────────────────
+# Encoder settings shared by every audio conversion performed by cue and m4a
+# processing above (CUE splitting and .m4a → FLAC/MP3/Ogg Vorbis conversion).
+
+  # FLAC compression level: 0-8.
+  #   0 — fastest encode,  largest files
+  #   5 — flac/ffmpeg default
+  #   8 — slowest encode,  smallest files (recommended if file size matters)
+  # Always lossless regardless of level — only encode time and file size change.
+  flac_compression_level: 8
+
+  # MP3 encoding quality for AAC -> MP3 conversion (libmp3lame VBR -q:a scale).
+  # 0 (best/largest) .. 9 (worst/smallest). Common choices:
+  #   0 — ~220-260 kbps (transparent)
+  #   2 — ~170-210 kbps (near-transparent, recommended default)
+  #   4 — ~145-185 kbps
+  #   6 — ~115-150 kbps
+  #   9 — ~65-105 kbps
+  mp3_quality: 2
+
+  # Ogg Vorbis encoding quality for AAC -> Ogg conversion (libvorbis -q:a scale).
+  # -1 (worst/smallest) .. 10 (best/largest). Common choices:
+  #   1 — ~70 kbps
+  #   3 — ~112 kbps
+  #   5 — ~160 kbps (recommended default)
+  #   7 — ~224 kbps
+  #   9 — ~320 kbps
+  ogg_quality: 5
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 tags:

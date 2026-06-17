@@ -113,6 +113,63 @@ def _setup_logging(verbose: bool, log_file: str | None = None) -> None:
     logging.getLogger('musicbrainzngs').setLevel(logging.WARNING)
 
 
+def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> list[tuple[str, str]]:
+    """Check all required settings immediately after loading.
+
+    Returns a list of (level, message) tuples — collect all problems so the
+    user sees every issue in one run, not one at a time.  Call before any
+    processing; print errors and exit if any have level 'ERROR'.
+    """
+    from discogstagger.tagger_config import extract_sample_section
+    from massmusictagger.cascade import _get_priority
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    sample = os.path.abspath(os.path.join(here, '..', '..', '..', 'conf', 'config_sample.yaml'))
+
+    issues: list[tuple[str, str]] = []
+
+    def _get(section, key):
+        try:
+            v = cfg.get(section, key)
+            return (v or '').strip()
+        except Exception:
+            return ''
+
+    def _issue(level, section, key, detail=''):
+        snippet = extract_sample_section(section, sample)
+        msg = f"{level}: {section}.{key} is missing or empty."
+        if detail:
+            msg += f'\n  {detail}'
+        if snippet:
+            msg += f'\n\n  From conf/config_sample.yaml (section \'{section}\'):\n'
+            msg += '\n'.join('    ' + line.rstrip() for line in snippet.splitlines())
+        issues.append((level, msg))
+
+    # source_dir — required unless passed as a positional CLI argument
+    if not source_arg and not _get('common', 'source_dir'):
+        _issue('ERROR', 'common', 'source_dir',
+               'Set to the directory containing albums to tag, or pass it as a positional argument.')
+
+    # Per-source credential checks (only for sources in the active priority list)
+    priority = _get_priority(cfg)
+    if 'discogs' in priority:
+        token = _get('discogs', 'user_token')
+        ck    = _get('discogs', 'consumer_key')
+        cs    = _get('discogs', 'consumer_secret')
+        if not (token or (ck and cs)):
+            _issue('ERROR', 'discogs', 'user_token',
+                   'Discogs is in source.priority but no credentials are set.\n'
+                   '  Set discogs.user_token (or consumer_key + consumer_secret) in conf/discogs.yaml.')
+
+    if 'musicbrainz' in priority:
+        if not _get('musicbrainz', 'user_agent'):
+            _issue('ERROR', 'musicbrainz', 'user_agent',
+                   'MusicBrainz is in source.priority but musicbrainz.user_agent is not set.\n'
+                   '  Set user_agent in conf/musicbrainz.yaml.')
+
+    return issues
+
+
 def _load_extra_configs(cfg, primary_config_path: str) -> None:
     """Load additional config files listed in extra_configs of the primary YAML.
 
@@ -166,22 +223,16 @@ def _load_extra_configs(cfg, primary_config_path: str) -> None:
 
 
 def _default_config_path() -> str:
-    """Return the path to conf/config.yaml relative to this package."""
+    """Return conf/config.yaml at the repo root, falling back to conf/config_sample.yaml."""
     here = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.abspath(os.path.join(here, '..', '..', '..'))
     candidate = os.path.join(repo_root, 'conf', 'config.yaml')
     if os.path.exists(candidate):
         return candidate
-    # Fall back to discogstagger3's bundled config
-    try:
-        import discogstagger
-        dt3_conf = os.path.join(os.path.dirname(discogstagger.__file__),
-                                '..', 'conf', 'config.yaml')
-        if os.path.exists(dt3_conf):
-            return dt3_conf
-    except ImportError:
-        pass
-    return candidate
+    sample = os.path.join(repo_root, 'conf', 'config_sample.yaml')
+    if os.path.exists(sample):
+        return sample
+    return candidate  # return expected path so the error message names the missing file
 
 
 def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tuple[list[str], int]:
@@ -340,39 +391,51 @@ def main(argv: list[str] | None = None) -> None:
 
     config_path = opts.config or _default_config_path()
     if not os.path.exists(config_path):
-        # Can't log this yet — print directly and exit
-        print(f'Config file not found: {config_path}', file=sys.stderr)
+        here = os.path.dirname(os.path.abspath(__file__))
+        sample = os.path.abspath(os.path.join(here, '..', '..', '..', 'conf', 'config_sample.yaml'))
+        print(
+            f'Config file not found: {config_path}\n'
+            f'\n'
+            f'  Copy the sample config and fill in your settings:\n'
+            f'    cp {sample} conf/config.yaml\n'
+            f'\n'
+            f'  Then run:  mmt -c conf/config.yaml\n'
+            f'\n'
+            f'  The sample config documents every available option.',
+            file=sys.stderr,
+        )
         sys.exit(1)
+
+    if not opts.config and config_path.endswith('config_sample.yaml'):
+        here = os.path.dirname(os.path.abspath(__file__))
+        expected = os.path.abspath(os.path.join(here, '..', '..', '..', 'conf', 'config.yaml'))
+        print(
+            f'Warning: conf/config.yaml not found — running from the sample config.\n'
+            f'  Copy it and fill in your settings:\n'
+            f'    cp {config_path} {expected}',
+            file=sys.stderr,
+        )
 
     from discogstagger.tagger_config import TaggerConfig
 
-    # Load full config first (TaggerConfig uses pyyaml internally), then
-    # extract log_file so _setup_logging captures every message from startup.
-    # Load massMusicTagger defaults first (lowest priority), then overlay the
-    # user's personal config on top so personal values always win.
-    config_dir = os.path.dirname(os.path.abspath(config_path))
-    mmt_defaults = os.path.join(config_dir, 'config_sample.yaml')
-    if (os.path.exists(mmt_defaults)
-            and os.path.abspath(mmt_defaults) != os.path.abspath(config_path)):
-        cfg = TaggerConfig(mmt_defaults)    # baseline defaults
-        cfg._load_yaml(config_path)         # user config on top
-    else:
-        cfg = TaggerConfig(config_path)     # user config is the only source
-
-    cfg.source_conffile = config_path  # used by _load_extra_configs
+    # User's config is complete — load it directly; extra_configs provides
+    # source-specific settings (discogs.yaml, musicbrainz.yaml, formats.ini).
+    cfg = TaggerConfig(config_path)
+    cfg.source_conffile = config_path
     _load_extra_configs(cfg, config_path)
-    # Re-apply the user config last so its own key/value pairs take
-    # precedence over anything loaded by extra_configs (e.g. config_sample.yaml
-    # sets source_dir: "" which would otherwise overwrite the user's value).
-    cfg._load_yaml(config_path)
 
-    # Now that the full config chain is loaded, set up logging (including
-    # the optional log_file from logging.log_file).  The only messages
-    # missed are the handful of DEBUG-level "Loaded extra YAML config" lines
-    # from _load_extra_configs above — not visible at level=20 anyway.
+    # Set up logging before validation so validation errors go through the logger.
     _log_file = (cfg.get('logging', 'log_file')
                  if cfg.has_option('logging', 'log_file') else None) or None
     _setup_logging(opts.verbose, log_file=_log_file)
+
+    # Validate all required settings at startup — collect every problem so the
+    # user sees them all at once rather than one per run.
+    _issues = _validate_config(cfg, config_path, source_arg=opts.sourcedir)
+    if _issues:
+        for _level, _msg in _issues:
+            print(_msg, file=sys.stderr)
+        sys.exit(1)
 
     # CLI overrides
     if opts.source:

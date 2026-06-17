@@ -1,10 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# massMusicTagger — MusicBrainz source defaults
+# massMusicTagger — MusicBrainz sample configuration
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# This file is loaded automatically when 'musicbrainz' is in source.priority.
-# Override by creating conf/musicbrainz_personal.yaml (gitignored) and listing
-# it in your config_personal.yaml under extra_configs.
+# DO NOT edit, rename, or delete this file — it is the reference template.
+# Installation: copy to conf/musicbrainz.yaml and fill in your credentials.
+# conf/musicbrainz.yaml is gitignored — never commit credentials.
+# List it in conf/config.yaml under extra_configs:
+#
+#   extra_configs:
+#     - conf/musicbrainz.yaml
 
 musicbrainz:
   # Required: user-agent identifying your application to the MB API.
@@ -40,10 +44,3 @@ musicbrainz:
   # Increase if you see "rate-limited (429)" warnings in the log.
   # Set to 0 to disable (only safe when batch.workers = 1 and cache is warm).
   caa_request_delay: 0.5
-
-  # Cache control — set any flag to false to always re-fetch that layer.
-  # Useful when you want to pick up updated metadata without clearing the
-  # whole cache: set cache_metadata: false for one run, then re-enable.
-  cache_metadata: true   # release JSON + CAA image index
-  cache_images:   true   # downloaded Cover Art Archive image files
-  cache_search:   true   # text search and barcode search result MBIDs

@@ -1,10 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# massMusicTagger — Discogs source defaults
+# massMusicTagger — Discogs sample configuration
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# This file is loaded automatically when 'discogs' is in source.priority.
-# Override by creating conf/discogs_personal.yaml (gitignored) and listing it
-# in your config_personal.yaml under extra_configs.
+# DO NOT edit, rename, or delete this file — it is the reference template.
+# Installation: copy to conf/discogs.yaml and fill in your credentials.
+# conf/discogs.yaml is gitignored — never commit credentials.
+# List it in conf/config.yaml under extra_configs:
+#
+#   extra_configs:
+#     - conf/discogs.yaml
 
 discogs:
   # Personal access token — generate at https://www.discogs.com/settings/developers
