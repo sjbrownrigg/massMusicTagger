@@ -31,8 +31,8 @@ services:
       # Example: /mnt/music (WSL2 NFS mount) or /volume1/Music (Synology host)
       - ${MUSIC_DIR:-/music}:/music
 
-      # User config and credentials (see docker/config/ for templates).
-      # Copy docker/config/ to your NAS and set CONFIG_DIR to that path.
+      # User config and credentials — see docker/config/README.md for setup.
+      # Use conf/*_sample.yaml files as templates; set CONFIG_DIR to your config path.
       - ${CONFIG_DIR:-./config}:/config
 
       # Discogs + MusicBrainz API response cache — persists across restarts.
