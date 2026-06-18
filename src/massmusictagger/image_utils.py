@@ -25,6 +25,14 @@ from discogstagger.mediafile_ext import MediaFile
 
 logger = logging.getLogger(__name__)
 
+# FLAC metadata blocks use a 24-bit length field — 16,777,215 bytes is the
+# hard ceiling for a single embedded picture, regardless of target format.
+# High-resolution booklet/tray scans from Cover Art Archive occasionally
+# exceed this. Embedding is done as one batch per file (mf.images = [...]),
+# so a single oversized image fails the save for every other image too;
+# better to skip just that one image than lose the whole embed.
+MAX_EMBEDDED_IMAGE_SIZE = 2 ** 24 - 1
+
 # ── CAA type → file basename ────────────────────────────────────────────────
 # Determines how each image is named on disk.  Types not listed here fall back
 # to 'image'.  When multiple images share a basename the second and subsequent
@@ -253,6 +261,13 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
         try:
             with open(path, 'rb') as f:
                 data = f.read()
+            if len(data) > MAX_EMBEDDED_IMAGE_SIZE:
+                logger.warning(
+                    'Skipping %s for embedding — %d bytes exceeds the FLAC '
+                    'metadata block limit (%d bytes)',
+                    local_filename, len(data), MAX_EMBEDDED_IMAGE_SIZE,
+                )
+                continue
             header = data[:4]
             if header[:2] != b'\xff\xd8' and header != b'\x89PNG':
                 logger.warning('Skipping non-JPEG/PNG image: %s', local_filename)

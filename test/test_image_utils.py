@@ -269,6 +269,50 @@ class TestEmbedTypedImages(unittest.TestCase):
             self.assertEqual(imgs[0].type, ImageType.front)
             self.assertEqual(imgs[1].type, ImageType.back)
 
+    def test_oversized_image_skipped_others_still_embedded(self):
+        """Regression: a single oversized booklet scan (e.g. 17MB, over
+        FLAC's 16,777,215-byte metadata block limit) must not sink embedding
+        of the other, smaller images. All images share one mf.images = [...]
+        batch save, so an oversized block previously failed the save for
+        every image — front/back/medium all silently lost too.
+        """
+        from massmusictagger.image_utils import embed_typed_images, MAX_EMBEDDED_IMAGE_SIZE
+        from mediafile import ImageType
+
+        cfg = _make_cfg(**{'details.embed_coverart': 'true'})
+        images = [
+            {'caa_types': ['Front'],   'local_filename': 'front.jpg',   'uri': '', 'type': 'primary'},
+            {'caa_types': ['Booklet'], 'local_filename': 'booklet.jpg', 'uri': '', 'type': 'secondary'},
+        ]
+        album = _make_album(images)
+
+        oversized = b'\xff\xd8' + b'x' * MAX_EMBEDDED_IMAGE_SIZE  # one byte over the limit
+        normal = b'\xff\xd8test'
+
+        def fake_open(path, *args, **kwargs):
+            data = oversized if 'booklet' in path else normal
+            return unittest.mock.mock_open(read_data=data).return_value
+
+        saved_images = {}
+
+        def mock_mf_factory(path):
+            mf = MagicMock()
+            def _save():
+                saved_images[path] = mf.images
+            mf.save.side_effect = _save
+            return mf
+
+        with patch('massmusictagger.image_utils.MediaFile', side_effect=mock_mf_factory):
+            with patch('builtins.open', side_effect=fake_open):
+                with patch('os.path.exists', return_value=True):
+                    embed_typed_images(album, cfg)
+
+        all_types = [img.type for imgs in saved_images.values() for img in imgs]
+        self.assertIn(ImageType.front, all_types)
+        self.assertNotIn(ImageType.leaflet, all_types)  # 'Booklet' CAA type → leaflet
+        # Front (the only valid image) is still embedded, not dropped entirely.
+        self.assertTrue(any(len(imgs) == 1 for imgs in saved_images.values()))
+
 
 if __name__ == '__main__':
     unittest.main()
