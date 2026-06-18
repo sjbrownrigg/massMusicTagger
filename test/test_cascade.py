@@ -308,6 +308,107 @@ class TestDiscogsFmtHintInjection(unittest.TestCase):
         self.assertEqual(searcher.search_params.get('year'), '1974')
 
 
+class _FakeSubtrackRelease:
+    """Minimal Discogs release stand-in with lettered sub-track positions.
+
+    Mirrors the real-world 'Sounds Of The Universe' (1734706) shape: a track
+    split into 13a/13b/13c by a Discogs data entry error.  build_flat_tracklist
+    sees 3 entries where local has 1 file for that track.
+    """
+    class _Track:
+        def __init__(self, position, title, duration):
+            self.position = position
+            self.title = title
+            self.duration = duration
+            self.data = {'type_': 'track'}
+
+    def __init__(self, rid, extra_normal=10):
+        self.id = rid
+        tracks = [self._Track(str(i), f'T{i}', '3:00') for i in range(1, extra_normal + 1)]
+        tracks += [
+            self._Track('13a', 'Corrupt', '5:04'),
+            self._Track('13b', '(silence)', '3:13'),
+            self._Track('13c', 'Untitled', '0:41'),
+        ]
+        self._tracklist = tracks
+
+    @property
+    def tracklist(self):
+        return self._tracklist
+
+
+class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
+    """Regression: _try_discogs() must pass local_count into _discogs_track_count()
+    after search_discogs() returns a candidate, or the lettered sub-track merge
+    fallback never runs and a release the search already accepted gets rejected
+    again by the post-search count re-validation.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_accepted_when_merge_resolves_count(self):
+        from unittest.mock import MagicMock, patch
+        from massmusictagger.cascade import _try_discogs
+
+        cfg_path = MMT_CONFIG
+        from discogstagger.tagger_config import TaggerConfig
+        cfg = TaggerConfig(cfg_path)
+        if not cfg.has_section('batch'):
+            cfg.add_section('batch')
+        cfg.set('batch', 'searchdiscogs', 'true')
+
+        # 10 normal tracks + merged 13(a/b/c) = 11 local files.
+        raw = _FakeSubtrackRelease('1734706', extra_normal=10)
+        connector = MagicMock()
+        searcher = MagicMock()
+        searcher.search_params = {'tracks': []}
+        searcher.search_discogs.return_value = raw
+
+        folder = os.path.join(self.tmpdir, 'Sounds Of The Universe')
+        os.makedirs(folder)
+
+        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
+             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
+             patch('massmusictagger.cascade._local_audio_count', return_value=11):
+            result = _try_discogs(folder, cfg, connector, searcher)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result[1], '1734706')
+
+    def test_rejected_when_merge_does_not_resolve_count(self):
+        from unittest.mock import MagicMock, patch
+        from massmusictagger.cascade import _try_discogs
+
+        cfg_path = MMT_CONFIG
+        from discogstagger.tagger_config import TaggerConfig
+        cfg = TaggerConfig(cfg_path)
+        if not cfg.has_section('batch'):
+            cfg.add_section('batch')
+        cfg.set('batch', 'searchdiscogs', 'true')
+
+        raw = _FakeSubtrackRelease('1734706', extra_normal=10)  # 13 flat, 11 merged
+        connector = MagicMock()
+        searcher = MagicMock()
+        searcher.search_params = {'tracks': []}
+        searcher.search_discogs.return_value = raw
+
+        folder = os.path.join(self.tmpdir, 'Sounds Of The Universe Partial')
+        os.makedirs(folder)
+
+        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
+             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
+             patch('massmusictagger.cascade._local_audio_count', return_value=12):
+            result = _try_discogs(folder, cfg, connector, searcher)
+
+        self.assertIsNone(result)
+
+
 class TestFolderDescriptorHints(unittest.TestCase):
     """_folder_descriptor_hints() returns matched descriptor_boost keywords."""
 

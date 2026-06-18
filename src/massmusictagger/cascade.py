@@ -227,7 +227,7 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                     try:
                         _ = raw.tracklist   # trigger lazy fetch; may raise on 404
                         relid = str(raw.id)
-                        release_count = _discogs_track_count(raw)
+                        release_count = _discogs_track_count(raw, local_count=local_count)
                         if not _validate_id_match(local_count, release_count,
                                                    'Discogs', relid, from_explicit=False):
                             raw = None   # track count mismatch → fall through
