@@ -12,7 +12,7 @@ Adds MusicBrainz metadata, Cover Art Archive typed images, AcoustID fingerprinti
 |---|---|
 | [sources.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/sources.md) | Metadata sources — Discogs, MusicBrainz, existing_tags; search tiers; id.txt format |
 | [tagging_reference.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/tagging_reference.md) | Format string variables and tags added by massMusicTagger |
-| [docker/README.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docker/README.md) | Docker deployment guide for NAS / WSL2 environments |
+| [docker-mmt](https://github.com/sjbrownrigg/docker-mmt) | Docker deployment — compose files, NAS mounts, WSL2 notes (separate repo) |
 | [HISTORY.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/HISTORY.md) | Changelog |
 
 ### discogstagger3 documentation (the tagging engine)
