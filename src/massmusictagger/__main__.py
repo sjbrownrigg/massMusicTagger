@@ -173,9 +173,16 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
 def _load_extra_configs(cfg, primary_config_path: str) -> None:
     """Load additional config files listed in extra_configs of the primary YAML.
 
-    Paths in extra_configs are resolved relative to the primary config file's
-    directory, so you can use bare filenames like 'conf/discogs_personal.yaml'
-    regardless of the working directory.
+    Paths in extra_configs resolve against the primary config file's own
+    directory, so a config and the files it references travel together and one
+    config works unchanged on a laptop and in a container. Resolution falls
+    back to the working directory when nothing is found beside the config,
+    with a deprecation warning.
+
+    This ordering matters in the container: the working directory is /app and
+    the image carries bundled defaults at /app/conf, so trying the working
+    directory first meant a bare 'conf/discogs.yaml' silently resolved to the
+    image's sample instead of the operator's mounted /config.
 
     Supports both YAML (.yaml/.yml) and INI (.ini/.conf) files.
     YAML files with 'extra_configs' are NOT recursed into — one level only.
@@ -197,13 +204,22 @@ def _load_extra_configs(cfg, primary_config_path: str) -> None:
     for entry in extra:
         path = os.path.expanduser(str(entry).strip())
         if not os.path.isabs(path):
-            # Try relative to CWD first (most natural for paths like conf/discogs.yaml).
-            # If not found there, try relative to the config file's own directory.
-            cwd_path = os.path.normpath(path)
-            if not os.path.exists(cwd_path):
-                path = os.path.join(config_dir, path)
+            beside_config = os.path.normpath(os.path.join(config_dir, path))
+            if os.path.exists(beside_config):
+                path = beside_config
             else:
-                path = cwd_path
+                cwd_path = os.path.normpath(path)
+                if os.path.exists(cwd_path):
+                    logger.warning(
+                        'extra_configs: %s resolved relative to the working '
+                        'directory, which is deprecated: %s\n'
+                        '  Move it beside the config file (expected at %s), or '
+                        'use an absolute path.',
+                        entry, cwd_path, beside_config)
+                    path = cwd_path
+                else:
+                    # Report the path the user is meant to create.
+                    path = beside_config
         path = os.path.normpath(path)
 
         if not os.path.exists(path):
