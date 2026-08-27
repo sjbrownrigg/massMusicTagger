@@ -20,15 +20,26 @@
 #   mmt -c conf/config.yaml
 #
 # Source-specific settings and credentials live in their own named files,
-# loaded via extra_configs.  Example extra_configs in conf/config.yaml:
+# loaded via extra_configs.  Paths resolve relative to THIS FILE's directory,
+# so no absolute path is ever needed and the same config works on a laptop and
+# in a container:
 #
 #   extra_configs:
-#     - conf/discogs.yaml
-#     - conf/musicbrainz.yaml
-#     - conf/formats.ini
+#     - credentials/discogs.yaml
+#     - credentials/musicbrainz.yaml
 #
-# This file is NEVER edited directly.  It is the reference documentation for
-# all settings and is loaded by massMusicTagger as the programmatic baseline.
+# The recommended layout, beside this config file:
+#
+#   config.yaml              this file, copied and edited
+#   formats.ini              format strings   (common.formats_file)
+#   credentials/             API tokens       (extra_configs)
+#   templates/               .nfo / .m3u      (common.templates_dir)
+#   rules/                   rule tables      (details.format_codes, …)
+#
+# This file is NEVER edited directly and is NEVER loaded at run time.  It is
+# reference documentation for every available setting.  Defaults come from the
+# schema table in discogstagger/config_schema.py -- see that file to find where
+# a value you did not set came from.
 
 # ─────────────────────────────────────────────────────────────────────────────
 common:
