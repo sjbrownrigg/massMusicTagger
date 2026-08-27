@@ -28,13 +28,14 @@
 #     - credentials/discogs.yaml
 #     - credentials/musicbrainz.yaml
 #
-# The recommended layout, beside this config file:
+# The layout, beside this config file:
 #
 #   config.yaml              this file, copied and edited
-#   formats.ini              format strings   (common.formats_file)
+#   formats.ini              your file and directory naming (found automatically)
 #   credentials/             API tokens       (extra_configs)
-#   templates/               .nfo / .m3u      (common.templates_dir)
-#   rules/                   rule tables      (details.format_codes, …)
+#
+# That is all of it -- the config directory holds what you own. Mako templates
+# and the rule tables belong to discogstagger3 and ship inside the package.
 #
 # This file is NEVER edited directly and is NEVER loaded at run time.  It is
 # reference documentation for every available setting.  Defaults come from the
