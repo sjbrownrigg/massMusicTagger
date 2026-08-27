@@ -8,42 +8,43 @@
 # automatically — nothing needs listing in config.yaml.
 #
 # Better still, put credentials in the environment and leave this file's key
-# fields empty: ACOUSTID_API_KEY and ACOUSTID_USER_KEY both override it.
+# fields empty: ACOUSTID_API_KEY and ACOUSTID_SUBMITTER_KEY both override it.
 
 musicbrainz:
   # Required: user-agent identifying your application to the MB API.
   # Format: "AppName/Version (contact@example.com)"
   user_agent: "massMusicTagger/1.0 (your@email.com)"
 
-  # AcoustID APPLICATION key, for fingerprint lookup (tiers 6-7).
+  # ── AcoustID ────────────────────────────────────────────────────────────
+  #
+  # AcoustID issues two credentials and calls BOTH of them an "API key".
+  # That is the whole confusion, so go by the URL rather than the name:
+  #
+  #   application key   register an app at https://acoustid.org/login
+  #                     identifies the program.  Lookup uses this one.
+  #
+  #   submitter key     https://acoustid.org/api-key   <- yes, /api-key
+  #                     identifies your account.  Submission uses this one.
+  #
+  # In code the difference is plain:
+  #
+  #   acoustid.match(api_key, path)              lookup      application key
+  #   acoustid.submit(api_key, user_key, data)   submission  both
+  #
+  # They are not interchangeable, and a submitter key in acoustid_api_key
+  # fails quietly -- lookups simply stop returning matches.
+
+  # Application key, for fingerprint lookup (tiers 6-7).
   # Leave empty to skip the AcoustID tiers.
-  # ACOUSTID_API_KEY in the environment overrides this, which is the
-  # better place for it -- a credential in the environment never has to
-  # be written into a file that could be committed or reach an image
-  # layer. Register at https://acoustid.org/login
+  # ACOUSTID_API_KEY in the environment overrides this, which is the better
+  # place for it: a credential in the environment never has to be written
+  # into a file that could be committed or reach an image layer.
   acoustid_api_key: ""
 
-
-  # AcoustID USER key -- a different credential from the one above, and not
-  # interchangeable with it.
-  #
-  #   acoustid.match(api_key, path)              lookup     <- api_key above
-  #   acoustid.submit(api_key, user_key, data)   submission <- both
-  #
-  # The application key identifies the program; the user key identifies the
-  # account submitting. They come from different pages, which is half of why
-  # they get confused:
-  #
-  #   application key   https://acoustid.org/login   (register an application)
-  #   user key          https://acoustid.org/api-key
-  #
-  # RESERVED: massMusicTagger only performs lookups, so nothing reads this
-  # yet. It is here so the key has a documented home and so it is not pasted
-  # into acoustid_api_key by mistake -- which does not work, and is a quiet
-  # failure rather than a loud one.
-  #
-  # ACOUSTID_USER_KEY in the environment overrides it.
-  acoustid_user_key: ""
+  # Submitter key. RESERVED -- massMusicTagger only performs lookups, so
+  # nothing reads this yet. It is here so the key has a home that is not the
+  # field it breaks. ACOUSTID_SUBMITTER_KEY overrides it.
+  acoustid_submitter_key: ""
 
   # Run AcoustID fingerprinting before text search (tiers 6-7 are skipped
   # when this fires).  Costs fpcalc CPU + AcoustID network call on every

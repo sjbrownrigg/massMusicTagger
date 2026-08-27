@@ -148,7 +148,7 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
         ('discogs', 'consumer_key'):     'DISCOGS_CONSUMER_KEY',
         ('discogs', 'consumer_secret'):  'DISCOGS_CONSUMER_SECRET',
         ('musicbrainz', 'acoustid_api_key'): 'ACOUSTID_API_KEY',
-        ('musicbrainz', 'acoustid_user_key'): 'ACOUSTID_USER_KEY',
+        ('musicbrainz', 'acoustid_submitter_key'): 'ACOUSTID_SUBMITTER_KEY',
     }
 
     def _get(section, key):

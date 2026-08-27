@@ -37,9 +37,15 @@ sync for no benefit. The setting still works and warns.
   `musicbrainz.acoustid_api_key`, matching how `DISCOGS_USER_TOKEN` already
   worked — so neither credential has to be written into a file that could be
   committed or reach an image layer.
-- **`musicbrainz.acoustid_user_key`** (and `ACOUSTID_USER_KEY`) added as a
-  documented home for the AcoustID *user* key, which is a different credential
-  from the application key and not interchangeable with it:
+- **`musicbrainz.acoustid_submitter_key`** (and `ACOUSTID_SUBMITTER_KEY`) added
+  as a documented home for the AcoustID submitter key, which is a different
+  credential from the application key and not interchangeable with it.
+
+  AcoustID calls **both** an "API key", which is the whole confusion — the page
+  at `https://acoustid.org/api-key` hands you the *submitter* key, while
+  `acoustid_api_key` wants the *application* key from registering an app at
+  `https://acoustid.org/login`. Ours is named for its role so it collides with
+  neither.
 
   ```
   acoustid.match(api_key, path)             lookup      — application key

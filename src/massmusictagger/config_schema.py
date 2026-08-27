@@ -30,9 +30,13 @@ KEYS = (
     ('musicbrainz', 'acoustid_api_key'),
     # Reserved: the second argument to acoustid.submit(). Nothing reads it yet
     # -- massMusicTagger only calls acoustid.match(), which takes the
-    # application key alone. Registered so a key stored here is not reported
-    # as a typo, and so the two are not confused for each other again.
-    ('musicbrainz', 'acoustid_user_key'),
+    # application key alone.
+    #
+    # Named for its role rather than its type because AcoustID calls both
+    # credentials an "API key": the page at /api-key hands you this one, while
+    # acoustid_api_key above is the application key from the app registration.
+    # "submitter" collides with neither.
+    ('musicbrainz', 'acoustid_submitter_key'),
     ('musicbrainz', 'acoustid_early'),
     ('musicbrainz', 'caa_request_delay'),
     ('musicbrainz', 'cache_directory'),
