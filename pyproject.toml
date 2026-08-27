@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "massmusictagger"
-version = "1.2.0"
+version = "2.0.0"
 description = "Multi-source mass audio tagger — Discogs and MusicBrainz with cascading fallback"
 requires-python = ">=3.10"
 license = {text = "GPL-3.0-or-later"}
@@ -17,7 +17,8 @@ dependencies = [
     # calls discogstagger3's private members -- so an upstream refactor breaks
     # it at run time, silently and at a distance from the change.
     # Update this ref deliberately, and re-run the tests when you do.
-    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@cac4eb103f9bfa94785143f9b770abf2095c5b6c",
+    # This SHA is discogstagger3 v4.0.0.
+    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@d24994f22f6218e04e4b96d1f3073dbdd3d558a8",
 
     # MusicBrainz
     "musicbrainzngs>=0.7.1",

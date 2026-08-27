@@ -47,4 +47,7 @@ COPY conf/format_codes.yaml       /app/conf/format_codes.yaml
 RUN mkdir -p /cache && chmod 777 /cache
 
 ENTRYPOINT ["mmt"]
-CMD ["-c", "/config/config.yaml", "-w"]
+ENV MMT_CONFIG_DIR=/config
+ENV DISCOGSTAGGER_CONFIG_DIR=/config
+ENV DISCOGSTAGGER_STATE_DIR=/cache
+CMD ["-w"]

@@ -7,7 +7,10 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shutil
 import sys
+
+from massmusictagger import roots, __version__
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +23,18 @@ def _build_parser() -> argparse.ArgumentParser:
             'By default tries Discogs first then falls back to MusicBrainz (--source auto).'
         ),
     )
-    p.add_argument('-c', '--config',
-                   default=None,
-                   metavar='CONFIG',
-                   help='Path to YAML config file (default: conf/config.yaml next to package)')
+    p.add_argument('--version', action='version',
+                   version=f'massMusicTagger {__version__}')
+    p.add_argument('--new-config', dest='new_config', nargs='?',
+                   const=roots.config_dir(), metavar='DIR',
+                   help='Write a fresh config.yaml and formats.ini into DIR '
+                        'and exit. Defaults to the configuration directory, '
+                        'so plain --new-config sets you up where the next run '
+                        'will look. Existing files are never overwritten.')
+    p.add_argument('--force-new-config', dest='force_new_config',
+                   action='store_true',
+                   help='With --new-config, overwrite files that already exist. '
+                        'This discards credentials and format strings.')
     p.add_argument('-r', '--releaseid',
                    default=None,
                    metavar='ID',
@@ -170,85 +181,154 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
     return issues
 
 
-def _load_extra_configs(cfg, primary_config_path: str) -> None:
-    """Load additional config files listed in extra_configs of the primary YAML.
+def _load_side_configs(cfg, primary_config_path: str) -> None:
+    """Load the credentials files sitting beside the primary config.
 
-    Paths in extra_configs resolve against the primary config file's own
-    directory, so a config and the files it references travel together and one
-    config works unchanged on a laptop and in a container. Resolution falls
-    back to the working directory when nothing is found beside the config,
-    with a deprecation warning.
+    Every ``credentials/*.yaml`` in the configuration directory is loaded, in
+    name order. Nothing has to be listed in config.yaml: with one configuration
+    directory there is nowhere else these files can be, so naming them
+    individually was a list to keep in sync for no benefit.
 
-    This ordering matters in the container: the working directory is /app and
-    the image carries bundled defaults at /app/conf, so trying the working
-    directory first meant a bare 'conf/discogs.yaml' silently resolved to the
-    image's sample instead of the operator's mounted /config.
-
-    Supports both YAML (.yaml/.yml) and INI (.ini/.conf) files.
-    YAML files with 'extra_configs' are NOT recursed into — one level only.
+    ``extra_configs`` still works and warns, so existing configs keep running.
+    Paths in it resolve against the config file's own directory.
     """
     import yaml
+
+    config_dir = os.path.dirname(os.path.abspath(primary_config_path))
+
+    paths = list(roots.discover_credentials(config_dir))
+    if paths:
+        logger.debug('Credentials discovered: %s', ', '.join(paths))
 
     try:
         with open(primary_config_path, 'r', encoding='utf-8') as fh:
             raw = yaml.safe_load(fh) or {}
     except Exception:
-        return
+        raw = {}
 
-    extra = raw.get('extra_configs') or []
-    if not extra:
-        return
+    legacy = raw.get('extra_configs') or []
+    if legacy:
+        logger.warning(
+            'extra_configs is deprecated and no longer needed: every '
+            'credentials/*.yaml beside config.yaml is loaded automatically. '
+            'Move these files into %s and remove the setting.',
+            os.path.join(config_dir, roots.CREDENTIALS_DIRNAME))
 
-    config_dir = os.path.dirname(os.path.abspath(primary_config_path))
-
-    for entry in extra:
+    for entry in legacy:
         path = os.path.expanduser(str(entry).strip())
         if not os.path.isabs(path):
-            beside_config = os.path.normpath(os.path.join(config_dir, path))
-            if os.path.exists(beside_config):
-                path = beside_config
-            else:
-                cwd_path = os.path.normpath(path)
-                if os.path.exists(cwd_path):
-                    logger.warning(
-                        'extra_configs: %s resolved relative to the working '
-                        'directory, which is deprecated: %s\n'
-                        '  Move it beside the config file (expected at %s), or '
-                        'use an absolute path.',
-                        entry, cwd_path, beside_config)
-                    path = cwd_path
-                else:
-                    # Report the path the user is meant to create.
-                    path = beside_config
-        path = os.path.normpath(path)
+            beside = os.path.normpath(os.path.join(config_dir, path))
+            path = beside if os.path.exists(beside) else os.path.normpath(path)
+        if path not in paths:
+            paths.append(path)
 
+    for path in paths:
         if not os.path.exists(path):
-            logger.warning('extra_configs: file not found — %s', path)
+            logger.warning('config: file not found — %s', path)
             continue
-
-        ext = os.path.splitext(path)[1].lower()
-        try:
-            if ext in ('.yaml', '.yml'):
-                cfg._load_yaml(path)
-                logger.debug('Loaded extra YAML config: %s', path)
-            else:
-                cfg.read(path)
-                logger.debug('Loaded extra INI config: %s', path)
-        except Exception as exc:
-            logger.warning('extra_configs: failed to load %s: %s', path, exc)
+        _merge_config_file(cfg, path)
 
 
-def _default_config_path() -> str:
-    """Return conf/config.yaml at the repo root, falling back to conf/config_sample.yaml."""
+def _merge_config_file(cfg, path: str) -> None:
+    """Merge one YAML or INI file into the loaded config."""
+    import yaml
+
+    ext = os.path.splitext(path)[1].lower()
+    try:
+        if ext in ('.yaml', '.yml'):
+            with open(path, 'r', encoding='utf-8') as fh:
+                data = yaml.safe_load(fh) or {}
+            for section, values in data.items():
+                if section == 'extra_configs':
+                    continue
+                if not isinstance(values, (dict, list)):
+                    continue
+                if not cfg.has_section(section):
+                    cfg.add_section(section)
+                if isinstance(values, list):
+                    for item in values:
+                        item = str(item).strip()
+                        if item:
+                            cfg.set(section, item, None)
+                else:
+                    for key, val in values.items():
+                        cfg.set(section, str(key),
+                                None if val is None else str(val))
+        else:
+            cfg.read(path)
+        logger.debug('Loaded config: %s', path)
+    except Exception as exc:
+        logger.warning('config: failed to load %s: %s', path, exc)
+
+def _new_config(parser, opts):
+    """Scaffold a fresh configuration and print what to do next."""
+    from discogstagger.tagger_config import write_new_config
+
+    dest = os.path.abspath(os.path.expanduser(opts.new_config))
+    try:
+        written, skipped = write_new_config(dest, force=opts.force_new_config)
+    except OSError as exc:
+        parser.error(f"Could not write the new config: {exc}")
+
+    # massMusicTagger's own sample documents the settings discogstagger3's
+    # does not -- source priority, MusicBrainz, concurrency.
+    mmt_sample = _bundled_sample()
+    mmt_target = os.path.join(dest, "config.yaml")
+    if os.path.exists(mmt_sample) and mmt_target in written:
+        shutil.copyfile(mmt_sample, mmt_target)
+
+    creds = os.path.join(dest, roots.CREDENTIALS_DIRNAME)
+    os.makedirs(creds, exist_ok=True)
+
     here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.abspath(os.path.join(here, '..', '..'))
-    candidate = os.path.join(repo_root, 'conf', 'config.yaml')
-    if os.path.exists(candidate):
-        return candidate
-    sample = os.path.join(repo_root, 'conf', 'config_sample.yaml')
-    if os.path.exists(sample):
-        return sample
-    return candidate  # return expected path so the error message names the missing file
+    conf_dir = os.path.abspath(os.path.join(here, '..', '..', 'conf'))
+    for name in ('discogs', 'musicbrainz'):
+        src = os.path.join(conf_dir, f'{name}_sample.yaml')
+        dst = os.path.join(creds, f'{name}.yaml')
+        if os.path.exists(src) and not os.path.exists(dst):
+            shutil.copyfile(src, dst)
+            written.append(dst)
+
+    for path in written:
+        print(f"created  {path}")
+    for path in skipped:
+        print(f"exists   {path}  (left alone)")
+
+    if not written:
+        print(
+            "\nNothing written -- every file already exists.\n"
+            "  Use --force-new-config to overwrite them, but note that this\n"
+            "  discards any credentials and format strings they contain.")
+        return 1
+
+    print(f"""
+Next:
+
+  1. Edit {mmt_target}
+     At minimum set common.source_dir and common.dest_dir.
+
+  2. Put your API tokens in {creds}/
+     Every credentials/*.yaml there is loaded automatically -- nothing to
+     declare. DISCOGS_USER_TOKEN in the environment overrides the file.
+
+  3. Run it:
+       mmt
+
+     That works when the config is in the default location. Elsewhere:
+       MMT_CONFIG_DIR={dest} mmt
+
+Paths inside config.yaml resolve against its own directory, so formats.ini is
+found because it sits beside it. Move this whole directory anywhere and it
+keeps working.
+""")
+    return 0
+
+
+def _bundled_sample() -> str:
+    """Path to the packaged reference config -- documentation, never loaded."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.abspath(
+        os.path.join(here, '..', '..', 'conf', 'config_sample.yaml'))
 
 
 def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tuple[list[str], int]:
@@ -385,11 +465,16 @@ def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     opts = parser.parse_args(argv)
 
+    # Handled before anything else: the whole point is to work when there is
+    # no usable configuration yet.
+    if opts.new_config is not None:
+        return _new_config(parser, opts)
+
     # Show help when invoked with no arguments and no persistent source_dir
     # is configured — avoids a confusing error about missing source directory.
     if (not opts.sourcedir and not opts.watch and not opts.undo):
-        config_path = opts.config or _default_config_path()
-        if os.path.exists(config_path):
+        config_path = roots.discover_config()
+        if config_path:
             try:
                 from discogstagger.tagger_config import TaggerConfig
                 _cfg = TaggerConfig(config_path)
@@ -405,40 +490,32 @@ def main(argv: list[str] | None = None) -> None:
             parser.print_help()
             sys.exit(0)
 
-    config_path = opts.config or _default_config_path()
-    if not os.path.exists(config_path):
-        here = os.path.dirname(os.path.abspath(__file__))
-        sample = os.path.abspath(os.path.join(here, '..', '..', 'conf', 'config_sample.yaml'))
+    config_path = roots.discover_config()
+    if not config_path:
+        expected = os.path.join(roots.config_dir(), roots.CONFIG_FILENAME)
         print(
-            f'Config file not found: {config_path}\n'
+            f'No configuration found at {expected}\n'
             f'\n'
-            f'  Copy the sample config and fill in your settings:\n'
-            f'    cp {sample} conf/config.yaml\n'
+            f'  Create one:\n'
+            f'    mmt --new-config\n'
             f'\n'
-            f'  Then run:  mmt -c conf/config.yaml\n'
+            f'  Or point at an existing configuration directory:\n'
+            f'    MMT_CONFIG_DIR=/path/to/config mmt\n'
             f'\n'
-            f'  The sample config documents every available option.',
+            f'  Refusing to run: tagging renames and moves files, so it will\n'
+            f'  not run against settings you have not reviewed.',
             file=sys.stderr,
         )
-        sys.exit(1)
-
-    if not opts.config and config_path.endswith('config_sample.yaml'):
-        here = os.path.dirname(os.path.abspath(__file__))
-        expected = os.path.abspath(os.path.join(here, '..', '..', 'conf', 'config.yaml'))
-        print(
-            f'Warning: conf/config.yaml not found — running from the sample config.\n'
-            f'  Copy it and fill in your settings:\n'
-            f'    cp {config_path} {expected}',
-            file=sys.stderr,
-        )
+        sys.exit(78)  # EX_CONFIG
 
     from discogstagger.tagger_config import TaggerConfig
 
-    # User's config is complete — load it directly; extra_configs provides
-    # source-specific settings (discogs.yaml, musicbrainz.yaml, formats.ini).
+    # The user's config is the sole source of settings. Credentials come from
+    # credentials/*.yaml beside it, and formats.ini is discovered by
+    # TaggerConfig -- nothing needs declaring.
     cfg = TaggerConfig(config_path)
     cfg.source_conffile = config_path
-    _load_extra_configs(cfg, config_path)
+    _load_side_configs(cfg, config_path)
 
     # Set up logging before validation so validation errors go through the logger.
     _log_file = (cfg.get('logging', 'log_file')

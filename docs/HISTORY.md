@@ -2,6 +2,84 @@
 
 ---
 
+## Version 2.0.0 (2026-08-27)
+
+Configuration follows discogstagger3 4.0.0: a **directory** massMusicTagger
+finds for itself, holding only files the user owns.
+
+### Breaking changes
+
+**`-c` / `--config` is gone.** A configuration is `config.yaml`, `formats.ini`
+and `credentials/` resolving relative to each other — it moves as a unit, so the
+directory is what gets selected:
+
+```bash
+MMT_CONFIG_DIR=/path/to/config mmt
+```
+
+Found via `MMT_CONFIG_DIR`, else `$XDG_CONFIG_HOME/massmusictagger`, else
+`~/.config/massmusictagger`.
+
+**No more running from the sample config.** `_default_config_path()` walked up
+from `__file__` looking for a `conf/` directory at a repo root — which only
+worked from a source checkout — and fell back to `config_sample.yaml` when it
+found nothing, so a pip-installed copy silently ran on sample settings. A
+missing configuration now refuses to run (exit 78) and says how to create one.
+
+**`extra_configs` deprecated.** Every `credentials/*.yaml` beside `config.yaml`
+is loaded automatically, in name order. With one configuration directory there
+was nowhere else for these files to be, so listing them was a list to keep in
+sync for no benefit. The setting still works and warns.
+
+### New
+
+- **`--new-config [DIR]`** writes `config.yaml`, `formats.ini` and a
+  `credentials/` directory seeded with `discogs.yaml` and `musicbrainz.yaml`.
+  Never overwrites; `--force-new-config` overrides.
+- **`--version`**, reporting the installed version.
+
+### The config directory
+
+```
+config.yaml              your settings
+formats.ini              your file and directory naming (found automatically)
+credentials/             API tokens, one file per source (all loaded)
+  discogs.yaml
+  musicbrainz.yaml
+```
+
+Nothing references anything else by path. Mako templates and the tagging rule
+tables belong to discogstagger3 and ship inside that package.
+
+### Fixes
+
+- **`extra_configs` resolved against the working directory first**, and the
+  config file's own directory only as a fallback — the opposite of what its
+  docstring said. In the container the working directory is `/app` and the image
+  carried defaults at `/app/conf`, so a bare `conf/discogs.yaml` in a mounted
+  `/config/config.yaml` resolved to the image's empty sample: credentials
+  appeared configured and were silently not loaded.
+- **Credentials were baked into image layers.** `COPY . /src/mmt` with no
+  `.dockerignore` wrote `conf/discogs.yaml`, `conf/musicbrainz.yaml` and
+  `docker/.env` into the image, where they persist regardless of later layers.
+  Rotate any credentials used with an image built before this release.
+- **massMusicTagger's own config keys were reported as typos** by
+  discogstagger3's unknown-key check. They are now registered via
+  `config_schema.register_known_keys()`, so checking covers both sets and a typo
+  in a massMusicTagger setting is still caught.
+
+### Upgrading
+
+```bash
+mmt --new-config
+```
+
+Then copy your settings across, and move `conf/discogs.yaml` and
+`conf/musicbrainz.yaml` into `credentials/`. To keep your existing directory
+instead, point `MMT_CONFIG_DIR` at it and remove `extra_configs`.
+
+---
+
 ## Version 1.2.0 (2026-06-01)
 
 ---

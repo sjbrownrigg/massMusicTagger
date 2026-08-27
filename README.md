@@ -29,19 +29,46 @@ Adds MusicBrainz metadata, Cover Art Archive typed images, AcoustID fingerprinti
 ```bash
 pip install "massmusictagger[fingerprint] @ git+https://github.com/sjbrownrigg/massMusicTagger.git@master"
 
+# Create a configuration (once)
+mmt --new-config
+
 # Tag a single album (tries Discogs then MusicBrainz automatically)
-mmt -c conf/config_personal.yaml ~/Music/incoming/Artist/Album
+mmt ~/Music/incoming/Artist/Album
 
 # Tag a whole incoming directory
-mmt -c conf/config_personal.yaml ~/Music/incoming
+mmt ~/Music/incoming
 
 # Dry run (shows what would happen without writing)
-mmt -c conf/config_personal.yaml --dry-run ~/Music/incoming
+mmt --dry-run ~/Music/incoming
 ```
+
+## Configuration
+
+Configuration is a **directory**, not a single file. `config.yaml` is the entry
+point, and everything beside it is found by name:
+
+```
+config.yaml              your settings
+formats.ini              your file and directory naming (optional)
+credentials/             API tokens — every *.yaml here is loaded
+  discogs.yaml
+  musicbrainz.yaml
+```
+
+It is found via `MMT_CONFIG_DIR`, else `$XDG_CONFIG_HOME/massmusictagger`, else
+`~/.config/massmusictagger`. There is no `-c` switch — the configuration is a
+directory, so it is selected by pointing `MMT_CONFIG_DIR` at one:
+
+```bash
+MMT_CONFIG_DIR=~/configs/vinyl mmt ~/Music/incoming
+```
+
+Create one with `mmt --new-config`. Credentials can also come from the
+environment (`DISCOGS_USER_TOKEN`), which overrides the file.
 
 ## Source priority
 
-Configured in `conf/config_personal.yaml` — see [sources.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/sources.md):
+Configured in `config.yaml` — see [sources.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/sources.md):
 
 ```yaml
 source:

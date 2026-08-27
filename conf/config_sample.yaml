@@ -17,7 +17,7 @@
 #    conf/formats.ini are gitignored — never commit credentials.
 #
 # Usage:
-#   mmt -c conf/config.yaml
+#   mmt
 #
 # Source-specific settings and credentials live in their own named files,
 # loaded via extra_configs.  Paths resolve relative to THIS FILE's directory,

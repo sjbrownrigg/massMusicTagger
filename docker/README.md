@@ -59,7 +59,6 @@ docker compose logs -f
 
 ```bash
 docker compose run --rm mmt \
-  -c /config/config_personal.yaml \
   /music/incoming/Artist/Album
 ```
 
@@ -67,7 +66,6 @@ docker compose run --rm mmt \
 
 ```bash
 docker compose run --rm mmt \
-  -c /config/config_personal.yaml \
   --dry-run \
   /music/incoming
 ```
