@@ -31,8 +31,11 @@ musicbrainz:
   #   acoustid.submit(api_key, user_key, data)   submission <- both
   #
   # The application key identifies the program; the user key identifies the
-  # account submitting. Find it on your AcoustID profile, not on the
-  # application page.
+  # account submitting. They come from different pages, which is half of why
+  # they get confused:
+  #
+  #   application key   https://acoustid.org/login   (register an application)
+  #   user key          https://acoustid.org/api-key
   #
   # RESERVED: massMusicTagger only performs lookups, so nothing reads this
   # yet. It is here so the key has a documented home and so it is not pasted
