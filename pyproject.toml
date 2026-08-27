@@ -18,7 +18,7 @@ dependencies = [
     # it at run time, silently and at a distance from the change.
     # Update this ref deliberately, and re-run the tests when you do.
     # This SHA is discogstagger3 v4.0.0.
-    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@d24994f22f6218e04e4b96d1f3073dbdd3d558a8",
+    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@666048e79d21452a1bf286bf1704f4398fa8847f",
 
     # MusicBrainz
     "musicbrainzngs>=0.7.1",
