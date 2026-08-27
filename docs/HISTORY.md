@@ -63,6 +63,16 @@ tables belong to discogstagger3 and ship inside that package.
   `.dockerignore` wrote `conf/discogs.yaml`, `conf/musicbrainz.yaml` and
   `docker/.env` into the image, where they persist regardless of later layers.
   Rotate any credentials used with an image built before this release.
+- **Credentials supplied via the environment were rejected at startup.**
+  Validation read `discogs.user_token` from the config only, so a container
+  passing `DISCOGS_USER_TOKEN` — which is what `compose.yaml` does — was
+  refused for a credential it had. Validation now honours the same environment
+  overrides discogstagger3 applies when connecting.
+- **The MusicBrainz cache defaulted under `HOME`.** In the container the `mmt`
+  user's home is `/app`, which is not writable, so the run died before doing
+  anything. `MMT_CACHE_DIR` now sets it, defaulting to `$XDG_CACHE_HOME`. The
+  bundled samples no longer hardcode `~/` paths for
+  `musicbrainz.cache_directory` or `batch.audit_log` either.
 - **massMusicTagger's own config keys were reported as typos** by
   discogstagger3's unknown-key check. They are now registered via
   `config_schema.register_known_keys()`, so checking covers both sets and a typo
