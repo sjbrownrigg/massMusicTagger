@@ -37,6 +37,18 @@ sync for no benefit. The setting still works and warns.
   `musicbrainz.acoustid_api_key`, matching how `DISCOGS_USER_TOKEN` already
   worked — so neither credential has to be written into a file that could be
   committed or reach an image layer.
+- **`musicbrainz.acoustid_user_key`** (and `ACOUSTID_USER_KEY`) added as a
+  documented home for the AcoustID *user* key, which is a different credential
+  from the application key and not interchangeable with it:
+
+  ```
+  acoustid.match(api_key, path)             lookup      — application key
+  acoustid.submit(api_key, user_key, data)  submission  — both
+  ```
+
+  Reserved: massMusicTagger only looks up, so nothing reads it yet. It exists
+  so the key has somewhere to live other than `acoustid_api_key`, where it
+  fails quietly.
 - **`--new-config [DIR]`** writes `config.yaml`, `formats.ini` and a
   `credentials/` directory seeded with `discogs.yaml` and `musicbrainz.yaml`.
   Never overwrites; `--force-new-config` overrides.

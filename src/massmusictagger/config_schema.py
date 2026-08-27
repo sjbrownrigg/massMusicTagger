@@ -28,6 +28,11 @@ KEYS = (
     ('details',     'source_move_template'),
     ('logging',     'log_file'),
     ('musicbrainz', 'acoustid_api_key'),
+    # Reserved: the second argument to acoustid.submit(). Nothing reads it yet
+    # -- massMusicTagger only calls acoustid.match(), which takes the
+    # application key alone. Registered so a key stored here is not reported
+    # as a typo, and so the two are not confused for each other again.
+    ('musicbrainz', 'acoustid_user_key'),
     ('musicbrainz', 'acoustid_early'),
     ('musicbrainz', 'caa_request_delay'),
     ('musicbrainz', 'cache_directory'),
