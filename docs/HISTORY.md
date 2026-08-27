@@ -100,6 +100,46 @@ tables belong to discogstagger3 and ship inside that package.
   `config_schema.register_known_keys()`, so checking covers both sets and a typo
   in a massMusicTagger setting is still caught.
 
+### Packaging
+
+Three things massMusicTagger shipped were only ever reachable from a source
+checkout, and each failed quietly rather than loudly:
+
+- **The reference samples are now inside the package.** They are the source
+  `--new-config` copies from, and the lookup walked up from `__file__` to a
+  repo-root `conf/` — nonsense once installed. `mmt --new-config` was writing
+  discogstagger3's sample with none of massMusicTagger's settings and skipping
+  the credentials files entirely.
+- **`source_hints.yaml` is now inside the package.** It was named by a
+  working-directory-relative path and was not in the wheel, so
+  `_load_source_hints()` found nothing and returned `{}` — the source-hint
+  feature was inert for every installed copy, indistinguishable from having
+  configured no hints.
+- **`conf/format_codes.yaml` and `conf/char_substitutions.yaml` are gone.** Both
+  were stale copies of tables discogstagger3 owns and ships. `char_substitutions`
+  was byte-identical; `format_codes` differed only in comments and list order
+  while *missing* `unknown_format_code`. An installed copy was already using
+  discogstagger3's, so this removes a divergence only a checkout could see.
+
+`conf/` is also ignored by default now rather than by name, so a new
+configuration or credentials file added there is not committed by accident.
+
+### Testing
+
+The suite pointed `MMT_CONFIG` at `conf/config.yaml` — a gitignored live
+configuration that only exists on a machine where someone has configured the
+tool. **68 tests were passing for that reason** and would have failed on a fresh
+clone or in CI. They now use the packaged sample.
+
+Two tests in `test_mb_album.py` loaded `conf/format_codes.yaml` behind an
+`if fc:` guard, turning a missing file into a silent skip. Those assertions had
+already stopped running; they now load the packaged table and assert it loaded.
+
+### Housekeeping
+
+The Docker deployment moved to its own repository,
+[docker-mmt](https://github.com/sjbrownrigg/docker-mmt).
+
 ### Upgrading
 
 ```bash
