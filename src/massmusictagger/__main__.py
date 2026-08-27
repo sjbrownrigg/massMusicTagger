@@ -139,7 +139,22 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
 
     issues: list[tuple[str, str]] = []
 
+    # Credentials that discogstagger3 will accept from the environment at
+    # connect time. Validation has to honour the same overrides, or a container
+    # passing DISCOGS_USER_TOKEN -- which is exactly what compose.yaml does --
+    # is refused at startup for a credential it does in fact have.
+    _ENV_OVERRIDES = {
+        ('discogs', 'user_token'):       'DISCOGS_USER_TOKEN',
+        ('discogs', 'consumer_key'):     'DISCOGS_CONSUMER_KEY',
+        ('discogs', 'consumer_secret'):  'DISCOGS_CONSUMER_SECRET',
+    }
+
     def _get(section, key):
+        env_name = _ENV_OVERRIDES.get((section, key))
+        if env_name:
+            from_env = (os.environ.get(env_name) or '').strip()
+            if from_env:
+                return from_env
         try:
             v = cfg.get(section, key)
             return (v or '').strip()
@@ -170,13 +185,14 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
         if not (token or (ck and cs)):
             _issue('ERROR', 'discogs', 'user_token',
                    'Discogs is in source.priority but no credentials are set.\n'
-                   '  Set discogs.user_token (or consumer_key + consumer_secret) in conf/discogs.yaml.')
+                   '  Set discogs.user_token (or consumer_key + consumer_secret) in\n'
+                   '  credentials/discogs.yaml, or export DISCOGS_USER_TOKEN.')
 
     if 'musicbrainz' in priority:
         if not _get('musicbrainz', 'user_agent'):
             _issue('ERROR', 'musicbrainz', 'user_agent',
                    'MusicBrainz is in source.priority but musicbrainz.user_agent is not set.\n'
-                   '  Set user_agent in conf/musicbrainz.yaml.')
+                   '  Set user_agent in credentials/musicbrainz.yaml.')
 
     return issues
 

@@ -36,6 +36,8 @@ import musicbrainzngs
 if TYPE_CHECKING:
     from discogstagger.tagger_config import TaggerConfig
 
+from massmusictagger import roots
+
 logger = logging.getLogger(__name__)
 
 _INCLUDES = [
@@ -77,9 +79,10 @@ class MBConnector:
 
         cache_dir = (cfg.get('musicbrainz', 'cache_directory')
                      if cfg.has_option('musicbrainz', 'cache_directory') else None)
-        self._cache_root = Path(os.path.expanduser(
-            cache_dir or '~/.cache/massmusictagger/mb'
-        ))
+        # Default comes from the cache root rather than a literal '~/...' so
+        # it honours MMT_CACHE_DIR and does not depend on HOME being writable.
+        self._cache_root = (Path(os.path.expanduser(cache_dir)) if cache_dir
+                            else Path(roots.cache_root()) / 'mb')
 
         self._cache_meta   = _cfg_bool(cfg, 'musicbrainz', 'cache_metadata', default=True)
         self._cache_images = _cfg_bool(cfg, 'musicbrainz', 'cache_images',   default=True)

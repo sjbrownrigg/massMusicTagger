@@ -36,7 +36,11 @@ musicbrainz:
   #   caa/        — Cover Art Archive image index per release
   #   images/     — downloaded CAA image files (keyed by URL hash)
   #   searches/   — text and barcode search results (keyed by query hash)
-  cache_directory: "~/.cache/massmusictagger/mb"
+  # Leave empty to use the cache root: MMT_CACHE_DIR when set, otherwise
+  # $XDG_CACHE_HOME/massmusictagger. Do not hardcode a ~/ path here -- in a
+  # container HOME is not necessarily writable, which used to kill the run on
+  # startup. Set this only to put the cache somewhere specific.
+  cache_directory: ""
 
   # Delay between Cover Art Archive requests (seconds).
   # The Internet Archive applies IP-based rate limits; a small pause keeps

@@ -116,7 +116,11 @@ batch:
 
   # Path to the JSON audit log (append-only).  Records every processed
   # directory with outcome, source used, matched release, and elapsed time.
-  audit_log: "~/.cache/massmusictagger/audit.json"
+  # Leave empty to disable the audit log (and with it --undo). To enable it,
+  # give an absolute path on a writable volume rather than a ~/ path: in a
+  # container HOME is not necessarily writable.
+  #   audit_log: /cache/audit.json
+  audit_log: ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────

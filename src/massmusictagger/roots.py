@@ -70,3 +70,25 @@ def discover_credentials(config_root_dir):
 
     pattern = os.path.join(config_root_dir, CREDENTIALS_DIRNAME, "*.yaml")
     return sorted(glob.glob(pattern))
+
+
+def cache_root():
+    """Return the directory for massMusicTagger's cached API responses.
+
+    ``MMT_CACHE_DIR`` wins when set -- the container points it at a mounted
+    volume. Otherwise ``$XDG_CACHE_HOME/massmusictagger``, falling back to
+    ``~/.cache/massmusictagger``.
+
+    The MusicBrainz cache previously defaulted to a literal
+    ``~/.cache/massmusictagger/mb``. In the container the mmt user's home is
+    /app, which is not writable, so the run died on startup -- the same class
+    of failure as a path resolved against the working directory, just rooted
+    at HOME instead.
+    """
+    explicit = os.environ.get("MMT_CACHE_DIR")
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit))
+
+    xdg = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache")
+    return os.path.join(os.path.expanduser(xdg), APP_NAME)
