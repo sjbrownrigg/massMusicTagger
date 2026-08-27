@@ -21,6 +21,10 @@ import os
 logger = logging.getLogger(__name__)
 
 APP_NAME = "massmusictagger"
+
+#: Shipped defaults that travel inside the package.
+PACKAGE_ROOT = os.path.dirname(os.path.abspath(__file__))
+BUNDLED_CONF = os.path.join(PACKAGE_ROOT, "conf")
 CONFIG_FILENAME = "config.yaml"
 
 # The fixed layout inside a configuration directory. As with discogstagger3,

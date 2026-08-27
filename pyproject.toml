@@ -58,5 +58,12 @@ mmt = "massmusictagger.__main__:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Shipped defaults live inside the package so they are installed by pip and
+# locatable from __file__. conf/source_hints.yaml used to sit at the repo root
+# and be named by a working-directory-relative config path, so the feature was
+# silently inert for every installed copy.
+"massmusictagger" = ["conf/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["test"]

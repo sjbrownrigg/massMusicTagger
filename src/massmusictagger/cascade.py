@@ -259,9 +259,20 @@ def _load_source_hints(cfg) -> dict:
                 break
         except Exception:
             pass
-    if not path:
-        return {}
-    path = os.path.normpath(os.path.expanduser(path))
+    if path:
+        # An override named by the config resolves beside that config file.
+        try:
+            path = cfg.resolve_path(path, 'details.source_hints_file') or path
+        except Exception:
+            path = os.path.expanduser(path)
+    else:
+        # No override: use the copy shipped inside the package. This used to
+        # return {} instead, so the feature was silently off for every
+        # installed copy -- the repo-relative default in the sample config
+        # only ever resolved from a source checkout.
+        from massmusictagger import roots
+        path = os.path.join(roots.BUNDLED_CONF, 'source_hints.yaml')
+    path = os.path.normpath(path)
     try:
         import yaml as _yaml
         with open(path, encoding='utf-8') as f:

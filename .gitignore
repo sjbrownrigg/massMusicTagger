@@ -6,9 +6,30 @@ build/
 .venv/
 .pytest_cache/
 *.log
-conf/config.yaml
-conf/discogs.yaml
-conf/musicbrainz.yaml
-conf/formats.ini
-docker/.env
+# ── Live configuration ───────────────────────────────────────────────────────
+# Deny by default: anything in conf/ is assumed to be a real configuration
+# holding real credentials, and only the reference files are committed. Naming
+# individual files here was fragile -- a new credentials file was committed by
+# default, which is the wrong way round for a directory that holds secrets.
+conf/*
+!conf/README.md
+!conf/char_substitutions.yaml
+!conf/config_sample.yaml
+!conf/discogs_sample.yaml
+!conf/format_codes.yaml
+!conf/formats_sample.ini
+!conf/musicbrainz_sample.yaml
+!conf/preview_cases.yaml
+!conf/source_hints.yaml
+
+# Credentials are never committed, whatever they are called.
+conf/credentials/
+credentials/
+*.token
+.token
+
+# Environment files hold secrets by definition.
+.env
+*.env
+!*.env.example
 docker/docker-compose.override.yml

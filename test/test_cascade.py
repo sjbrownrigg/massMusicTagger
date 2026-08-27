@@ -492,20 +492,38 @@ class TestLoadSourceHints(unittest.TestCase):
         result = _load_source_hints(self._make_cfg('/nonexistent/hints.yaml'))
         self.assertEqual(result, {})
 
-    def test_empty_path_returns_empty(self):
-        from massmusictagger.cascade import _load_source_hints
-        self.assertEqual(_load_source_hints(self._make_cfg('')), {})
+    def test_empty_path_falls_back_to_the_packaged_hints(self):
+        """No configured path means the shipped defaults, not no hints at all.
 
-    def test_no_hints_configured_returns_empty(self):
-        """When neither details nor musicbrainz has a source_hints_file, return {}."""
+        This used to return {}, so the feature was silently inert for every
+        installed copy: the sample config named conf/source_hints.yaml, a
+        working-directory-relative path that only ever resolved from a source
+        checkout.
+        """
+        from massmusictagger.cascade import _load_source_hints
+        hints = _load_source_hints(self._make_cfg(''))
+        self.assertTrue(hints, 'packaged source hints should have loaded')
+        self.assertIn('digital', hints)
+
+    def test_no_hints_configured_uses_the_packaged_hints(self):
+        """Neither details nor musicbrainz set: still the shipped defaults."""
         from massmusictagger.cascade import _load_source_hints
         from discogstagger.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
-        if cfg.has_section('details') and cfg.has_option('details', 'source_hints_file'):
-            cfg.set('details', 'source_hints_file', '')
-        if cfg.has_section('musicbrainz') and cfg.has_option('musicbrainz', 'source_hints_file'):
-            cfg.set('musicbrainz', 'source_hints_file', '')
-        self.assertEqual(_load_source_hints(cfg), {})
+        for section in ('details', 'musicbrainz'):
+            if cfg.has_section(section) and cfg.has_option(section, 'source_hints_file'):
+                cfg.set(section, 'source_hints_file', '')
+        hints = _load_source_hints(cfg)
+        self.assertTrue(hints)
+        self.assertIn('digital', hints)
+
+    def test_packaged_hints_are_installed(self):
+        """The defaults must be in the package, not just the source tree."""
+        import os
+        from massmusictagger import roots
+        self.assertTrue(
+            os.path.exists(os.path.join(roots.BUNDLED_CONF, 'source_hints.yaml')),
+            'source_hints.yaml is missing from the installed package')
 
     def test_musicbrainz_fallback_used_when_details_empty(self):
         """musicbrainz.source_hints_file is used when details.source_hints_file is empty."""
