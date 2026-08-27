@@ -12,8 +12,12 @@ license = {text = "GPL-3.0-or-later"}
 dependencies = [
     # Shared core + Discogs adapter: album model, taggerutils, tag writing,
     # charmap, formatcodes, discogs_search, discogsalbum, discogs_connector.
-    # Point at master branch; update the ref when discogstagger3 cuts releases.
-    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@master",
+    # Pinned to a SHA, not a branch. An unpinned @master means the same
+    # Dockerfile produces a different image on every rebuild, and this package
+    # calls discogstagger3's private members -- so an upstream refactor breaks
+    # it at run time, silently and at a distance from the change.
+    # Update this ref deliberately, and re-run the tests when you do.
+    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@cac4eb103f9bfa94785143f9b770abf2095c5b6c",
 
     # MusicBrainz
     "musicbrainzngs>=0.7.1",
