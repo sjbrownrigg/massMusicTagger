@@ -1,0 +1,39 @@
+# Build context hygiene for docker-mmt/Dockerfile (context: this directory).
+#
+# The Dockerfile does `COPY . /src/mmt` and then `cp -r /src/mmt/conf
+# /app/conf`. Without this file that copies real credentials into an image
+# layer, where they persist even if a later layer deletes them.
+
+# --- credentials: never into an image layer ---------------------------------
+# The samples (conf/*_sample.*) are the bundled defaults and must stay.
+conf/config.yaml
+conf/discogs.yaml
+conf/musicbrainz.yaml
+conf/formats.ini
+docker/.env
+docker/docker-compose.override.yml
+.token
+
+# --- version control --------------------------------------------------------
+.git
+.gitignore
+
+# --- build and packaging artefacts -----------------------------------------
+build/
+dist/
+*.egg-info/
+
+# --- python caches ----------------------------------------------------------
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
+
+# --- not needed at runtime --------------------------------------------------
+test/
+docs/
+*.log
+
+# --- NTFS alternate-data-stream stubs from Windows-mediated copies ----------
+*:Zone.Identifier
