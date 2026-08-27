@@ -593,13 +593,25 @@ class MBSearch:
             return False
 
     def _acoustid_api_key(self) -> Optional[str]:
+        """Return the AcoustID key, environment first.
+
+        ACOUSTID_API_KEY overrides the config file, matching how
+        DISCOGS_USER_TOKEN works. A credential passed through the environment
+        never has to be written into a file that could be committed or copied
+        into an image layer.
+        """
+        from_env = (os.environ.get('ACOUSTID_API_KEY') or '').strip()
+        if from_env:
+            return from_env
         try:
             key = self.cfg.get('musicbrainz', 'acoustid_api_key')
             if key:
                 return key
         except Exception:
             pass
-        logger.debug('AcoustID search skipped: acoustid_api_key not configured')
+        logger.debug(
+            'AcoustID search skipped: no acoustid_api_key in the config and '
+            'ACOUSTID_API_KEY is not set')
         return None
 
 

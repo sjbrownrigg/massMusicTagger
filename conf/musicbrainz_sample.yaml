@@ -18,6 +18,11 @@ musicbrainz:
   # AcoustID API key for tier 6/7 audio fingerprinting.
   # Register at https://acoustid.org/login
   # Leave empty to skip AcoustID tiers.
+  # AcoustID application key, for fingerprint lookup (tiers 6-7).
+  # ACOUSTID_API_KEY in the environment overrides this, which is the
+  # better place for it -- a credential in the environment never has to
+  # be written into a file that could be committed or reach an image
+  # layer. Register at https://acoustid.org/login
   acoustid_api_key: ""
 
   # Run AcoustID fingerprinting before text search (tiers 6-7 are skipped

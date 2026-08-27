@@ -33,6 +33,10 @@ sync for no benefit. The setting still works and warns.
 
 ### New
 
+- **`ACOUSTID_API_KEY`** in the environment overrides
+  `musicbrainz.acoustid_api_key`, matching how `DISCOGS_USER_TOKEN` already
+  worked — so neither credential has to be written into a file that could be
+  committed or reach an image layer.
 - **`--new-config [DIR]`** writes `config.yaml`, `formats.ini` and a
   `credentials/` directory seeded with `discogs.yaml` and `musicbrainz.yaml`.
   Never overwrites; `--force-new-config` overrides.

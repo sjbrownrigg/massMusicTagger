@@ -36,6 +36,17 @@ KEYS = (
 )
 
 
+#: Sections holding free-form content rather than settings, so their keys are
+#: not checked individually.
+#:
+#: extra_configs is a deprecated list of file paths -- its "keys" are paths,
+#: and checking them as setting names reported every one as a typo.
+FREEFORM_SECTIONS = (
+    'extra_configs',
+)
+
+
 def register():
-    """Declare these keys to discogstagger3's validator. Idempotent."""
+    """Declare these to discogstagger3's validator. Idempotent."""
     _dt3_schema.register_known_keys(KEYS)
+    _dt3_schema.register_freeform_sections(FREEFORM_SECTIONS)
