@@ -9,7 +9,12 @@ from unittest.mock import MagicMock, patch, call
 parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(parentdir, 'src'))
 
-MMT_CONFIG = os.path.join(parentdir, 'conf', 'config.yaml')
+# The packaged reference config, not a live conf/config.yaml. The suite used
+# to point at the latter -- a gitignored file that only exists on a machine
+# where someone has configured the tool -- so 68 tests passed here and would
+# have failed on a fresh clone or in CI.
+from massmusictagger import roots as _roots
+MMT_CONFIG = os.path.join(_roots.BUNDLED_CONF, 'config_sample.yaml')
 
 
 def _make_cfg(**overrides):

@@ -298,10 +298,8 @@ def _new_config(parser, opts):
     creds = os.path.join(dest, roots.CREDENTIALS_DIRNAME)
     os.makedirs(creds, exist_ok=True)
 
-    here = os.path.dirname(os.path.abspath(__file__))
-    conf_dir = os.path.abspath(os.path.join(here, '..', '..', 'conf'))
     for name in ('discogs', 'musicbrainz'):
-        src = os.path.join(conf_dir, f'{name}_sample.yaml')
+        src = _bundled_sample(f'{name}_sample.yaml')
         dst = os.path.join(creds, f'{name}.yaml')
         if os.path.exists(src) and not os.path.exists(dst):
             shutil.copyfile(src, dst)
@@ -342,11 +340,17 @@ keeps working.
     return 0
 
 
-def _bundled_sample() -> str:
-    """Path to the packaged reference config -- documentation, never loaded."""
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.abspath(
-        os.path.join(here, '..', '..', 'conf', 'config_sample.yaml'))
+def _bundled_sample(name: str = 'config_sample.yaml') -> str:
+    """Path to a packaged reference file.
+
+    These are the source --new-config copies from, so they have to be inside
+    the package. This used to walk up from __file__ to a repo-root conf/,
+    which resolved to nonsense once installed
+    (site-packages/massmusictagger/../../conf) -- so --new-config silently
+    produced a discogstagger3 config with none of massMusicTagger's settings,
+    and skipped the credentials files entirely.
+    """
+    return os.path.join(roots.BUNDLED_CONF, name)
 
 
 def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tuple[list[str], int]:
