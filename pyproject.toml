@@ -17,8 +17,8 @@ dependencies = [
     # calls discogstagger3's private members -- so an upstream refactor breaks
     # it at run time, silently and at a distance from the change.
     # Update this ref deliberately, and re-run the tests when you do.
-    # This SHA is discogstagger3 v4.0.0.
-    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@666048e79d21452a1bf286bf1704f4398fa8847f",
+    # This SHA is discogstagger3 v4.0.0 (including the daemon backlog fix).
+    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@64e1d97b8212000c6c9ce2c7f71e8f05e4573192",
 
     # MusicBrainz
     "musicbrainzngs>=0.7.1",
