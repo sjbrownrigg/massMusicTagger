@@ -113,6 +113,58 @@ def from_caa(image: dict) -> Attachment:
     )
 
 
+#: Extensions we are willing to write, mapped from what a URL or the bytes say.
+_EXTENSIONS = {'jpg': '.jpg', 'jpeg': '.jpg', 'png': '.png',
+               'gif': '.gif', 'webp': '.webp'}
+
+
+def extension_for(att: 'Attachment', data: Optional[bytes] = None) -> str:
+    """The file extension to write this attachment as.
+
+    Everything used to be written as .jpg regardless. The URL usually says,
+    and when it does not the first bytes do -- guessing wrong leaves a PNG
+    named .jpg, which some players will not read.
+    """
+    if data:
+        if data[:2] == b'\xff\xd8':
+            return '.jpg'
+        if data[:4] == b'\x89PNG':
+            return '.png'
+        if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+            return '.webp'
+        if data[:3] == b'GIF':
+            return '.gif'
+
+    tail = att.url.rsplit('?', 1)[0].rsplit('.', 1)
+    if len(tail) == 2:
+        ext = _EXTENSIONS.get(tail[1].lower())
+        if ext:
+            return ext
+    return '.jpg'
+
+
+def basename_for(att: 'Attachment', counter: dict) -> str:
+    """The on-disk basename, without extension, following CAA convention.
+
+    A recognised kind keeps its own name -- front, back, medium, booklet --
+    and only gains a number when there is more than one of it. Anything we
+    could not type becomes image-01, image-02, …, which is where Discogs
+    secondary images land: numbered from the start, because there is no
+    single "the" unknown image.
+
+    counter is mutated across calls, so the download and embed steps agree by
+    walking the same sorted list rather than passing filenames between them.
+    """
+    if att.kind == OTHER:
+        n = counter.get(OTHER, 0) + 1
+        counter[OTHER] = n
+        return f'image-{n:02d}'
+
+    n = counter.get(att.kind, 0)
+    counter[att.kind] = n + 1
+    return att.kind if n == 0 else f'{att.kind}-{n:02d}'
+
+
 def front(attachments) -> Optional[Attachment]:
     """The front cover, or None. Every consumer wanted this and open-coded it."""
     for a in attachments or ():

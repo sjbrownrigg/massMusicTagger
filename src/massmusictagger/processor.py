@@ -28,18 +28,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _wants_typed_images(album) -> bool:
-    """Whether to name images by kind rather than by the format string.
-
-    Cover Art Archive attachments carry real types -- Front, Back, Medium,
-    Booklet -- so naming them front.jpg/back.jpg keeps that information.
-    Discogs says only primary/secondary, so its images go through the format
-    string as they always have.
-
-    This replaces has_caa_type_metadata(), which inferred the source by
-    checking whether the *first* image dict had a caa_types key.
-    """
-    return any(a.provenance == 'coverartarchive' for a in (album.attachments or ()))
 console = Console(stderr=True)
 
 
@@ -396,27 +384,19 @@ class MassProcessor:
                 th.tag_album()
 
                 if connector:
+                    # One path for every source. Artwork follows the Cover Art
+                    # Archive convention -- front, back, medium, booklet -- and
+                    # anything we could not type becomes image-01, image-02,
+                    # which is where Discogs secondary images land.
                     from massmusictagger.image_utils import download_typed_images
-                    # Both paths take the same Attachment list now; what still
-                    # differs is naming. The typed path names by kind
-                    # (front.jpg, back.jpg, booklet-01.jpg); FileHandler names
-                    # Discogs images from the file-formatting.image format
-                    # string. Merging them means choosing one naming scheme,
-                    # which is a user-visible decision rather than a cleanup.
-                    if _wants_typed_images(album):
-                        download_typed_images(album, connector, cfg)
-                    else:
-                        fh.get_images(connector)
+                    download_typed_images(album, connector, cfg)
 
                 # Embed cover art
                 embed_coverart = (cfg.getboolean('details', 'embed_coverart')
                                   if cfg.has_option('details', 'embed_coverart') else True)
                 if embed_coverart:
                     from massmusictagger.image_utils import embed_typed_images
-                    if _wants_typed_images(album):
-                        embed_typed_images(album, cfg)
-                    else:
-                        fh.embed_coverart_album()
+                    embed_typed_images(album, cfg)
             else:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 

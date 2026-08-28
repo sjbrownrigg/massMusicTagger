@@ -22,7 +22,8 @@ if TYPE_CHECKING:
     from massmusictagger.core.tagger_config import TaggerConfig
 
 from massmusictagger.core.mediafile import MediaFile
-from massmusictagger.core.attachments import sort_key as attachment_sort_key
+from massmusictagger.core.attachments import (
+    basename_for, extension_for, sort_key as attachment_sort_key)
 
 logger = logging.getLogger(__name__)
 
@@ -67,18 +68,6 @@ _CAA_TYPE_IMAGE_TYPE_ID: dict[str, int] = {
 }
 
 
-def attachment_basename(att, counter: dict[str, int]) -> str:
-    """Return the on-disk basename for an attachment, without extension.
-
-    counter is mutated so repeated kinds become booklet-01, booklet-02, ….
-    Replaces caa_basename(), which took the Cover Art Archive's own type list
-    and so only worked for one source.
-    """
-    base = att.kind if att.kind != 'other' else 'image'
-    n = counter.get(base, 0)
-    counter[base] = n + 1
-    # The first of a kind keeps the bare name: front.jpg, not front-01.jpg.
-    return base if n == 0 else f'{base}-{n:02d}'
 
 
 def has_caa_type_metadata(images: list) -> bool:
@@ -112,6 +101,16 @@ def caa_image_type_id(caa_types: list[str]) -> int:
         if t in _CAA_TYPE_IMAGE_TYPE_ID:
             return _CAA_TYPE_IMAGE_TYPE_ID[t]
     return 0   # Other
+
+
+def _find_written(target_dir: str, base: str):
+    """The file the download step wrote for this basename, whatever extension."""
+    from massmusictagger.core.attachments import _EXTENSIONS
+    for ext in dict.fromkeys(_EXTENSIONS.values()):
+        candidate = os.path.join(target_dir, base + ext)
+        if os.path.exists(candidate):
+            return candidate
+    return None
 
 
 def attachment_image_type(att):
@@ -181,8 +180,8 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
 
         # The kind was decided in the mapper, so this no longer asks which
         # source the image came from in order to name it.
-        base = attachment_basename(att, basename_counter)
-        filename = f'{base}.jpg'
+        base = basename_for(att, basename_counter)
+        filename = f'{base}{extension_for(att)}'
         is_front = att.is_front
 
         # Skip non-front images when download_only_cover is set
@@ -276,10 +275,13 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
         # Derived, not carried. The download step names files from the same
         # sorted list with the same counter, so both agree without the album
         # having to ferry a local_filename between them.
-        local_filename = f'{attachment_basename(att, embed_counter)}.jpg'
-        path = os.path.join(target_dir, local_filename)
-        if not os.path.exists(path):
+        # Find the file rather than predict its extension: the download may
+        # have chosen one from the image's own bytes when the URL did not say.
+        base = basename_for(att, embed_counter)
+        path = _find_written(target_dir, base)
+        if path is None:
             continue
+        local_filename = os.path.basename(path)
         img_type = attachment_image_type(att)
         try:
             with open(path, 'rb') as f:
