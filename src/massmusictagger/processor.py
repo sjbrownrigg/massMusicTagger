@@ -26,6 +26,20 @@ if TYPE_CHECKING:
     from massmusictagger.core.tagger_config import TaggerConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _wants_typed_images(album) -> bool:
+    """Whether to name images by kind rather than by the format string.
+
+    Cover Art Archive attachments carry real types -- Front, Back, Medium,
+    Booklet -- so naming them front.jpg/back.jpg keeps that information.
+    Discogs says only primary/secondary, so its images go through the format
+    string as they always have.
+
+    This replaces has_caa_type_metadata(), which inferred the source by
+    checking whether the *first* image dict had a caa_types key.
+    """
+    return any(a.provenance == 'coverartarchive' for a in (album.attachments or ()))
 console = Console(stderr=True)
 
 
@@ -298,7 +312,7 @@ class MassProcessor:
 
             album, connector = match
 
-            # Image source preference: may override album.images and the
+            # Image source preference: may override album.attachments and the
             # connector used for downloading, independently of metadata source.
             connector = self._apply_image_source(album, connector, sourcedir, cfg)
             result.source = getattr(album, 'source', None)
@@ -382,26 +396,24 @@ class MassProcessor:
                 th.tag_album()
 
                 if connector:
-                    from massmusictagger.image_utils import (
-                        has_caa_type_metadata, download_typed_images,
-                    )
-                    if has_caa_type_metadata(album.images or []):
-                        # MB Cover Art Archive images — use typed download so each
-                        # image is named (front.jpg, back.jpg, medium.jpg, …)
-                        # and embedded with its correct picture type.
+                    from massmusictagger.image_utils import download_typed_images
+                    # Both paths take the same Attachment list now; what still
+                    # differs is naming. The typed path names by kind
+                    # (front.jpg, back.jpg, booklet-01.jpg); FileHandler names
+                    # Discogs images from the file-formatting.image format
+                    # string. Merging them means choosing one naming scheme,
+                    # which is a user-visible decision rather than a cleanup.
+                    if _wants_typed_images(album):
                         download_typed_images(album, connector, cfg)
                     else:
-                        # Discogs images — existing FileHandler behaviour.
                         fh.get_images(connector)
 
                 # Embed cover art
                 embed_coverart = (cfg.getboolean('details', 'embed_coverart')
                                   if cfg.has_option('details', 'embed_coverart') else True)
                 if embed_coverart:
-                    from massmusictagger.image_utils import (
-                        has_caa_type_metadata, embed_typed_images,
-                    )
-                    if has_caa_type_metadata(album.images or []):
+                    from massmusictagger.image_utils import embed_typed_images
+                    if _wants_typed_images(album):
                         embed_typed_images(album, cfg)
                     else:
                         fh.embed_coverart_album()
@@ -490,7 +502,7 @@ class MassProcessor:
         logger.debug('Audit log updated: %s', self.audit_log_path)
 
     def _apply_image_source(self, album, connector, sourcedir: str, cfg) -> object:
-        """Override album.images and image connector based on image_source config.
+        """Override album.attachments and the image connector, per image_source.
 
         Returns the connector that should be used for image downloading.
 
@@ -532,7 +544,8 @@ class MassProcessor:
             if mbid:
                 caa_images = mb_conn.fetch_image_list(mbid)
                 if caa_images:
-                    album.images = caa_images
+                    from massmusictagger.core.attachments import from_caa
+                    album.attachments = [from_caa(i) for i in caa_images]
                     logger.info('image_source=musicbrainz: %d CAA image(s) for %r',
                                 len(caa_images), album.title)
                     return mb_conn

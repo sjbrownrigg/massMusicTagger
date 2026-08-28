@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from massmusictagger.core.tagger_config import TaggerConfig
 
 from massmusictagger.core.mediafile import MediaFile
+from massmusictagger.core.attachments import sort_key as attachment_sort_key
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,27 @@ _CAA_TYPE_IMAGE_TYPE_ID: dict[str, int] = {
 }
 
 
+def attachment_basename(att, counter: dict[str, int]) -> str:
+    """Return the on-disk basename for an attachment, without extension.
+
+    counter is mutated so repeated kinds become booklet-01, booklet-02, ….
+    Replaces caa_basename(), which took the Cover Art Archive's own type list
+    and so only worked for one source.
+    """
+    base = att.kind if att.kind != 'other' else 'image'
+    n = counter.get(base, 0)
+    counter[base] = n + 1
+    # The first of a kind keeps the bare name: front.jpg, not front-01.jpg.
+    return base if n == 0 else f'{base}-{n:02d}'
+
+
 def has_caa_type_metadata(images: list) -> bool:
-    """Return True if the image list has CAA type metadata."""
-    return bool(images and images[0].get('caa_types'))
+    """Deprecated: there is one attachment shape now, so nothing branches.
+
+    Kept briefly because removing it and its callers in the same change made
+    the diff hard to read. Callers are gone; this goes with phase 5.
+    """
+    return bool(images and getattr(images[0], 'provenance', '') == 'coverartarchive')
 
 
 def caa_basename(caa_types: list[str], counter: dict[str, int]) -> str:
@@ -93,6 +112,18 @@ def caa_image_type_id(caa_types: list[str]) -> int:
         if t in _CAA_TYPE_IMAGE_TYPE_ID:
             return _CAA_TYPE_IMAGE_TYPE_ID[t]
     return 0   # Other
+
+
+def attachment_image_type(att):
+    """Embedded picture type for an attachment, from its kind."""
+    from mediafile import ImageType
+    from massmusictagger.core.attachments import FRONT, BACK, BOOKLET, MEDIUM
+    return {
+        FRONT:   ImageType.front,
+        BACK:    ImageType.back,
+        MEDIUM:  ImageType.media,
+        BOOKLET: ImageType.leaflet,
+    }.get(att.kind, ImageType.other)
 
 
 def caa_image_type(caa_types: list[str]):
@@ -123,7 +154,7 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
       details.download_only_cover — skip non-front images
       details.image_policy        — always | prefer_existing | prefer_larger
     """
-    if not album.images or not album.target_dir:
+    if not album.attachments or not album.target_dir:
         return
 
     target_dir = album.target_dir
@@ -143,15 +174,16 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
 
     basename_counter: dict[str, int] = {}
 
-    for img in album.images:
-        caa_types = img.get('caa_types') or []
-        uri = img.get('uri', '')
+    for att in sorted(album.attachments, key=attachment_sort_key):
+        uri = att.url
         if not uri:
             continue
 
-        base = caa_basename(caa_types, basename_counter)
+        # The kind was decided in the mapper, so this no longer asks which
+        # source the image came from in order to name it.
+        base = attachment_basename(att, basename_counter)
         filename = f'{base}.jpg'
-        is_front = (base == 'front')
+        is_front = att.is_front
 
         # Skip non-front images when download_only_cover is set
         if download_only_cover and not is_front:
@@ -163,9 +195,9 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                 logger.info('Skipping front cover download (prefer_existing policy)')
                 continue
             if image_policy == 'prefer_larger':
-                disc_w = img.get('width') or 0
-                disc_h = img.get('height') or 0
-                if disc_w and disc_h:
+                dims = att.dimensions
+                if dims:
+                    disc_w, disc_h = dims
                     local_px = local_front_dims[0] * local_front_dims[1]
                     caa_px = disc_w * disc_h
                     if local_px >= caa_px:
@@ -179,8 +211,9 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
         dest = os.path.join(target_dir, filename)
         try:
             connector.fetch_image(dest, uri)
-            img['local_filename'] = filename
-            logger.info('Downloaded %s image → %s', '/'.join(caa_types) or 'unknown', filename)
+            # No local_filename written back: embedding derives the same name
+            # from the same sorted list, so the album carries no scratch state.
+            logger.info('Downloaded %s image → %s', att.kind, filename)
         except Exception as exc:
             logger.error('Failed to download %s image (%s): %s', filename, uri, exc)
             continue
@@ -237,27 +270,17 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
     images: list = []
 
     # Sort: front cover first, then back, then everything else
-    def _sort_key(img):
-        types = img.get('caa_types') or []
-        if 'Front' in types:
-            return 0
-        if 'Back' in types:
-            return 1
-        if 'Medium' in types:
-            return 2
-        if 'Booklet' in types:
-            return 3
-        return 9
+    embed_counter: dict[str, int] = {}
 
-    for img in sorted(album.images, key=_sort_key):
-        local_filename = img.get('local_filename')
-        if not local_filename:
-            continue
+    for att in sorted(album.attachments, key=attachment_sort_key):
+        # Derived, not carried. The download step names files from the same
+        # sorted list with the same counter, so both agree without the album
+        # having to ferry a local_filename between them.
+        local_filename = f'{attachment_basename(att, embed_counter)}.jpg'
         path = os.path.join(target_dir, local_filename)
         if not os.path.exists(path):
             continue
-        caa_types = img.get('caa_types') or []
-        img_type = caa_image_type(caa_types)
+        img_type = attachment_image_type(att)
         try:
             with open(path, 'rb') as f:
                 data = f.read()
@@ -274,7 +297,7 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
                 continue
             images.append(MFImage(data=data, type=img_type))
             logger.debug('Queued %s (%s, type=%s) for embedding',
-                         local_filename, '/'.join(caa_types) or 'unknown', img_type.name)
+                         local_filename, att.kind, img_type.name)
         except Exception as exc:
             logger.warning('Could not read %s for embedding: %s', local_filename, exc)
 

@@ -512,7 +512,8 @@ class FileHandler(object):
     def _should_skip_front_cover(self, discogs_image, local_dims, policy):
         """Return True if the Discogs front cover download should be skipped.
 
-        discogs_image — the image dict from album.images (may contain 'width'/'height')
+        discogs_image — an Attachment from album.attachments; its dimensions
+                        may be None when the source did not report them
         local_dims    — (width, height) of the best existing local cover, or None
         policy        — 'always' | 'prefer_existing' | 'prefer_larger'
         """
@@ -525,9 +526,9 @@ class FileHandler(object):
             return True
 
         if policy == 'prefer_larger':
-            disc_w = discogs_image.get('width') or 0
-            disc_h = discogs_image.get('height') or 0
-            if disc_w == 0 or disc_h == 0:
+            dims = discogs_image.dimensions
+            disc_w, disc_h = dims if dims else (0, 0)
+            if not dims:
                 logger.info('Discogs image dimensions unknown — downloading anyway')
                 return False
             if (local_dims[0] * local_dims[1]) >= (disc_w * disc_h):
@@ -556,7 +557,7 @@ class FileHandler(object):
                             the existing local cover (file or embedded art);
                             falls back to downloading when dimensions are unknown
         """
-        if not self.album.images:
+        if not self.album.attachments:
             return
 
         image_format = self.config.get("file-formatting", "image")
@@ -572,10 +573,9 @@ class FileHandler(object):
             logger.info('Existing local cover (%s): %dx%d px', local_source, *local_dims)
 
         secondary_no = 0
-        for image in self.album.images:
-            image_url = image['uri']
-            image_type = image.get('type', 'secondary')
-            is_front = (image_type == 'primary')
+        for image in self.album.attachments:
+            image_url = image.url
+            is_front = image.is_front
 
             if is_front and image_policy != 'always':
                 if self._should_skip_front_cover(image, local_dims, image_policy):

@@ -14,6 +14,17 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+
+
+def _as_attachments(caa_images):
+    """The normalised form of a raw CAA list.
+
+    These tests describe what the Cover Art Archive returns; the code stores
+    Attachments, so the comparison normalises rather than the fixture changing.
+    """
+    from massmusictagger.core.attachments import from_caa
+    return [from_caa(i) for i in caa_images]
+
 parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(parentdir, 'src'))
 
@@ -161,8 +172,10 @@ class TestApplyImageSource(unittest.TestCase):
         a = Album('123', 'Test Album', ['Test Artist'])
         a.source = source
         a.barcode = barcode
-        a.images = images or [{'uri': 'https://discogs.com/img.jpg',
-                                'type': 'primary', 'width': 500, 'height': 500}]
+        from massmusictagger.core.attachments import from_discogs
+        a.attachments = images if images is not None else [from_discogs(
+            {'uri': 'https://discogs.com/img.jpg', 'type': 'primary',
+             'width': 500, 'height': 500})]
         return a
 
     def test_auto_returns_original_connector(self):
@@ -203,7 +216,7 @@ class TestApplyImageSource(unittest.TestCase):
         result = p._apply_image_source(album, MagicMock(), '/fake/dir', cfg)
         mb_conn.fetch_image_list.assert_called_once_with(_MBID)
         self.assertIs(result, mb_conn)
-        self.assertEqual(album.images, caa_images)
+        self.assertEqual(album.attachments, _as_attachments(caa_images))
 
     def test_musicbrainz_source_fallback_when_no_mb_connector(self):
         """No MB connector available → fall back to original connector."""
@@ -220,13 +233,15 @@ class TestApplyImageSource(unittest.TestCase):
         mb_conn.fetch_image_list.return_value = []
         p = self._make_processor(mb_conn=mb_conn)
         cfg = _make_cfg(**{'details.image_source': 'musicbrainz'})
-        original_images = [{'uri': 'http://discogs.com/img.jpg', 'type': 'primary'}]
+        from massmusictagger.core.attachments import from_discogs
+        original_images = [from_discogs(
+            {'uri': 'http://discogs.com/img.jpg', 'type': 'primary'})]
         album = self._make_album(source='musicbrainz', images=original_images)
         album.id = _MBID
         original_conn = MagicMock()
         result = p._apply_image_source(album, original_conn, '/fake/dir', cfg)
-        # Images should be unchanged; original connector returned
-        self.assertEqual(album.images, original_images)
+        # Attachments untouched; original connector returned
+        self.assertEqual(album.attachments, original_images)
         self.assertIs(result, original_conn)
 
     def test_musicbrainz_source_for_discogs_album_uses_barcode(self):
@@ -250,7 +265,7 @@ class TestApplyImageSource(unittest.TestCase):
 
         mb_conn.fetch_image_list.assert_called_once_with(_MBID)
         self.assertIs(result, mb_conn)
-        self.assertEqual(album.images, caa_images)
+        self.assertEqual(album.attachments, _as_attachments(caa_images))
 
 
 # ── _find_mbid_for_images() ───────────────────────────────────────────────────

@@ -28,10 +28,34 @@ def _make_cfg(**overrides):
     return cfg
 
 
+def _written(connector):
+    """Basenames the connector was asked to write.
+
+    The download step used to record its choice on the image dict as
+    local_filename; the name is now derived from the sorted attachment list,
+    so the observable behaviour is what it asked the connector to write.
+    """
+    import os as _os
+    names = []
+    for call in connector.fetch_image.call_args_list:
+        for arg in call.args:
+            if isinstance(arg, str) and arg.lower().endswith(('.jpg', '.png')):
+                names.append(_os.path.basename(arg))
+    return names
+
+
 def _make_album(images):
+    """images may be legacy CAA-style dicts; they become Attachments here.
+
+    Keeping the dict fixtures means these tests still describe what the Cover
+    Art Archive actually returns, while the code under test sees the one
+    normalised shape.
+    """
     from massmusictagger.core.album import Album, Disc, Track
+    from massmusictagger.core.attachments import Attachment, from_caa
     a = Album('mbid-123', 'Test Album', ['Test Artist'])
-    a.images = images
+    a.attachments = [i if isinstance(i, Attachment) else from_caa(i)
+                     for i in (images or [])]
     a.target_dir = '/fake/sorted/Test Artist/[2020] Test Album'
     a.source = 'musicbrainz'
     disc = Disc(1)
@@ -113,26 +137,30 @@ class TestCaaImageType(unittest.TestCase):
 
 # ── has_caa_type_metadata ─────────────────────────────────────────────────────
 
-class TestHasCaaTypeMetadata(unittest.TestCase):
+class TestProvenanceReplacesSniffing(unittest.TestCase):
+    """The source is a property of the attachment, not something to detect.
 
-    def setUp(self):
-        from massmusictagger.image_utils import has_caa_type_metadata
-        self.fn = has_caa_type_metadata
+    has_caa_type_metadata() looked for a caa_types key on the *first* image and
+    inferred the source from it. Attachments carry provenance, so nothing has
+    to guess -- and a mixed list no longer depends on which image happens to be
+    first.
+    """
 
-    def test_true_when_caa_types_present(self):
-        images = [{'uri': 'http://x', 'type': 'primary',
-                   'caa_types': ['Front'], 'width': None, 'height': None}]
-        self.assertTrue(self.fn(images))
+    def test_provenance_survives_normalisation(self):
+        from massmusictagger.core.attachments import from_caa, from_discogs
+        caa = from_caa({'uri': 'http://x', 'caa_types': ['Front']})
+        dg = from_discogs({'uri': 'http://y', 'type': 'primary',
+                           'width': 500, 'height': 500})
+        self.assertEqual(caa.provenance, 'coverartarchive')
+        self.assertEqual(dg.provenance, 'discogs')
+        self.assertTrue(caa.is_front and dg.is_front)
 
-    def test_false_when_no_caa_types(self):
-        images = [{'uri': 'http://x', 'type': 'primary', 'width': 500, 'height': 500}]
-        self.assertFalse(self.fn(images))
+    def test_discogs_secondary_is_not_guessed_at(self):
+        """Discogs says only primary/secondary, so anything else is `other`."""
+        from massmusictagger.core.attachments import from_discogs, OTHER
+        a = from_discogs({'uri': 'http://y', 'type': 'secondary'})
+        self.assertEqual(a.kind, OTHER)
 
-    def test_false_for_empty_list(self):
-        self.assertFalse(self.fn([]))
-
-
-# ── download_typed_images ─────────────────────────────────────────────────────
 
 class TestDownloadTypedImages(unittest.TestCase):
 
@@ -154,7 +182,6 @@ class TestDownloadTypedImages(unittest.TestCase):
         album, conn = self._run(images, {'details.download_only_cover': 'false'})
         calls = [str(c) for c in conn.fetch_image.call_args_list]
         self.assertTrue(any('front.jpg' in c for c in calls))
-        self.assertEqual(images[0]['local_filename'], 'front.jpg')
 
     def test_back_downloaded_as_back_jpg(self):
         images = [
@@ -164,7 +191,7 @@ class TestDownloadTypedImages(unittest.TestCase):
              'type': 'secondary', 'width': None, 'height': None},
         ]
         album, conn = self._run(images, {'details.download_only_cover': 'false'})
-        self.assertEqual(images[1].get('local_filename'), 'back.jpg')
+        self.assertIn('back.jpg', _written(conn))
 
     def test_multiple_booklets_numbered(self):
         images = [
@@ -174,8 +201,9 @@ class TestDownloadTypedImages(unittest.TestCase):
              'type': 'secondary', 'width': None, 'height': None},
         ]
         album, conn = self._run(images, {'details.download_only_cover': 'false'})
-        self.assertEqual(images[0].get('local_filename'), 'booklet.jpg')
-        self.assertEqual(images[1].get('local_filename'), 'booklet-01.jpg')
+        written = _written(conn)
+        self.assertIn('booklet.jpg', written)
+        self.assertIn('booklet-01.jpg', written)
 
     def test_download_only_cover_skips_back(self):
         images = [
@@ -185,9 +213,9 @@ class TestDownloadTypedImages(unittest.TestCase):
              'type': 'secondary', 'width': None, 'height': None},
         ]
         album, conn = self._run(images, {'details.download_only_cover': 'true'})
-        # Only front should be downloaded
-        self.assertIn('local_filename', images[0])
-        self.assertNotIn('local_filename', images[1])
+        written = _written(conn)
+        self.assertIn('front.jpg', written)
+        self.assertNotIn('back.jpg', written)
 
     def test_folder_jpg_written_for_front(self):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
@@ -257,10 +285,26 @@ class TestEmbedTypedImages(unittest.TestCase):
         self.assertIn(ImageType.front, all_types)
         self.assertIn(ImageType.back, all_types)
 
-    def test_images_without_local_filename_skipped(self):
-        images = [{'caa_types': ['Front'], 'uri': 'https://caa/x.jpg',
-                   'type': 'primary'}]   # no local_filename
-        saved = self._run(images)
+    def test_attachment_whose_file_is_not_on_disk_is_skipped(self):
+        """Replaces a test for a missing local_filename key.
+
+        The name is derived now, so that state cannot occur; what can is the
+        download having failed, leaving nothing to embed.
+        """
+        from massmusictagger.image_utils import embed_typed_images
+        cfg = _make_cfg(**{'details.embed_coverart': 'true'})
+        album = _make_album([{'caa_types': ['Front'], 'uri': 'https://caa/x.jpg',
+                              'type': 'primary'}])
+        saved = {}
+
+        def mock_mf_factory(path):
+            mf = MagicMock()
+            mf.save.side_effect = lambda: saved.setdefault(path, mf.images)
+            return mf
+
+        with patch('massmusictagger.image_utils.MediaFile', side_effect=mock_mf_factory):
+            with patch('os.path.exists', return_value=False):
+                embed_typed_images(album, cfg)
         self.assertEqual(len(saved), 0)
 
     def test_front_sorted_first(self):

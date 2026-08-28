@@ -172,7 +172,8 @@ def _resolve_musicbrainz(source: str, ctx: '_Attempt'):
     if ctx.mb_connector and mbid:
         caa_images = ctx.mb_connector.fetch_image_list(mbid)
         if caa_images:
-            album.images = caa_images
+            from massmusictagger.core.attachments import from_caa
+            album.attachments = [from_caa(i) for i in caa_images]
     return album, ctx.mb_connector
 
 
@@ -631,7 +632,7 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     album.release_date = year or None
     album.labels = []
     album.catnumbers = []
-    album.images = []
+    album.attachments = []
     album.genres = list(mf.genres or [])
     album.styles = []
     # Derive album.format and format_description from the embedded media tag so

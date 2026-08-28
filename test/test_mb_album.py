@@ -254,17 +254,19 @@ class TestAlbumShapeParity(unittest.TestCase):
 
     # ── Images ───────────────────────────────────────────────────────────
 
-    def test_images_is_list(self):
-        self.assertIsInstance(self.album.images, list)
+    def test_attachments_is_a_list(self):
+        self.assertIsInstance(self.album.attachments, list)
 
-    def test_images_has_primary(self):
-        front = [i for i in self.album.images if i.get('type') == 'primary']
-        self.assertEqual(len(front), 1)
+    def test_exactly_one_front_attachment(self):
+        from massmusictagger.core.attachments import front
+        self.assertIsNotNone(front(self.album.attachments))
+        self.assertEqual(
+            sum(1 for a in self.album.attachments if a.is_front), 1)
 
-    def test_images_have_uri(self):
-        for img in self.album.images:
-            self.assertIn('uri', img)
-            self.assertTrue(img['uri'])
+    def test_attachments_carry_a_url_and_their_provenance(self):
+        for a in self.album.attachments:
+            self.assertTrue(a.url)
+            self.assertEqual(a.provenance, 'coverartarchive')
 
     # ── Discs / totals ────────────────────────────────────────────────────
 
