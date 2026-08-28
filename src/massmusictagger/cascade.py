@@ -149,7 +149,7 @@ def _resolve_discogs(source: str, ctx: '_Attempt'):
         return None
     raw, release_id = found
     from massmusictagger.source_factory import make_discogs_mapper
-    album = make_discogs_mapper(ctx.cfg).map(raw)
+    album = make_discogs_mapper(ctx.cfg, connector=conn).map(raw)
     album.release_id_str = release_id
     return album, conn
 

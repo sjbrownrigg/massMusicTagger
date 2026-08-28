@@ -76,3 +76,73 @@ class FolderNameOmitsAnAbsentDate(unittest.TestCase):
         album.release_date = '1992-04-21'
         album.year = '1992'
         self.assertEqual(album.release_date or album.year or '', '1992-04-21')
+
+
+class MasterSuppliesTheMissingYear(unittest.TestCase):
+    """A reissue with no year of its own inherits the master's.
+
+    Blue Eyed Christ's "Leaders + Followers" digital reissue (release
+    14726546) has year 0 and released "0", so it was filed with no date --
+    while Discogs plainly shows 1991, on master 40822 that the release
+    belongs to.
+
+    99.6% of year-less releases have a master: 3,807 of 3,822 in the cache.
+    """
+
+    def _mapper(self, connector):
+        from massmusictagger.source_factory import make_discogs_mapper
+        from massmusictagger import roots
+        from massmusictagger.core.tagger_config import TaggerConfig
+        cfg = TaggerConfig(os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml'))
+        return make_discogs_mapper(cfg, connector=connector)
+
+    def _album(self, year, master_id):
+        """A mapped Album, with DiscogsAlbum stubbed to the fields under test."""
+        from massmusictagger.core.album import Album
+        import massmusictagger.sources.discogs.album as dg
+
+        class _Stub:
+            def __init__(self, raw, use_anv=True):
+                pass
+
+            def map(self):
+                a = Album('14726546', 'Leaders + Followers', ['Blue Eyed Christ'])
+                a.year = year
+                a.master_id = master_id
+                return a
+
+        original, dg.DiscogsAlbum = dg.DiscogsAlbum, _Stub
+        try:
+            return self._mapper(self._connector).map(object())
+        finally:
+            dg.DiscogsAlbum = original
+
+    def setUp(self):
+        self._connector = MagicMock()
+        self._connector.fetch_master_year.return_value = '1991'
+
+    def test_missing_year_is_taken_from_the_master(self):
+        album = self._album(year=None, master_id='40822')
+        self.assertEqual(album.year, '1991')
+        self._connector.fetch_master_year.assert_called_once_with('40822')
+
+    def test_a_year_on_the_release_wins(self):
+        album = self._album(year='1997', master_id='40822')
+        self.assertEqual(album.year, '1997')
+        self._connector.fetch_master_year.assert_not_called()
+
+    def test_no_master_means_no_lookup(self):
+        album = self._album(year=None, master_id=None)
+        self.assertIsNone(album.year)
+        self._connector.fetch_master_year.assert_not_called()
+
+    def test_a_master_without_a_year_leaves_it_absent(self):
+        """Better no date than a fabricated one — the 1900 lesson."""
+        self._connector.fetch_master_year.return_value = None
+        album = self._album(year=None, master_id='40822')
+        self.assertIsNone(album.year)
+
+    def test_no_connector_is_not_an_error(self):
+        self._connector = None
+        album = self._album(year=None, master_id='40822')
+        self.assertIsNone(album.year)
