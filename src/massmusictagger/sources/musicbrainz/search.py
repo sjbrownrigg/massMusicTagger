@@ -26,11 +26,11 @@ from typing import Optional, TYPE_CHECKING
 import musicbrainzngs
 from rapidfuzz import fuzz
 
-from discogstagger.discogs_utils import AUDIO_EXTENSIONS
-from discogstagger.mediafile_ext import MediaFile
+from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+from massmusictagger.core.mediafile import MediaFile
 
 if TYPE_CHECKING:
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
 logger = logging.getLogger(__name__)
 

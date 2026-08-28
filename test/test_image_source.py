@@ -28,7 +28,7 @@ _MBID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
 
 
 def _make_cfg(**overrides):
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
     cfg = TaggerConfig(MMT_CONFIG)
     for sk, v in overrides.items():
         s, _, k = sk.partition('.')
@@ -157,7 +157,7 @@ class TestApplyImageSource(unittest.TestCase):
         return p
 
     def _make_album(self, source='discogs', barcode='', images=None):
-        from discogstagger.album import Album
+        from massmusictagger.core.album import Album
         a = Album('123', 'Test Album', ['Test Artist'])
         a.source = source
         a.barcode = barcode
@@ -266,7 +266,7 @@ class TestFindMbidForImages(unittest.TestCase):
         return p
 
     def _make_album(self, barcode='', title='Test Album', artist='Test Artist'):
-        from discogstagger.album import Album
+        from massmusictagger.core.album import Album
         a = Album('123', title, [artist])
         a.barcode = barcode
         a.source = 'discogs'

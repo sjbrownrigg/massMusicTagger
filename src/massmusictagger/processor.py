@@ -23,7 +23,7 @@ from rich.progress import (
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
 logger = logging.getLogger(__name__)
 console = Console(stderr=True)
@@ -101,7 +101,7 @@ def _verify_target_or_raise(target_dir: Optional[str]) -> None:
     Uses os.walk so multi-disc albums with audio in subdirectories (split_discs)
     are handled correctly.
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
     if not target_dir or not os.path.isdir(target_dir):
         raise RuntimeError(
             f'source_action remove/move: target directory not found: {target_dir!r}')
@@ -336,7 +336,7 @@ class MassProcessor:
 
             destdir = os.path.expanduser(cfg.get('common', 'dest_dir') or sourcedir)
 
-            from discogstagger.taggerutils import TaggerUtils, TagHandler, FileHandler
+            from massmusictagger.core.taggerutils import TaggerUtils, TagHandler, FileHandler
             tu = TaggerUtils(sourcedir, destdir, cfg, album)
 
             # For MB releases: when compute_edition() finds no keyword match in

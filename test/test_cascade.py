@@ -19,7 +19,7 @@ class TestGetPriority(unittest.TestCase):
     """_get_priority() reads source.priority from config."""
 
     def _make_cfg(self, priority=None, name=None):
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
         if priority is not None:
             cfg.set('source', 'priority', priority)
@@ -72,7 +72,7 @@ class TestExistingTagsFallback(unittest.TestCase):
 
     def test_returns_none_when_no_audio(self):
         import tempfile
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         from massmusictagger.cascade import _map_existing_tags
         empty = tempfile.mkdtemp()
         try:
@@ -89,7 +89,7 @@ class TestExistingTagsFallback(unittest.TestCase):
         'requires discogstagger3 test fixture'
     )
     def test_album_built_from_files(self):
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         from massmusictagger.cascade import _map_existing_tags
         cfg = TaggerConfig(MMT_CONFIG)
         album = _map_existing_tags(self.tmpdir, cfg)
@@ -165,7 +165,7 @@ class TestIdTxtReader(unittest.TestCase):
             fh.write(content)
 
     def _make_cfg(self):
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         return TaggerConfig(MMT_CONFIG)
 
     def _read(self, key=None):
@@ -247,7 +247,7 @@ class TestDiscogsFmtHintInjection(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _make_cfg(self, hints_path=''):
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
         if not cfg.has_section('details'):
             cfg.add_section('details')
@@ -361,7 +361,7 @@ class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
         from massmusictagger.cascade import _try_discogs
 
         cfg_path = MMT_CONFIG
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(cfg_path)
         if not cfg.has_section('batch'):
             cfg.add_section('batch')
@@ -390,7 +390,7 @@ class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
         from massmusictagger.cascade import _try_discogs
 
         cfg_path = MMT_CONFIG
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(cfg_path)
         if not cfg.has_section('batch'):
             cfg.add_section('batch')
@@ -473,7 +473,7 @@ class TestLoadSourceHints(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _make_cfg(self, hints_path=''):
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
         if not cfg.has_section('details'):
             cfg.add_section('details')
@@ -512,7 +512,7 @@ class TestLoadSourceHints(unittest.TestCase):
     def test_no_hints_configured_uses_the_packaged_hints(self):
         """Neither details nor musicbrainz set: still the shipped defaults."""
         from massmusictagger.cascade import _load_source_hints
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
         for section in ('details', 'musicbrainz'):
             if cfg.has_section(section) and cfg.has_option(section, 'source_hints_file'):
@@ -533,7 +533,7 @@ class TestLoadSourceHints(unittest.TestCase):
         """musicbrainz.source_hints_file is used when details.source_hints_file is empty."""
         import yaml
         from massmusictagger.cascade import _load_source_hints
-        from discogstagger.tagger_config import TaggerConfig
+        from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
         if not cfg.has_section('details'):
             cfg.add_section('details')

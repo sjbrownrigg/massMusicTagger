@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
     from massmusictagger.source_interface import SourceConnector, SourceSearch, SourceMapper
 
 logger = logging.getLogger(__name__)
@@ -15,17 +15,17 @@ _KNOWN_SOURCES = ('discogs', 'musicbrainz', 'local', 'auto')
 
 
 def make_discogs_connector(cfg: 'TaggerConfig') -> 'SourceConnector':
-    from discogstagger.discogs_connector import DiscogsConnector
+    from massmusictagger.sources.discogs.connector import DiscogsConnector
     return DiscogsConnector(cfg)
 
 
 def make_discogs_local_connector(cfg: 'TaggerConfig', delegate) -> 'SourceConnector':
-    from discogstagger.discogs_connector import LocalDiscogsConnector
+    from massmusictagger.sources.discogs.connector import LocalDiscogsConnector
     return LocalDiscogsConnector(delegate)
 
 
 def make_discogs_search(cfg: 'TaggerConfig') -> 'SourceSearch':
-    from discogstagger.discogs_search import DiscogsSearch
+    from massmusictagger.sources.discogs.search import DiscogsSearch
     return DiscogsSearch(cfg)
 
 
@@ -45,7 +45,7 @@ def make_discogs_mapper(cfg: 'TaggerConfig', **kwargs) -> 'SourceMapper':
 
     class _DiscogsMapper:
         def map(self, raw_release):
-            from discogstagger.discogsalbum import DiscogsAlbum
+            from massmusictagger.sources.discogs.album import DiscogsAlbum
             album = DiscogsAlbum(raw_release, use_anv=use_anv).map()
             album.source = 'discogs'
             return album

@@ -33,7 +33,7 @@ import logging
 import re
 from typing import Optional
 
-from discogstagger.album import Album, Disc, Track
+from massmusictagger.core.album import Album, Disc, Track
 
 logger = logging.getLogger(__name__)
 

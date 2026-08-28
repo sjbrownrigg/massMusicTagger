@@ -29,8 +29,8 @@ import re
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from discogstagger.album import Album
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.album import Album
+    from massmusictagger.core.tagger_config import TaggerConfig
     from massmusictagger.source_interface import SourceConnector
 
 logger = logging.getLogger(__name__)
@@ -416,7 +416,7 @@ def _local_audio_count(sourcedir: str) -> int:
     subdirectories rather than directly in sourcedir — in that case the
     counts from all disc subdirs are summed.
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
 
     def _count_direct(path: str) -> int:
         try:
@@ -493,7 +493,7 @@ def _discogs_track_count(raw, local_count: Optional[int] = None) -> Optional[int
     lettered sub-track merge (13a+13b+13c → 13) as a fallback so that
     explicit-ID validation doesn't emit a spurious mismatch warning.
     """
-    from discogstagger.discogs_utils import build_flat_tracklist, merge_indexed_subtracks
+    from massmusictagger.sources.discogs.utils import build_flat_tracklist, merge_indexed_subtracks
     try:
         flat = build_flat_tracklist(raw.tracklist)
         if local_count is not None and len(flat) != local_count:
@@ -515,9 +515,9 @@ def _mb_track_count(raw: dict) -> Optional[int]:
 
 def _read_existing_discogs_id_tag(sourcedir: str) -> Optional[str]:
     """Read discogs_id from the first tagged audio file in sourcedir."""
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
     try:
-        from discogstagger.mediafile_ext import MediaFile
+        from massmusictagger.core.mediafile import MediaFile
         for f in sorted(os.listdir(sourcedir)):
             if f.lower().endswith(AUDIO_EXTENSIONS) and os.path.isfile(os.path.join(sourcedir, f)):
                 mf = MediaFile(os.path.join(sourcedir, f))
@@ -598,7 +598,7 @@ def _clean_fallback_title(fname: str) -> str:
     snowball duplicate track numbers and extensions into the title on every
     pass — each run converges to the same cleaned title instead.
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
 
     name = fname
     while True:
@@ -622,11 +622,11 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     using the configured format strings.  No new tag values are written
     (tagging is skipped when album.source == 'existing_tags').
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
-    from discogstagger.album import Album, Disc, Track
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    from massmusictagger.core.album import Album, Disc, Track
 
     try:
-        from discogstagger.mediafile_ext import MediaFile
+        from massmusictagger.core.mediafile import MediaFile
     except ImportError:
         logger.warning('existing_tags fallback requires discogstagger3 MediaFile')
         return None

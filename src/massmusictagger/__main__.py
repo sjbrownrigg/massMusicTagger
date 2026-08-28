@@ -131,7 +131,7 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
     user sees every issue in one run, not one at a time.  Call before any
     processing; print errors and exit if any have level 'ERROR'.
     """
-    from discogstagger.tagger_config import extract_sample_section
+    from massmusictagger.core.tagger_config import extract_sample_section
     from massmusictagger.cascade import _get_priority
 
     here = os.path.dirname(os.path.abspath(__file__))
@@ -280,7 +280,7 @@ def _merge_config_file(cfg, path: str) -> None:
 
 def _new_config(parser, opts):
     """Scaffold a fresh configuration and print what to do next."""
-    from discogstagger.tagger_config import write_new_config
+    from massmusictagger.core.tagger_config import write_new_config
 
     dest = os.path.abspath(os.path.expanduser(opts.new_config))
     try:
@@ -378,8 +378,8 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tup
         logger.error('Source directory does not exist: %s', source_dir)
         sys.exit(1)
 
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
-    from discogstagger.fileutils import FileUtils
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    from massmusictagger.core.files import FileUtils
 
     id_file = cfg.get('batch', 'id_file') if cfg.has_option('batch', 'id_file') else 'id.txt'
     searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
@@ -498,7 +498,7 @@ def main(argv: list[str] | None = None) -> None:
         config_path = roots.discover_config()
         if config_path:
             try:
-                from discogstagger.tagger_config import TaggerConfig
+                from massmusictagger.core.tagger_config import TaggerConfig
                 _cfg = TaggerConfig(config_path)
                 _has_source = bool(
                     _cfg.has_option('common', 'source_dir')
@@ -530,7 +530,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(78)  # EX_CONFIG
 
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
     # The user's config is the sole source of settings. Credentials come from
     # credentials/*.yaml beside it, and formats.ini is discovered by

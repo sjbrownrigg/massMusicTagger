@@ -444,7 +444,7 @@ class TestVinylFormatNormalisation(unittest.TestCase):
 
     def test_12_inch_vinyl_album_produces_lp_format_code(self):
         """12" Album → LP: 12" is the standard LP size so no size suffix needed."""
-        from discogstagger.formatcodes import load_format_codes, compute_format_code
+        from massmusictagger.core.naming.formatcodes import load_format_codes, compute_format_code
         album = self._album_with_format('12" Vinyl')
         # The packaged table, not a working-directory-relative path. The old
         # 'conf/format_codes.yaml' resolved only from a source checkout, and
@@ -457,7 +457,7 @@ class TestVinylFormatNormalisation(unittest.TestCase):
 
     def test_12_inch_vinyl_single_produces_12_inch_format_code(self):
         """12" Single → 12″: conditional vinyl_sizes fires for non-album release types."""
-        from discogstagger.formatcodes import load_format_codes, compute_format_code
+        from massmusictagger.core.naming.formatcodes import load_format_codes, compute_format_code
         fc = load_format_codes(None)
         self.assertTrue(fc, 'packaged format codes should have loaded')
         code = compute_format_code('Vinyl', ['12"', 'Single'], 1, fc)

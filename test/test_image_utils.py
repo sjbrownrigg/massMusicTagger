@@ -18,7 +18,7 @@ MMT_CONFIG = os.path.join(_roots.BUNDLED_CONF, 'config_sample.yaml')
 
 
 def _make_cfg(**overrides):
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
     cfg = TaggerConfig(MMT_CONFIG)
     for sk, v in overrides.items():
         s, _, k = sk.partition('.')
@@ -29,7 +29,7 @@ def _make_cfg(**overrides):
 
 
 def _make_album(images):
-    from discogstagger.album import Album, Disc, Track
+    from massmusictagger.core.album import Album, Disc, Track
     a = Album('mbid-123', 'Test Album', ['Test Artist'])
     a.images = images
     a.target_dir = '/fake/sorted/Test Artist/[2020] Test Album'

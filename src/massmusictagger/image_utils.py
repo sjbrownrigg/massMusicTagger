@@ -19,9 +19,9 @@ import os
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
-from discogstagger.mediafile_ext import MediaFile
+from massmusictagger.core.mediafile import MediaFile
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +202,7 @@ def _local_front_dimensions(target_dir: str) -> Optional[tuple[int, int]]:
             try:
                 with open(path, 'rb') as f:
                     data = f.read()
-                from discogstagger.taggerutils import _image_dimensions
+                from massmusictagger.core.taggerutils import _image_dimensions
                 dims = _image_dimensions(data)
                 if dims:
                     return dims

@@ -34,7 +34,7 @@ from typing import Any, Optional, TYPE_CHECKING
 import musicbrainzngs
 
 if TYPE_CHECKING:
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
 from massmusictagger import roots
 
