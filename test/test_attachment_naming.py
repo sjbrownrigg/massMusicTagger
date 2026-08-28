@@ -166,13 +166,26 @@ class CoverCollidesWithTheSourceFolder(unittest.TestCase):
     whatever is already there and prefer_larger keeps the better one.
     """
 
-    def test_local_cover_check_includes_the_name_we_now_write(self):
+    def test_local_cover_names_cover_everything_we_write(self):
+        """Every name the download step can produce for album art must be
+        recognised as an existing cover on a later run, or a re-tag downloads
+        over its own output.
+        """
+        from massmusictagger.core.attachments import (
+            LOCAL_COVER_NAMES, basename_for, Attachment, COVER, FRONT, OTHER)
+        for kind in (COVER, FRONT, OTHER):
+            name = basename_for(Attachment('u/x.jpg', kind), {}) + '.jpg'
+            self.assertIn(name, LOCAL_COVER_NAMES,
+                          f'{name} is written but not recognised later')
+
+    def test_both_cover_checks_use_the_same_list(self):
+        """There were two lists, and only one knew about image-01.jpg."""
         import inspect
         from massmusictagger import image_utils
-        src = inspect.getsource(image_utils._local_front_dimensions)
-        for name in ('front.jpg', 'folder.jpg', 'cover.jpg'):
-            self.assertIn(name, src,
-                          f'{name} must be recognised as an existing cover')
+        from massmusictagger.core import taggerutils
+        for mod in (image_utils, taggerutils):
+            self.assertIn('LOCAL_COVER_NAMES', inspect.getsource(mod),
+                          f'{mod.__name__} should share the one list')
 
     def test_untyped_album_art_still_drives_folder_jpg(self):
         """use_folder_jpg keys off is_front, which `cover` satisfies."""
@@ -181,3 +194,56 @@ class CoverCollidesWithTheSourceFolder(unittest.TestCase):
                                   'type': 'secondary'}])[0]
         self.assertTrue(att.is_front,
                         'a promoted cover must still count as album art')
+
+
+class ImageFormatStringIsDeprecated(unittest.TestCase):
+    """file-formatting.image no longer names anything.
+
+    Artwork follows a fixed convention now, so the setting is inert. Leaving
+    it looking functional is worse than removing it: a user who sets it gets
+    silence and unchanged filenames.
+    """
+
+    def _config_with(self, formats_body):
+        import tempfile
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, 'config.yaml'), 'w') as f:
+            f.write('common: {}\n')
+        with open(os.path.join(d, 'formats.ini'), 'w') as f:
+            f.write(formats_body)
+        return os.path.join(d, 'config.yaml')
+
+    def test_setting_it_warns_at_load(self):
+        from massmusictagger.core.tagger_config import TaggerConfig
+        path = self._config_with('[file-formatting]\nimage = myart\ndir = %album%\n')
+        with self.assertLogs('massmusictagger.config_schema', level='WARNING') as logs:
+            TaggerConfig(path)
+        joined = '\n'.join(logs.output)
+        self.assertIn('file-formatting.image', joined)
+        self.assertIn('deprecated', joined)
+
+    def test_not_setting_it_is_quiet(self):
+        import logging
+        from massmusictagger.core.tagger_config import TaggerConfig
+        path = self._config_with('[file-formatting]\ndir = %album%\n')
+        with self.assertNoLogs('massmusictagger.config_schema', level='WARNING'):
+            TaggerConfig(path)
+
+    def test_it_no_longer_influences_any_filename(self):
+        """The point of deprecating rather than leaving it: it does nothing."""
+        from massmusictagger.core.attachments import (
+            basename_for, Attachment, COVER, OTHER)
+        counter = {}
+        self.assertEqual(basename_for(Attachment('u/a.jpg', COVER), counter), 'cover')
+        self.assertEqual(basename_for(Attachment('u/b.jpg', OTHER), counter), 'image-01')
+
+    def test_the_sample_no_longer_ships_it(self):
+        from massmusictagger import roots
+        sample = os.path.join(roots.BUNDLED_CONF, 'formats_sample.ini')
+        with open(sample) as f:
+            for line in f:
+                stripped = line.strip()
+                self.assertFalse(
+                    stripped.startswith('image') and '=' in stripped
+                    and not stripped.startswith('#'),
+                    'formats_sample.ini still sets a deprecated key')

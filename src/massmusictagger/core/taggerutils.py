@@ -20,6 +20,7 @@ from massmusictagger.core.naming.stringformatting import StringFormatting
 
 from massmusictagger.core.mediafile import MediaFile
 from massmusictagger.core.naming.pathutils import resolve_path
+from massmusictagger.core.attachments import LOCAL_COVER_NAMES
 from massmusictagger import roots
 from massmusictagger.core.naming.charmap import build_map, apply_substitutions, strip_invalid
 from massmusictagger.core.naming.formatcodes import (
@@ -476,13 +477,8 @@ class FileHandler(object):
 
         Returns (source_label, data_bytes, (width, height)) or (None, None, None).
         """
-        image_format = self.config.get("file-formatting", "image")
-        candidates = [
-            os.path.join(self.album.target_dir, 'front.jpg'),
-            os.path.join(self.album.target_dir, 'folder.jpg'),
-            os.path.join(self.album.target_dir, 'cover.jpg'),
-            os.path.join(self.album.target_dir, '{}-01.jpg'.format(image_format)),
-        ]
+        candidates = [os.path.join(self.album.target_dir, name)
+                      for name in LOCAL_COVER_NAMES]
         for path in candidates:
             if os.path.exists(path):
                 try:
@@ -542,7 +538,14 @@ class FileHandler(object):
         return False
 
     def get_images(self, conn_mgr):
-        """Download and store release images from Discogs.
+        """SUPERSEDED — download and store release images from Discogs.
+
+        Not called by the pipeline any more: image_utils.download_typed_images
+        handles every source, and names artwork by the fixed convention rather
+        than the file-formatting.image format string this used. Kept until the
+        pruning pass so the diff that removed the branch stayed readable.
+
+        Original documentation follows.
 
         Discogs provides two image types:
           'primary'   — the front cover (named front.jpg, or folder.jpg when
@@ -560,7 +563,6 @@ class FileHandler(object):
         if not self.album.attachments:
             return
 
-        image_format = self.config.get("file-formatting", "image")
         use_folder_jpg = self.config.getboolean("details", "use_folder_jpg")
         download_only_cover = self.config.getboolean("details", "download_only_cover")
         image_policy = self.config.get("details", "image_policy")
@@ -599,7 +601,7 @@ class FileHandler(object):
                         break
                 else:
                     secondary_no += 1
-                    picture_name = '{}-{:02d}.jpg'.format(image_format, secondary_no)
+                    picture_name = 'image-{:02d}.jpg'.format(secondary_no)
                     conn_mgr.fetch_image(
                         os.path.join(self.album.target_dir, picture_name),
                         image_url,
@@ -608,6 +610,9 @@ class FileHandler(object):
                 logger.error("Unable to download image '%s': %s", image_url, e)
 
     def embed_coverart_album(self):
+        """SUPERSEDED — see get_images(). image_utils.embed_typed_images now
+        handles every source.
+        """
         """Embed the front cover art into all album files.
 
         Uses mediafile's Image API to explicitly tag the image as
@@ -620,13 +625,8 @@ class FileHandler(object):
             return
 
         # Search for the front cover in order of preference
-        image_format = self.config.get("file-formatting", "image")
-        candidates = [
-            os.path.join(self.album.target_dir, 'front.jpg'),
-            os.path.join(self.album.target_dir, 'folder.jpg'),
-            os.path.join(self.album.target_dir, 'cover.jpg'),
-            os.path.join(self.album.target_dir, '{}-01.jpg'.format(image_format)),
-        ]
+        candidates = [os.path.join(self.album.target_dir, name)
+                      for name in LOCAL_COVER_NAMES]
         front_image = next((p for p in candidates if os.path.exists(p)), None)
         if front_image is None:
             logger.debug('No front cover image found to embed')

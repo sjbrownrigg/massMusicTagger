@@ -154,6 +154,12 @@ _EXTENSIONS = {'jpg': '.jpg', 'jpeg': '.jpg', 'png': '.png',
                'gif': '.gif', 'webp': '.webp'}
 
 
+#: Filenames an existing local cover may already have, in preference order.
+#: Shared so the "is there already a cover here?" checks cannot drift apart --
+#: there were two lists, and only one of them knew about image-01.jpg.
+LOCAL_COVER_NAMES = ('front.jpg', 'cover.jpg', 'folder.jpg', 'image-01.jpg')
+
+
 def extension_for(att: 'Attachment', data: Optional[bytes] = None) -> str:
     """The file extension to write this attachment as.
 

@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 
 from massmusictagger.core.mediafile import MediaFile
 from massmusictagger.core.attachments import (
-    basename_for, extension_for, sort_key as attachment_sort_key)
+    basename_for, extension_for, LOCAL_COVER_NAMES,
+    sort_key as attachment_sort_key)
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,7 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
 
 def _local_front_dimensions(target_dir: str) -> Optional[tuple[int, int]]:
     """Return (width, height) of the existing local front cover, or None."""
-    for candidate in ('front.jpg', 'folder.jpg', 'cover.jpg'):
+    for candidate in LOCAL_COVER_NAMES:
         path = os.path.join(target_dir, candidate)
         if os.path.exists(path):
             try:

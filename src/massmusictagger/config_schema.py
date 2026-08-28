@@ -55,7 +55,21 @@ REQUIRED = frozenset()
 # common.formats_file: formats.ini is found beside config.yaml. See roots.LAYOUT.
 DEPRECATED = frozenset({
     ('common', 'formats_file'),
+    ('file-formatting', 'image'),
 })
+
+#: Why a deprecated key no longer does anything, said at load time.
+#:
+#: Keys warned about elsewhere are absent here, so nobody is told twice:
+#: common.formats_file warns from TaggerConfig.resource() when it is actually
+#: used to resolve a path, which is more specific than anything sayable here.
+DEPRECATION_NOTES = {
+    ('file-formatting', 'image'):
+        'artwork is named by a fixed convention now -- front/back/medium/'
+        'booklet for typed images, cover for untyped album art, and '
+        'image-01, image-02 for the rest. Remove the setting; it has no '
+        'effect.',
+}
 
 
 # Every known key, with the default applied when the user omits it.
@@ -259,6 +273,11 @@ def validate(config, source=None):
             f"Configuration{where} is missing required settings:\n{listed}\n"
             f"  See the annotated reference in conf/config_sample.yaml."
         )
+
+    for (section, key), note in DEPRECATION_NOTES.items():
+        if config.has_section(section) and config.has_option(section, key):
+            logger.warning('%s.%s is deprecated%s: %s',
+                           section, key, where, note)
 
     known = set(DEFAULTS) | set(REQUIRED) | set(DEPRECATED) | _EXTRA_KNOWN
     known_sections = KNOWN_SECTIONS | frozenset(s for s, _ in _EXTRA_KNOWN)
