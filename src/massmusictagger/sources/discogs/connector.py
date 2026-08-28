@@ -157,7 +157,10 @@ class DiscogsConnector(object):
             return cached or None
         try:
             master = self.discogs_client.master(int(master_id))
-            year = master.data.get('year')
+            # Read the attribute, not .data: the client is lazy, and .data on
+            # an unfetched object is an empty stub that quietly yields None.
+            # This is the same trap the release path hit in May.
+            year = master.year
         except Exception as exc:
             logger.debug('Could not fetch master %s for its year: %s', master_id, exc)
             self._master_years[master_id] = ''

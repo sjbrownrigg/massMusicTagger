@@ -146,3 +146,59 @@ class MasterSuppliesTheMissingYear(unittest.TestCase):
         self._connector = None
         album = self._album(year=None, master_id='40822')
         self.assertIsNone(album.year)
+
+
+class MasterFetchIsNotLazy(unittest.TestCase):
+    """The client is lazy; .data on an unfetched object is an empty stub.
+
+    fetch_master_year first read master.data.get('year'), which returns None
+    for a master nobody has fetched -- so the lookup silently found nothing
+    and the release stayed dateless. Reading the attribute forces the fetch.
+
+    The same trap cost a fix in May, when a lazy attribute access on a search
+    result triggered a 404 mid-map.
+    """
+
+    def _connector(self, master_obj):
+        from massmusictagger.sources.discogs.connector import DiscogsConnector
+        c = DiscogsConnector.__new__(DiscogsConnector)
+        c._master_years = {}
+        c.discogs_client = MagicMock()
+        c.discogs_client.master.return_value = master_obj
+        return c
+
+    def test_reads_the_attribute_not_the_data_stub(self):
+        master = MagicMock()
+        master.year = 1991
+        master.data = {}          # what an unfetched object looks like
+        self.assertEqual(self._connector(master).fetch_master_year('40822'), '1991')
+
+    def test_a_master_with_no_year_yields_none(self):
+        master = MagicMock()
+        master.year = 0
+        self.assertIsNone(self._connector(master).fetch_master_year('40822'))
+
+    def test_a_failed_fetch_is_not_fatal(self):
+        master = MagicMock()
+        type(master).year = property(
+            lambda self: (_ for _ in ()).throw(Exception('404')))
+        self.assertIsNone(self._connector(master).fetch_master_year('40822'))
+
+    def test_the_result_is_memoised_per_run(self):
+        """One lookup per master, however many releases point at it."""
+        master = MagicMock()
+        master.year = 1991
+        conn = self._connector(master)
+        for _ in range(3):
+            conn.fetch_master_year('40822')
+        self.assertEqual(conn.discogs_client.master.call_count, 1)
+
+    def test_a_failure_is_memoised_too(self):
+        master = MagicMock()
+        type(master).year = property(
+            lambda self: (_ for _ in ()).throw(Exception('404')))
+        conn = self._connector(master)
+        for _ in range(3):
+            self.assertIsNone(conn.fetch_master_year('40822'))
+        self.assertEqual(conn.discogs_client.master.call_count, 1,
+                         'a failing master should not be retried all run')
