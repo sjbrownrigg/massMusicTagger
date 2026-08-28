@@ -238,7 +238,11 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
         dest = os.path.join(target_dir, filename)
         try:
             if fetched:
-                os.replace(fetched, dest)   # already downloaded to measure it
+                # Already downloaded to measure it; don't ask for it twice.
+                # shutil.move, not os.replace: the scratch file may have
+                # landed in the system temp directory on another device.
+                import shutil
+                shutil.move(fetched, dest)
                 fetched = None
             else:
                 connector.fetch_image(dest, uri)
@@ -295,25 +299,52 @@ def _local_front_dimensions(target_dir: str) -> Optional[tuple[int, int]]:
 
 
 def _dest_tmp(target_dir: str, filename: str) -> str:
-    """Scratch path beside the destination, so the later move stays on-device."""
-    return os.path.join(target_dir, f'.{filename}.part')
+    """Scratch path beside the destination, so the later move stays on-device.
+
+    Deliberately not dot-prefixed. A hidden name was rejected outright by the
+    SMB share this runs against -- "Operation not permitted" -- and because the
+    failure was handled gracefully the run carried on and downloaded the
+    smaller image anyway, which is the exact outcome the measurement exists to
+    prevent. A visible .part file works on every share tried, and is removed
+    either way.
+    """
+    return os.path.join(target_dir, f'{filename}.part')
 
 
 def _fetch_and_measure(connector, uri: str, tmp: str):
     """Download to a scratch path and measure it: (path, dims).
 
-    Either may be None -- a failed download is not fatal, because the caller
-    still has the local image and simply proceeds without a comparison.
+    Falls back to the system temp directory when the target filesystem will
+    not take the scratch file, so a share with unusual rules costs a
+    cross-device copy rather than the comparison itself.
+
+    Either element may be None -- the caller still holds the local image and
+    proceeds without a comparison, which is why this warns rather than raises.
     """
     try:
         connector.fetch_image(tmp, uri)
+        return tmp, _measured(tmp, uri)
+    except Exception as exc:
+        logger.debug('Scratch download to %s failed (%s); trying the system '
+                     'temp directory', tmp, exc)
+
+    import tempfile
+    fd, alt = tempfile.mkstemp(suffix=os.path.splitext(tmp)[0][-4:] or '.jpg')
+    os.close(fd)
+    try:
+        connector.fetch_image(alt, uri)
     except Exception as exc:
         logger.warning('Could not fetch %s to compare sizes: %s', uri, exc)
+        _discard(alt)
         return None, None
-    dims = _measure(tmp)
+    return alt, _measured(alt, uri)
+
+
+def _measured(path: str, uri: str):
+    dims = _measure(path)
     if not dims:
         logger.warning('Downloaded %s but could not read its dimensions', uri)
-    return tmp, dims
+    return dims
 
 
 def _discard(path: Optional[str]) -> None:

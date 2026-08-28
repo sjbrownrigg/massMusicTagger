@@ -388,6 +388,34 @@ class TestDownloadTypedImages(unittest.TestCase):
         self.assertEqual(_measure(os.path.join(self.target, 'cover.jpg')),
                          (1400, 1400))
 
+    def test_a_share_that_refuses_the_scratch_file_still_compares(self):
+        """The SMB share this runs against rejected a hidden scratch file.
+
+        "Operation not permitted" was caught and logged, the run carried on,
+        and the 600x600 download replaced the 1400x1400 local scan -- the very
+        outcome the measurement exists to prevent. A refused scratch write must
+        cost a temp-directory round trip, not the comparison.
+        """
+        self._local('cover.jpg', 1400, 1400)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+
+        conn = self._connector(size=(600, 600))
+        real = conn.fetch_image.side_effect
+
+        def hostile(dest, uri):
+            if os.path.dirname(dest) == self.target and dest.endswith('.part'):
+                raise OSError(1, 'Operation not permitted')
+            return real(dest, uri)
+
+        conn.fetch_image = MagicMock(side_effect=hostile)
+        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+
+        from massmusictagger.image_utils import _measure
+        self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
+                         (1400, 1400),
+                         'the larger local scan must still win')
+
     def test_no_scratch_files_are_left_behind(self):
         self._local('cover.jpg', 1400, 1400)
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
