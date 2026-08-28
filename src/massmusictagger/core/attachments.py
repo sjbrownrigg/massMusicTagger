@@ -91,6 +91,30 @@ def from_discogs(image: dict) -> Attachment:
     )
 
 
+def from_discogs_list(images) -> list:
+    """Normalise a Discogs release's whole ``images`` list.
+
+    Discogs marks a cover with type 'primary', but 21% of releases carrying
+    images have none -- every entry is 'secondary'. Mapped one at a time those
+    all become `other`, so the release ends up with no front cover: the files
+    get image-01.jpg and the embedded art is typed `other`, which players do
+    not necessarily show as album art.
+
+    Discogs lists images cover-first, so when nothing is marked primary the
+    first entry is promoted. That is a convention rather than a guarantee,
+    which is why it happens here -- at the list level, where the ordering is
+    visible -- and not inside from_discogs().
+    """
+    atts = [from_discogs(i) for i in (images or [])]
+    if atts and not any(a.is_front for a in atts):
+        first = atts[0]
+        atts[0] = Attachment(
+            url=first.url, kind=FRONT,
+            width=first.width, height=first.height,
+            provenance=first.provenance, source_types=first.source_types)
+    return atts
+
+
 def from_caa(image: dict) -> Attachment:
     """Normalise one entry of a Cover Art Archive image list.
 

@@ -83,3 +83,55 @@ class Extensions(unittest.TestCase):
     def test_falls_back_to_jpg_when_nothing_says(self):
         att = Attachment('https://coverartarchive.org/release/abc/front', FRONT)
         self.assertEqual(extension_for(att), '.jpg')
+
+
+class DiscogsFrontCoverPromotion(unittest.TestCase):
+    """Discogs releases without a 'primary' image still get a front cover.
+
+    21% of the 22,811 cached Discogs releases carrying images have no entry
+    marked primary -- every one is secondary. Mapped individually those all
+    become `other`, so the release got image-01.jpg and its embedded art was
+    typed `other`, which players do not necessarily show as album art. A real
+    tagging run produced exactly that before this was added.
+    """
+
+    def test_first_image_is_promoted_when_nothing_is_primary(self):
+        from massmusictagger.core.attachments import from_discogs_list
+        atts = from_discogs_list([
+            {'uri': 'https://img/a.jpg', 'type': 'secondary'},
+            {'uri': 'https://img/b.jpg', 'type': 'secondary'},
+        ])
+        self.assertTrue(atts[0].is_front)
+        self.assertEqual(atts[0].url, 'https://img/a.jpg',
+                         'Discogs lists images cover-first')
+        self.assertFalse(atts[1].is_front)
+
+    def test_an_explicit_primary_is_not_overridden(self):
+        from massmusictagger.core.attachments import from_discogs_list
+        atts = from_discogs_list([
+            {'uri': 'https://img/a.jpg', 'type': 'secondary'},
+            {'uri': 'https://img/b.jpg', 'type': 'primary'},
+        ])
+        self.assertFalse(atts[0].is_front)
+        self.assertTrue(atts[1].is_front)
+
+    def test_promotion_preserves_everything_else(self):
+        from massmusictagger.core.attachments import from_discogs_list
+        att = from_discogs_list([{'uri': 'https://img/a.jpg', 'type': 'secondary',
+                                  'width': 600, 'height': 600}])[0]
+        self.assertEqual(att.dimensions, (600, 600))
+        self.assertEqual(att.provenance, 'discogs')
+
+    def test_empty_list_is_not_a_problem(self):
+        from massmusictagger.core.attachments import from_discogs_list
+        self.assertEqual(from_discogs_list([]), [])
+        self.assertEqual(from_discogs_list(None), [])
+
+    def test_a_promoted_front_embeds_as_front(self):
+        """The point: the picture type players actually look for."""
+        from massmusictagger.core.attachments import from_discogs_list
+        from massmusictagger.image_utils import attachment_image_type
+        from mediafile import ImageType
+        att = from_discogs_list([{'uri': 'https://img/a.jpg',
+                                  'type': 'secondary'}])[0]
+        self.assertEqual(attachment_image_type(att), ImageType.front)

@@ -74,8 +74,8 @@ class DiscogsAlbum(object):
         ])
         album.labels = self.remove_duplicate_items([name for name, catno in self.labels_and_numbers])
         # Normalised once here, where the Discogs vocabulary is understood.
-        from massmusictagger.core.attachments import from_discogs
-        album.attachments = [from_discogs(i) for i in (self.images or [])]
+        from massmusictagger.core.attachments import from_discogs_list
+        album.attachments = from_discogs_list(self.images)
         album.year = self.year
         album.release_date = self.release_date
         # Collect all format names from the release (used for %format_names%)
