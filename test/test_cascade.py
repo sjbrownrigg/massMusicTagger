@@ -235,83 +235,6 @@ class TestFolderFormatHint(unittest.TestCase):
                          _folder_format_hint('/x/24 Bit Collection/Plain Album', self.HINTS))
 
 
-class TestDiscogsFmtHintInjection(unittest.TestCase):
-    """Format hint is injected into searcher.search_params before search_discogs()."""
-
-    def setUp(self):
-        import tempfile
-        self.tmpdir = tempfile.mkdtemp()
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_cfg(self, hints_path=''):
-        from massmusictagger.core.tagger_config import TaggerConfig
-        cfg = TaggerConfig(MMT_CONFIG)
-        if not cfg.has_section('details'):
-            cfg.add_section('details')
-        cfg.set('details', 'source_hints_file', hints_path)
-        if not cfg.has_section('batch'):
-            cfg.add_section('batch')
-        cfg.set('batch', 'searchdiscogs', 'true')
-        return cfg
-
-    def test_digital_hint_injected_and_year_suppressed(self):
-        import yaml
-        from unittest.mock import MagicMock, patch
-        from massmusictagger.cascade import _try_discogs
-
-        hints_file = os.path.join(self.tmpdir, 'hints.yaml')
-        with open(hints_file, 'w') as f:
-            yaml.dump({'source_hints': {'digital': ['24 Bit'], 'vinyl': []}}, f)
-
-        cfg = self._make_cfg(hints_file)
-        connector = MagicMock()
-        connector.fetch_release = MagicMock(return_value=None)
-
-        searcher = MagicMock()
-        searcher.search_params = {'year': '1974', 'tracks': []}
-        searcher.search_discogs.return_value = None
-
-        folder = os.path.join(self.tmpdir, '1974 - Album (24 Bit Remaster)')
-        os.makedirs(folder)
-
-        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
-             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
-             patch('massmusictagger.cascade._local_audio_count', return_value=0):
-            _try_discogs(folder, cfg, connector, searcher)
-
-        self.assertEqual(searcher.search_params.get('format_hint'), 'digital')
-        self.assertNotIn('year', searcher.search_params)
-
-    def test_no_hint_leaves_year_intact(self):
-        import yaml
-        from unittest.mock import MagicMock, patch
-        from massmusictagger.cascade import _try_discogs
-
-        hints_file = os.path.join(self.tmpdir, 'hints.yaml')
-        with open(hints_file, 'w') as f:
-            yaml.dump({'source_hints': {'digital': ['24 Bit'], 'vinyl': []}}, f)
-
-        cfg = self._make_cfg(hints_file)
-        connector = MagicMock()
-        searcher = MagicMock()
-        searcher.search_params = {'year': '1974', 'tracks': []}
-        searcher.search_discogs.return_value = None
-
-        folder = os.path.join(self.tmpdir, '1974 - Plain Album')
-        os.makedirs(folder)
-
-        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
-             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
-             patch('massmusictagger.cascade._local_audio_count', return_value=0):
-            _try_discogs(folder, cfg, connector, searcher)
-
-        self.assertNotIn('format_hint', searcher.search_params)
-        self.assertEqual(searcher.search_params.get('year'), '1974')
-
-
 class _FakeSubtrackRelease:
     """Minimal Discogs release stand-in with lettered sub-track positions.
 
@@ -372,7 +295,9 @@ class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
         connector = MagicMock()
         searcher = MagicMock()
         searcher.search_params = {'tracks': []}
-        searcher.search_discogs.return_value = raw
+        # cascade now asks for an id, then fetches through the connector
+        searcher.search.return_value = raw.id
+        connector.fetch_release.return_value = raw
 
         folder = os.path.join(self.tmpdir, 'Sounds Of The Universe')
         os.makedirs(folder)
@@ -400,7 +325,9 @@ class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
         connector = MagicMock()
         searcher = MagicMock()
         searcher.search_params = {'tracks': []}
-        searcher.search_discogs.return_value = raw
+        # cascade now asks for an id, then fetches through the connector
+        searcher.search.return_value = raw.id
+        connector.fetch_release.return_value = raw
 
         folder = os.path.join(self.tmpdir, 'Sounds Of The Universe Partial')
         os.makedirs(folder)

@@ -264,6 +264,60 @@ class DiscogsSearch(DiscogsConnector):
         else:
             s['artistRelease'] = self.normalize(' '.join((s['artist'], s['release'])).strip())
 
+    def search(self, sourcedir: str) -> 'str | None':
+        """Return a Discogs release ID for *sourcedir*, or None.
+
+        The SourceSearch entry point, matching MBSearch.search(). Everything
+        Discogs needs to run a search now happens in here.
+
+        The caller used to have to do this itself: call getSearchParams, work
+        out the folder hints, reach into self.search_params to inject them,
+        conditionally pop the year, call search_discogs() -- a differently
+        named method returning a release object rather than an ID -- and then
+        know to touch .tracklist to force a lazy fetch that could 404. None of
+        that is the cascade's business, and none of it applied to MusicBrainz,
+        which is why the two branches looked nothing alike.
+        """
+        from massmusictagger.sources.hints import (
+            _load_source_hints, _folder_format_hint, _folder_descriptor_hints)
+
+        self.getSearchParams(sourcedir)
+
+        # Folder-name signals. The format hint gates candidates whose medium
+        # conflicts with the folder (a vinyl LP for a 24-bit remaster), and the
+        # descriptor hints boost candidates whose descriptions agree.
+        hints = _load_source_hints(self.config)
+        fmt_hint = _folder_format_hint(sourcedir, hints)
+        if fmt_hint:
+            self.search_params['format_hint'] = fmt_hint
+            if fmt_hint == 'digital':
+                # The original album year would restrict results to that year's
+                # pressings -- all vinyl -- and hide the digital remaster.
+                year = self.search_params.pop('year', None)
+                if year:
+                    logger.debug(
+                        'Format hint "digital": suppressed year %s from the '
+                        'Discogs search so remasters can surface (folder: %s)',
+                        year, os.path.basename(sourcedir))
+        desc_hints = _folder_descriptor_hints(sourcedir, hints)
+        if desc_hints:
+            self.search_params['descriptor_hints'] = desc_hints
+
+        release = self.search_discogs()
+        if release is None:
+            return None
+
+        try:
+            # A search result is lazy; touching the tracklist forces the fetch
+            # and surfaces a release that has since been deleted.
+            _ = release.tracklist
+            return str(release.id)
+        except Exception as exc:
+            logger.warning(
+                'Discogs release %s could not be fetched (%s) — treating as no '
+                'match', getattr(release, 'id', '?'), exc)
+            return None
+
     def search_discogs(self):
         """Search Discogs for a matching release — four-tier strategy."""
         searchParams = self.search_params

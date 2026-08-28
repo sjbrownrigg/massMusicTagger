@@ -33,6 +33,9 @@ if TYPE_CHECKING:
     from massmusictagger.core.tagger_config import TaggerConfig
     from massmusictagger.source_interface import SourceConnector
 
+from massmusictagger.sources.hints import (
+    _load_source_hints, _folder_format_hint, _folder_descriptor_hints)
+
 logger = logging.getLogger(__name__)
 
 
@@ -195,38 +198,10 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
             searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                              if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
-                searcher.getSearchParams(sourcedir)
-
-                # ── Source format hint ─────────────────────────────────────
-                # Infer digital/vinyl origin from folder-name keywords and
-                # inject into search_params so _compareRelease() can reject
-                # format-conflicting candidates (e.g. vinyl LP for a 24-bit
-                # remaster folder).  When the hint is "digital" the year is
-                # also suppressed: the original album year (e.g. 1974) would
-                # restrict results to 1974 pressings (all vinyl), bypassing
-                # the actual remaster release on Discogs.
-                _hints = _load_source_hints(cfg)
-                _fmt_hint = _folder_format_hint(sourcedir, _hints)
-                if _fmt_hint:
-                    searcher.search_params['format_hint'] = _fmt_hint
-                    if _fmt_hint == 'digital':
-                        _yr = searcher.search_params.pop('year', None)
-                        if _yr:
-                            logger.debug(
-                                'Format hint "digital": suppressed year %s '
-                                'from Discogs search so remaster releases can '
-                                'surface (folder: %s)',
-                                _yr, os.path.basename(sourcedir),
-                            )
-                _desc_hints = _folder_descriptor_hints(sourcedir, _hints)
-                if _desc_hints:
-                    searcher.search_params['descriptor_hints'] = _desc_hints
-
-                raw = searcher.search_discogs()
+                relid = searcher.search(sourcedir)
+                raw = connector.fetch_release(relid) if relid else None
                 if raw is not None:
                     try:
-                        _ = raw.tracklist   # trigger lazy fetch; may raise on 404
-                        relid = str(raw.id)
                         release_count = _discogs_track_count(raw, local_count=local_count)
                         if not _validate_id_match(local_count, release_count,
                                                    'Discogs', relid, from_explicit=False):
@@ -241,85 +216,6 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
     except Exception as exc:
         logger.warning('Discogs failed for %s: %s', sourcedir, exc)
         return None
-
-
-def _load_source_hints(cfg) -> dict:
-    """Return source_hints dict from the configured YAML file, or {}.
-
-    Tries details.source_hints_file first (shared by all sources), then
-    musicbrainz.source_hints_file for backward compatibility.
-    """
-    path = ''
-    for section, key in (('details', 'source_hints_file'),
-                          ('musicbrainz', 'source_hints_file')):
-        try:
-            p = (cfg.get(section, key) or '').strip()
-            if p:
-                path = p
-                break
-        except Exception:
-            pass
-    if path:
-        # An override named by the config resolves beside that config file.
-        try:
-            path = cfg.resolve_path(path, 'details.source_hints_file') or path
-        except Exception:
-            path = os.path.expanduser(path)
-    else:
-        # No override: use the copy shipped inside the package. This used to
-        # return {} instead, so the feature was silently off for every
-        # installed copy -- the repo-relative default in the sample config
-        # only ever resolved from a source checkout.
-        from massmusictagger import roots
-        path = os.path.join(roots.BUNDLED_CONF, 'source_hints.yaml')
-    path = os.path.normpath(path)
-    try:
-        import yaml as _yaml
-        with open(path, encoding='utf-8') as f:
-            data = _yaml.safe_load(f) or {}
-        return data.get('source_hints', {})
-    except FileNotFoundError:
-        logger.debug('source_hints_file not found: %s', path)
-        return {}
-    except Exception as exc:
-        logger.warning('Failed to load source hints from %s: %s', path, exc)
-        return {}
-
-
-def _folder_format_hint(sourcedir: str, hints: dict) -> str:
-    """Return 'digital', 'vinyl', or '' based on folder name keywords."""
-    if not hints:
-        return ''
-    folder = os.path.basename(sourcedir.rstrip('/\\'))
-    folder_lower = folder.lower()
-    for kw in hints.get('digital', []):
-        if str(kw).lower() in folder_lower:
-            logger.debug("Format hint 'digital' matched keyword %r in %r", kw, folder)
-            return 'digital'
-    for kw in hints.get('vinyl', []):
-        if str(kw).lower() in folder_lower:
-            logger.debug("Format hint 'vinyl' matched keyword %r in %r", kw, folder)
-            return 'vinyl'
-    return ''
-
-
-def _folder_descriptor_hints(sourcedir: str, hints: dict) -> list:
-    """Return descriptor_boost keywords matched in the folder name.
-
-    Unlike format hints (which hard-reject mismatched releases), these are
-    passed to the Discogs searcher as a soft scoring signal: candidates whose
-    Discogs descriptions include a matched keyword receive a ranking bonus.
-    """
-    if not hints:
-        return []
-    folder = os.path.basename(sourcedir.rstrip('/\\'))
-    folder_lower = folder.lower()
-    matched = []
-    for kw in hints.get('descriptor_boost', []):
-        if str(kw).lower() in folder_lower:
-            logger.debug("Descriptor hint %r matched in %r", kw, folder)
-            matched.append(kw)
-    return matched
 
 
 def _try_musicbrainz(sourcedir, cfg, connector, searcher,
