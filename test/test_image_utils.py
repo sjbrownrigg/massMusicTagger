@@ -365,3 +365,64 @@ class TestEmbedTypedImages(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestDiscogsFileHandlerPath(unittest.TestCase):
+    """The Discogs download path, which no unit test covered.
+
+    Phase 4 changed FileHandler.get_images() from dict access to Attachment
+    attributes, and left a reference to a variable it had removed. The suite
+    passed; two real albums failed with "name 'image_type' is not defined".
+    """
+
+    def _album_with(self, attachments):
+        from massmusictagger.core.album import Album
+        a = Album('123', 'Test Album', ['Test Artist'])
+        a.attachments = attachments
+        a.target_dir = '/fake/target'
+        return a
+
+    def test_get_images_runs_over_attachments(self):
+        from massmusictagger.core.attachments import from_discogs
+        from massmusictagger.core.taggerutils import FileHandler
+
+        album = self._album_with([
+            from_discogs({'uri': 'https://img/front.jpg', 'type': 'primary',
+                          'width': 600, 'height': 600}),
+            from_discogs({'uri': 'https://img/other.jpg', 'type': 'secondary',
+                          'width': 300, 'height': 300}),
+        ])
+        cfg = _make_cfg(**{'details.download_only_cover': 'false',
+                           'details.image_policy': 'always',
+                           'details.use_folder_jpg': 'false',
+                           'file-formatting.image': 'image'})
+        fh = FileHandler.__new__(FileHandler)
+        fh.album, fh.config = album, cfg
+        fh.create_album_dir = lambda: None
+        fh._best_local_cover = lambda: (None, None, None)
+
+        conn = MagicMock()
+        with patch('os.makedirs'), \
+             patch('massmusictagger.core.taggerutils.write_file'):
+            fh.get_images(conn)
+
+        # The point: it completes and asks for both images, rather than
+        # raising NameError partway through.
+        self.assertEqual(conn.fetch_image.call_count, 2)
+
+    def test_front_policy_reads_dimensions_from_the_attachment(self):
+        """prefer_larger compares against Attachment.dimensions, not a dict."""
+        from massmusictagger.core.attachments import from_discogs
+        from massmusictagger.core.taggerutils import FileHandler
+
+        fh = FileHandler.__new__(FileHandler)
+        small = from_discogs({'uri': 'u', 'type': 'primary',
+                              'width': 100, 'height': 100})
+        big = from_discogs({'uri': 'u', 'type': 'primary',
+                            'width': 2000, 'height': 2000})
+        unknown = from_discogs({'uri': 'u', 'type': 'primary'})
+
+        self.assertTrue(fh._should_skip_front_cover(small, (500, 500), 'prefer_larger'))
+        self.assertFalse(fh._should_skip_front_cover(big, (500, 500), 'prefer_larger'))
+        # CAA reports no dimensions; not knowing must not mean "skip".
+        self.assertFalse(fh._should_skip_front_cover(unknown, (500, 500), 'prefer_larger'))

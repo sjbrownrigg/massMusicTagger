@@ -583,7 +583,7 @@ class FileHandler(object):
                         break
                     continue
 
-            logger.debug("Downloading %s image: %s", image_type, image_url)
+            logger.debug("Downloading %s image: %s", image.kind, image_url)
             try:
                 if is_front:
                     conn_mgr.fetch_image(
