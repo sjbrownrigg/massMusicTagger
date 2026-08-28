@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Optional, TYPE_CHECKING
+from typing import NamedTuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from massmusictagger.core.album import Album
@@ -89,45 +89,105 @@ def search_and_map(
         Skip source-specific search and use this release ID directly.
         Applied to the first source in the priority list that accepts IDs.
     """
+    ctx = _Attempt(
+        sourcedir=sourcedir, cfg=cfg,
+        discogs_connector=discogs_connector,
+        discogs_local_connector=discogs_local_connector,
+        discogs_search=discogs_search,
+        mb_connector=mb_connector, mb_search=mb_search,
+        release_id_override=release_id_override,
+    )
+
     priority = _get_priority(cfg)
     logger.debug('Source priority: %s', priority)
 
     for source in priority:
+        resolve = _SOURCES.get(source)
+        if resolve is None:
+            # Previously this fell through the if/elif chain in silence, so a
+            # typo in source.priority simply removed that source.
+            logger.warning(
+                'Unknown source %r in source.priority — ignored. Known sources: %s',
+                source, ', '.join(sorted(_SOURCES)))
+            continue
+
         logger.debug('Trying source: %s', source)
-
-        if source in ('discogs', 'local'):
-            conn = discogs_local_connector if source == 'local' else discogs_connector
-            result = _try_discogs(sourcedir, cfg, conn, discogs_search,
-                                  release_id_override=release_id_override)
-            if result is not None:
-                raw, release_id = result
-                from massmusictagger.source_factory import make_discogs_mapper
-                album = make_discogs_mapper(cfg).map(raw)
-                album.release_id_str = release_id
-                return album, conn
-
-        elif source == 'musicbrainz':
-            result = _try_musicbrainz(sourcedir, cfg, mb_connector, mb_search,
-                                      release_id_override=release_id_override)
-            if result is not None:
-                raw, mbid = result
-                from massmusictagger.source_factory import make_mb_mapper
-                album = make_mb_mapper(cfg).map(raw)
-                album.release_id_str = mbid
-                # Immediately replace the placeholder image with the full
-                # typed CAA image list (Front, Back, Medium, Booklet, …).
-                if mb_connector and mbid:
-                    caa_images = mb_connector.fetch_image_list(mbid)
-                    if caa_images:
-                        album.images = caa_images
-                return album, mb_connector
-
-        elif source == 'existing_tags':
-            album = _map_existing_tags(sourcedir, cfg)
-            if album is not None:
-                return album, None
+        resolved = resolve(source, ctx)
+        if resolved is not None:
+            return resolved
 
     return None
+
+
+
+# ── One pipeline ─────────────────────────────────────────────────────────────
+#
+# Every source answers the same question -- "is this album yours, and if so
+# what is it?" -- and returns (Album, connector) or None. Adding a fourth
+# source is a registration below, not another branch in search_and_map.
+
+
+class _Attempt(NamedTuple):
+    """Everything a source needs to answer for one directory."""
+    sourcedir: str
+    cfg: 'TaggerConfig'
+    discogs_connector: Optional['SourceConnector']
+    discogs_local_connector: Optional['SourceConnector']
+    discogs_search: object
+    mb_connector: Optional['SourceConnector']
+    mb_search: object
+    release_id_override: Optional[str]
+
+
+def _resolve_discogs(source: str, ctx: '_Attempt'):
+    """discogs and local differ only in which connector fetches."""
+    conn = (ctx.discogs_local_connector if source == 'local'
+            else ctx.discogs_connector)
+    found = _try_discogs(ctx.sourcedir, ctx.cfg, conn, ctx.discogs_search,
+                         release_id_override=ctx.release_id_override)
+    if found is None:
+        return None
+    raw, release_id = found
+    from massmusictagger.source_factory import make_discogs_mapper
+    album = make_discogs_mapper(ctx.cfg).map(raw)
+    album.release_id_str = release_id
+    return album, conn
+
+
+def _resolve_musicbrainz(source: str, ctx: '_Attempt'):
+    found = _try_musicbrainz(ctx.sourcedir, ctx.cfg, ctx.mb_connector,
+                             ctx.mb_search,
+                             release_id_override=ctx.release_id_override)
+    if found is None:
+        return None
+    raw, mbid = found
+    from massmusictagger.source_factory import make_mb_mapper
+    album = make_mb_mapper(ctx.cfg).map(raw)
+    album.release_id_str = mbid
+
+    # The mapper leaves a placeholder image; the full typed Cover Art Archive
+    # list (Front, Back, Medium, Booklet, …) is a second request. This is the
+    # only per-source step left in the cascade, and phase 4 removes it by
+    # carrying attachments in the mapped result.
+    if ctx.mb_connector and mbid:
+        caa_images = ctx.mb_connector.fetch_image_list(mbid)
+        if caa_images:
+            album.images = caa_images
+    return album, ctx.mb_connector
+
+
+def _resolve_existing_tags(source: str, ctx: '_Attempt'):
+    """Last resort: whatever the files already say. No release, no connector."""
+    album = _map_existing_tags(ctx.sourcedir, ctx.cfg)
+    return (album, None) if album is not None else None
+
+
+_SOURCES = {
+    'discogs':       _resolve_discogs,
+    'local':         _resolve_discogs,
+    'musicbrainz':   _resolve_musicbrainz,
+    'existing_tags': _resolve_existing_tags,
+}
 
 
 # ── Source attempt helpers ────────────────────────────────────────────────────
