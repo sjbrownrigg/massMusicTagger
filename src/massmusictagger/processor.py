@@ -409,6 +409,26 @@ class MassProcessor:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 
             fh.add_replay_gain_tags()
+
+            # .nfo and .m3u, in discogstagger3's order: after the images and
+            # ReplayGain, before the source is dealt with.
+            #
+            # massMusicTagger never wrote these -- only discogstagger3's CLI
+            # did -- which is the drift you get from two places knowing the
+            # assembly order. Guarded individually so a template problem costs
+            # you the sidecar file, not the tagged album.
+            for kind, write in (('m3u', tu.create_m3u), ('nfo', tu.create_nfo)):
+                fmt = (cfg.get('file-formatting', kind) or '').strip()
+                if not fmt:
+                    logger.debug('%s not written: file-formatting.%s is empty',
+                                 kind, kind)
+                    continue
+                try:
+                    write(album.target_dir)
+                except Exception as exc:
+                    logger.warning('Could not write the .%s for %r: %s',
+                                   kind, album.title, exc)
+
             _post_process_source(result, cfg, fh, tu)
 
             result.outcome = OUTCOME_OK
