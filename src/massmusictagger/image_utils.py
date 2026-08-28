@@ -116,8 +116,12 @@ def _find_written(target_dir: str, base: str):
 def attachment_image_type(att):
     """Embedded picture type for an attachment, from its kind."""
     from mediafile import ImageType
-    from massmusictagger.core.attachments import FRONT, BACK, BOOKLET, MEDIUM
+    from massmusictagger.core.attachments import (
+        COVER, FRONT, BACK, BOOKLET, MEDIUM)
     return {
+        # Both are the album art; the distinction is how much the source told
+        # us, not what the picture is, so both embed as the front cover.
+        COVER:   ImageType.front,
         FRONT:   ImageType.front,
         BACK:    ImageType.back,
         MEDIUM:  ImageType.media,

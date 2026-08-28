@@ -45,18 +45,36 @@ class Naming(unittest.TestCase):
         names = self._names([Attachment(f'u/{i}.jpg', OTHER) for i in range(2)])
         self.assertEqual(names, ['image-01.jpg', 'image-02.jpg'])
 
-    def test_discogs_secondaries_become_image_xx(self):
-        """The case this convention exists to catch."""
+    def test_discogs_main_image_is_cover_and_the_rest_are_numbered(self):
+        """Discogs primary/secondary is not an image type, so: cover, not front."""
         atts = [from_discogs({'uri': 'https://img/a.jpg', 'type': 'primary'}),
                 from_discogs({'uri': 'https://img/b.jpg', 'type': 'secondary'}),
                 from_discogs({'uri': 'https://img/c.jpg', 'type': 'secondary'})]
         self.assertEqual(self._names(atts),
-                         ['front.jpg', 'image-01.jpg', 'image-02.jpg'])
+                         ['cover.jpg', 'image-01.jpg', 'image-02.jpg'])
 
-    def test_caa_and_discogs_name_the_front_cover_identically(self):
+    def test_caa_and_discogs_name_their_album_art_differently(self):
+        """The name records how much the source told us.
+
+        The Cover Art Archive distinguishes a front from a back, so `front`
+        is a claim it supports. Discogs says only primary/secondary, so
+        `cover` is the honest name -- this is the album art, without asserting
+        which face of the sleeve it shows.
+        """
         caa = from_caa({'uri': 'https://caa/x', 'caa_types': ['Front']})
         dg = from_discogs({'uri': 'https://img/y.jpg', 'type': 'primary'})
-        self.assertEqual(basename_for(caa, {}), basename_for(dg, {}))
+        self.assertEqual(basename_for(caa, {}), 'front')
+        self.assertEqual(basename_for(dg, {}), 'cover')
+
+    def test_both_are_treated_as_album_art(self):
+        """Different names, same handling: policy and embedding see one thing."""
+        from massmusictagger.image_utils import attachment_image_type
+        from mediafile import ImageType
+        caa = from_caa({'uri': 'https://caa/x', 'caa_types': ['Front']})
+        dg = from_discogs({'uri': 'https://img/y.jpg', 'type': 'primary'})
+        for a in (caa, dg):
+            self.assertTrue(a.is_front)
+            self.assertEqual(attachment_image_type(a), ImageType.front)
 
     def test_front_sorts_first_so_naming_is_stable(self):
         atts = [Attachment('u/b.jpg', BACK), Attachment('u/f.jpg', FRONT)]
@@ -101,7 +119,8 @@ class DiscogsFrontCoverPromotion(unittest.TestCase):
             {'uri': 'https://img/a.jpg', 'type': 'secondary'},
             {'uri': 'https://img/b.jpg', 'type': 'secondary'},
         ])
-        self.assertTrue(atts[0].is_front)
+        from massmusictagger.core.attachments import COVER
+        self.assertEqual(atts[0].kind, COVER)
         self.assertEqual(atts[0].url, 'https://img/a.jpg',
                          'Discogs lists images cover-first')
         self.assertFalse(atts[1].is_front)
@@ -135,3 +154,30 @@ class DiscogsFrontCoverPromotion(unittest.TestCase):
         att = from_discogs_list([{'uri': 'https://img/a.jpg',
                                   'type': 'secondary'}])[0]
         self.assertEqual(attachment_image_type(att), ImageType.front)
+
+
+class CoverCollidesWithTheSourceFolder(unittest.TestCase):
+    """`cover.jpg` is also what a source folder often already contains.
+
+    copy_other_files() brings the ripper's own cover.jpg across before any
+    download happens, so the downloaded album art can land on the same name.
+    That is handled, not accidental: the local-cover check looks for
+    front.jpg, folder.jpg and cover.jpg, so image_policy compares against
+    whatever is already there and prefer_larger keeps the better one.
+    """
+
+    def test_local_cover_check_includes_the_name_we_now_write(self):
+        import inspect
+        from massmusictagger import image_utils
+        src = inspect.getsource(image_utils._local_front_dimensions)
+        for name in ('front.jpg', 'folder.jpg', 'cover.jpg'):
+            self.assertIn(name, src,
+                          f'{name} must be recognised as an existing cover')
+
+    def test_untyped_album_art_still_drives_folder_jpg(self):
+        """use_folder_jpg keys off is_front, which `cover` satisfies."""
+        from massmusictagger.core.attachments import from_discogs_list
+        att = from_discogs_list([{'uri': 'https://img/a.jpg',
+                                  'type': 'secondary'}])[0]
+        self.assertTrue(att.is_front,
+                        'a promoted cover must still count as album art')

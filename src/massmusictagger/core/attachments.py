@@ -24,9 +24,18 @@ from typing import Optional
 
 #: What an attachment depicts. `other` is honest about not knowing rather than
 #: guessing, and is what unrecognised source values become.
-FRONT, BACK, BOOKLET, MEDIUM, OTHER = 'front', 'back', 'booklet', 'medium', 'other'
+#: `front` means a source told us so, in a vocabulary that distinguishes front
+#: from back. `cover` means this is the album art but nothing typed it -- the
+#: name is deliberately the weaker claim.
+COVER, FRONT, BACK, BOOKLET, MEDIUM, OTHER = (
+    'cover', 'front', 'back', 'booklet', 'medium', 'other')
 
-KINDS = (FRONT, BACK, BOOKLET, MEDIUM, OTHER)
+#: Also the naming and sort order: album art first.
+KINDS = (COVER, FRONT, BACK, BOOKLET, MEDIUM, OTHER)
+
+#: Kinds that are the album art, whichever name they carry. Policy decisions --
+#: download_only_cover, prefer_larger -- apply to all of these.
+ALBUM_ART = (COVER, FRONT)
 
 #: Cover Art Archive type strings → our kinds. CAA gives a list per image, and
 #: the first recognised entry wins.
@@ -60,7 +69,8 @@ class Attachment:
 
     @property
     def is_front(self) -> bool:
-        return self.kind == FRONT
+        """Is this the album art? True for both `front` and `cover`."""
+        return self.kind in ALBUM_ART
 
     @property
     def dimensions(self) -> Optional[tuple]:
@@ -77,10 +87,12 @@ class Attachment:
 def from_discogs(image: dict) -> Attachment:
     """Normalise one entry of a Discogs release's ``images`` list.
 
-    Discogs says only 'primary' or 'secondary'. Primary is the front cover;
-    secondary could be anything, so it becomes `other` rather than a guess.
+    Discogs says only 'primary' or 'secondary', which is not an image type in
+    the sense the Cover Art Archive means -- it does not distinguish a front
+    from a back. So its main image becomes `cover`, not `front`: the album art,
+    without claiming to know which face of the sleeve it shows.
     """
-    kind = FRONT if image.get('type') == 'primary' else OTHER
+    kind = COVER if image.get('type') == 'primary' else OTHER
     return Attachment(
         url=image.get('uri') or '',
         kind=kind,
@@ -109,7 +121,7 @@ def from_discogs_list(images) -> list:
     if atts and not any(a.is_front for a in atts):
         first = atts[0]
         atts[0] = Attachment(
-            url=first.url, kind=FRONT,
+            url=first.url, kind=COVER,
             width=first.width, height=first.height,
             provenance=first.provenance, source_types=first.source_types)
     return atts
