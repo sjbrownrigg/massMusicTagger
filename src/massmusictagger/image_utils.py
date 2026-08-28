@@ -172,9 +172,10 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                     if cfg.has_option('details', 'image_policy') else 'always')
 
     # Local front cover — used for image_policy decisions
-    local_front_dims = _local_front_dimensions(target_dir)
+    local_front_path, local_front_dims = _local_front(target_dir)
     if local_front_dims:
-        logger.info('Existing local front cover: %dx%d px', *local_front_dims)
+        logger.info('Existing local front cover: %s, %dx%d px',
+                    os.path.basename(local_front_path), *local_front_dims)
 
     basename_counter: dict[str, int] = {}
 
@@ -188,6 +189,7 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
         base = basename_for(att, basename_counter)
         filename = f'{base}{extension_for(att)}'
         is_front = att.is_front
+        fetched = None      # a measured download, reused instead of re-fetched
 
         # Skip non-front images when download_only_cover is set
         if download_only_cover and not is_front:
@@ -199,53 +201,156 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                 logger.info('Skipping front cover download (prefer_existing policy)')
                 continue
             if image_policy == 'prefer_larger':
+                # Discogs states dimensions; the Cover Art Archive never does.
+                # Trusting att.dimensions alone therefore made prefer_larger a
+                # no-op against CAA -- it fell straight through and downloaded,
+                # so a 1400x1400 local scan was quietly demoted behind a
+                # 600x600 download, the opposite of what the setting asks for.
+                # When the source will not say, fetch the image and measure it.
                 dims = att.dimensions
+                if not dims:
+                    fetched, dims = _fetch_and_measure(
+                        connector, uri, _dest_tmp(target_dir, filename))
                 if dims:
-                    disc_w, disc_h = dims
+                    remote_px = dims[0] * dims[1]
                     local_px = local_front_dims[0] * local_front_dims[1]
-                    caa_px = disc_w * disc_h
-                    if local_px >= caa_px:
+                    if local_px >= remote_px:
                         logger.info(
-                            'Keeping local front cover %dx%d (CAA is %dx%d)',
-                            *local_front_dims, disc_w, disc_h,
-                        )
+                            'Keeping local front cover %dx%d (%s offers %dx%d)',
+                            *local_front_dims, att.provenance or 'remote', *dims)
+                        _discard(fetched)
+                        # Give the kept file the canonical name so the rest of
+                        # the run treats it like any other front cover: the
+                        # embed step looks that basename up, and a local
+                        # cover.jpg left beside a downloaded front.jpg would
+                        # otherwise leave two front covers in the directory
+                        # with nothing to say which one wins.
+                        local_front_path = _rename_to(
+                            local_front_path, target_dir, filename)
+                        if use_folder_jpg and local_front_path:
+                            _copy_to(local_front_path,
+                                     os.path.join(target_dir, 'folder.jpg'))
                         continue
-                    logger.info('CAA front cover larger — downloading')
+                    logger.info('%s front cover %dx%d beats the local %dx%d',
+                                att.provenance or 'Remote', *dims,
+                                *local_front_dims)
 
         dest = os.path.join(target_dir, filename)
         try:
-            connector.fetch_image(dest, uri)
+            if fetched:
+                os.replace(fetched, dest)   # already downloaded to measure it
+                fetched = None
+            else:
+                connector.fetch_image(dest, uri)
             # No local_filename written back: embedding derives the same name
             # from the same sorted list, so the album carries no scratch state.
             logger.info('Downloaded %s image → %s', att.kind, filename)
         except Exception as exc:
             logger.error('Failed to download %s image (%s): %s', filename, uri, exc)
+            _discard(fetched)
             continue
+
+        # A downloaded front cover supersedes a local one under a different
+        # name, so the directory is never left holding two of them.
+        if is_front and local_front_path and \
+                os.path.abspath(local_front_path) != os.path.abspath(dest):
+            _discard(local_front_path)
+            local_front_path = dest
 
         # Also write folder.jpg for the front cover (media-player compatibility)
         if is_front and use_folder_jpg:
-            folder_dest = os.path.join(target_dir, 'folder.jpg')
-            try:
-                connector.fetch_image(folder_dest, uri)
-            except Exception:
-                pass   # folder.jpg is optional
+            _copy_to(dest, os.path.join(target_dir, 'folder.jpg'))
 
 
-def _local_front_dimensions(target_dir: str) -> Optional[tuple[int, int]]:
-    """Return (width, height) of the existing local front cover, or None."""
+def _measure(path: str) -> Optional[tuple[int, int]]:
+    """(width, height) of an image file, or None if it cannot be read."""
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+        from massmusictagger.core.taggerutils import _image_dimensions
+        return _image_dimensions(data)
+    except Exception:
+        return None
+
+
+def _local_front(target_dir: str):
+    """(path, dimensions) of the front cover already in the directory.
+
+    Returns (None, None) when there is not one, or when a file is there but
+    unreadable as an image -- a policy that cannot measure both sides must not
+    pretend it made a comparison.
+    """
     for candidate in LOCAL_COVER_NAMES:
         path = os.path.join(target_dir, candidate)
         if os.path.exists(path):
-            try:
-                with open(path, 'rb') as f:
-                    data = f.read()
-                from massmusictagger.core.taggerutils import _image_dimensions
-                dims = _image_dimensions(data)
-                if dims:
-                    return dims
-            except Exception:
-                pass
-    return None
+            dims = _measure(path)
+            if dims:
+                return path, dims
+    return None, None
+
+
+def _local_front_dimensions(target_dir: str) -> Optional[tuple[int, int]]:
+    """Dimensions only, for callers that do not need the path."""
+    return _local_front(target_dir)[1]
+
+
+def _dest_tmp(target_dir: str, filename: str) -> str:
+    """Scratch path beside the destination, so the later move stays on-device."""
+    return os.path.join(target_dir, f'.{filename}.part')
+
+
+def _fetch_and_measure(connector, uri: str, tmp: str):
+    """Download to a scratch path and measure it: (path, dims).
+
+    Either may be None -- a failed download is not fatal, because the caller
+    still has the local image and simply proceeds without a comparison.
+    """
+    try:
+        connector.fetch_image(tmp, uri)
+    except Exception as exc:
+        logger.warning('Could not fetch %s to compare sizes: %s', uri, exc)
+        return None, None
+    dims = _measure(tmp)
+    if not dims:
+        logger.warning('Downloaded %s but could not read its dimensions', uri)
+    return tmp, dims
+
+
+def _discard(path: Optional[str]) -> None:
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _rename_to(path: Optional[str], target_dir: str, filename: str):
+    """Move a kept local image to its canonical name. Returns the new path."""
+    if not path:
+        return path
+    dest = os.path.join(target_dir, filename)
+    if os.path.abspath(path) == os.path.abspath(dest):
+        return path
+    try:
+        os.replace(path, dest)
+        logger.info('Renamed local %s → %s',
+                    os.path.basename(path), filename)
+        return dest
+    except OSError as exc:
+        logger.warning('Could not rename %s to %s: %s', path, filename, exc)
+        return path
+
+
+def _copy_to(src: str, dest: str) -> None:
+    """folder.jpg and friends: a local copy, never a second download."""
+    if os.path.abspath(src) == os.path.abspath(dest):
+        return
+    try:
+        import shutil
+        shutil.copyfile(src, dest)
+    except OSError as exc:
+        logger.debug('Optional copy %s → %s failed: %s', src, dest, exc)
 
 
 # ── Embed ───────────────────────────────────────────────────────────────────

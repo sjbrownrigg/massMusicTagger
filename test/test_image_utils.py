@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch, call
 
@@ -163,25 +164,69 @@ class TestProvenanceReplacesSniffing(unittest.TestCase):
 
 
 class TestDownloadTypedImages(unittest.TestCase):
+    """Against a real directory, not a mocked filesystem.
 
-    def _run(self, images, cfg_overrides=None, local_front_dims=None):
+    These ran entirely on mocks: a fake target_dir, a MagicMock connector that
+    wrote nothing, and assertions on what the connector was *asked* to write.
+    That is why prefer_larger could quietly replace a 1400x1400 local scan with
+    a 600x600 download and leave two front covers in the directory -- nothing
+    here ever looked at a directory. What matters is the files that end up on
+    disk, so that is what these assert.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def _jpeg(self, w, h):
+        from PIL import Image
+        import io
+        buf = io.BytesIO()
+        Image.new('RGB', (w, h), (90, 90, 90)).save(buf, 'JPEG')
+        return buf.getvalue()
+
+    def _local(self, name, w, h):
+        """Put an existing cover in the target directory."""
+        path = os.path.join(self.target, name)
+        with open(path, 'wb') as f:
+            f.write(self._jpeg(w, h))
+        return path
+
+    def _connector(self, size=(600, 600), fail=()):
+        """A connector that actually writes bytes, at a stated pixel size."""
+        conn = MagicMock()
+        payload = self._jpeg(*size)
+
+        def fetch_image(dest, uri):
+            if uri in fail:
+                raise OSError('404')
+            with open(dest, 'wb') as f:
+                f.write(payload)
+
+        conn.fetch_image = MagicMock(side_effect=fetch_image)
+        return conn
+
+    def _run(self, images, cfg_overrides=None, connector=None):
         from massmusictagger.image_utils import download_typed_images
         cfg = _make_cfg(**(cfg_overrides or {}))
         album = _make_album(images)
-        connector = MagicMock()
-        connector.fetch_image = MagicMock()
-        with patch('massmusictagger.image_utils._local_front_dimensions',
-                   return_value=local_front_dims):
-            with patch('os.makedirs'):
-                download_typed_images(album, connector, cfg)
-        return album, connector
+        album.target_dir = self.target
+        conn = connector or self._connector()
+        download_typed_images(album, conn, cfg)
+        return album, conn
+
+    def _on_disk(self):
+        return sorted(n for n in os.listdir(self.target)
+                      if not n.startswith('.'))
+
+    # ── naming ───────────────────────────────────────────────────────────────
 
     def test_front_downloaded_as_front_jpg(self):
         images = [{'uri': 'https://caa/front.jpg', 'type': 'primary',
                    'caa_types': ['Front'], 'width': None, 'height': None}]
-        album, conn = self._run(images, {'details.download_only_cover': 'false'})
-        calls = [str(c) for c in conn.fetch_image.call_args_list]
-        self.assertTrue(any('front.jpg' in c for c in calls))
+        self._run(images, {'details.download_only_cover': 'false'})
+        self.assertIn('front.jpg', self._on_disk())
 
     def test_back_downloaded_as_back_jpg(self):
         images = [
@@ -190,8 +235,8 @@ class TestDownloadTypedImages(unittest.TestCase):
             {'uri': 'https://caa/back.jpg', 'caa_types': ['Back'],
              'type': 'secondary', 'width': None, 'height': None},
         ]
-        album, conn = self._run(images, {'details.download_only_cover': 'false'})
-        self.assertIn('back.jpg', _written(conn))
+        self._run(images, {'details.download_only_cover': 'false'})
+        self.assertIn('back.jpg', self._on_disk())
 
     def test_multiple_booklets_numbered(self):
         images = [
@@ -200,8 +245,8 @@ class TestDownloadTypedImages(unittest.TestCase):
             {'uri': 'https://caa/b2.jpg', 'caa_types': ['Booklet'],
              'type': 'secondary', 'width': None, 'height': None},
         ]
-        album, conn = self._run(images, {'details.download_only_cover': 'false'})
-        written = _written(conn)
+        self._run(images, {'details.download_only_cover': 'false'})
+        written = self._on_disk()
         self.assertIn('booklet.jpg', written)
         self.assertIn('booklet-01.jpg', written)
 
@@ -212,28 +257,146 @@ class TestDownloadTypedImages(unittest.TestCase):
             {'uri': 'https://caa/back.jpg', 'caa_types': ['Back'],
              'type': 'secondary', 'width': None, 'height': None},
         ]
-        album, conn = self._run(images, {'details.download_only_cover': 'true'})
-        written = _written(conn)
+        self._run(images, {'details.download_only_cover': 'true'})
+        written = self._on_disk()
         self.assertIn('front.jpg', written)
         self.assertNotIn('back.jpg', written)
+
+    # ── folder.jpg ───────────────────────────────────────────────────────────
 
     def test_folder_jpg_written_for_front(self):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        album, conn = self._run(images, {'details.use_folder_jpg': 'true',
-                                         'details.download_only_cover': 'false'})
-        dest_args = [str(c.args[0]) for c in conn.fetch_image.call_args_list]
-        self.assertTrue(any('folder.jpg' in d for d in dest_args))
+        self._run(images, {'details.use_folder_jpg': 'true',
+                           'details.download_only_cover': 'false'})
+        written = self._on_disk()
+        self.assertIn('folder.jpg', written)
+        self.assertEqual(
+            open(os.path.join(self.target, 'folder.jpg'), 'rb').read(),
+            open(os.path.join(self.target, 'front.jpg'), 'rb').read())
 
-    def test_prefer_existing_skips_front_when_local_exists(self):
+    def test_folder_jpg_is_a_copy_not_a_second_download(self):
+        """It used to fetch the same URL twice, once per filename."""
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        album, conn = self._run(
-            images,
-            {'details.image_policy': 'prefer_existing'},
-            local_front_dims=(1200, 1200),
-        )
+        _, conn = self._run(images, {'details.use_folder_jpg': 'true',
+                                     'details.download_only_cover': 'false'})
+        self.assertEqual(conn.fetch_image.call_count, 1)
+
+    # ── image_policy ─────────────────────────────────────────────────────────
+
+    def test_prefer_existing_skips_front_when_local_exists(self):
+        self._local('cover.jpg', 1200, 1200)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        _, conn = self._run(images, {'details.image_policy': 'prefer_existing'})
         conn.fetch_image.assert_not_called()
+
+    def test_prefer_larger_measures_a_source_that_states_no_dimensions(self):
+        """The bug: CAA never reports width/height.
+
+        att.dimensions is None for every CAA image, so the comparison was
+        skipped and the download always won -- prefer_larger was a no-op
+        against the one source it was most needed for. A real album lost a
+        1400x1400 scan to a 600x600 CAA front this way.
+        """
+        self._local('cover.jpg', 1400, 1400)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        conn = self._connector(size=(600, 600))
+        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+
+        from massmusictagger.image_utils import _measure
+        self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
+                         (1400, 1400),
+                         'the larger local scan must survive')
+
+    def test_prefer_larger_still_takes_a_bigger_remote_image(self):
+        self._local('cover.jpg', 300, 300)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        conn = self._connector(size=(1000, 1000))
+        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+
+        from massmusictagger.image_utils import _measure
+        self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
+                         (1000, 1000))
+
+    def test_the_measured_image_is_not_downloaded_twice(self):
+        """Measuring costs one fetch; keeping it must not cost another."""
+        self._local('cover.jpg', 300, 300)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        conn = self._connector(size=(1000, 1000))
+        self._run(images, {'details.image_policy': 'prefer_larger',
+                           'details.use_folder_jpg': 'false'}, conn)
+        self.assertEqual(conn.fetch_image.call_count, 1)
+
+    # ── one front cover, one name ────────────────────────────────────────────
+
+    def test_a_kept_local_cover_takes_the_canonical_name(self):
+        """cover.jpg beside front.jpg is two front covers and no tiebreak.
+
+        The directory ended up holding a 1400x1400 cover.jpg and a 600x600
+        front.jpg, with folder.jpg copied from the smaller one -- so what a
+        player showed depended on which name it happened to look for first.
+        """
+        self._local('cover.jpg', 1400, 1400)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        self._run(images, {'details.image_policy': 'prefer_larger',
+                           'details.use_folder_jpg': 'true'},
+                  self._connector(size=(600, 600)))
+        written = self._on_disk()
+        self.assertIn('front.jpg', written)
+        self.assertNotIn('cover.jpg', written)
+
+        from massmusictagger.image_utils import _measure
+        self.assertEqual(_measure(os.path.join(self.target, 'folder.jpg')),
+                         (1400, 1400),
+                         'folder.jpg must be the cover that won, not the loser')
+
+    def test_a_downloaded_front_replaces_a_local_one_under_another_name(self):
+        self._local('cover.jpg', 300, 300)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        self._run(images, {'details.image_policy': 'prefer_larger'},
+                  self._connector(size=(1000, 1000)))
+        written = self._on_disk()
+        self.assertIn('front.jpg', written)
+        self.assertNotIn('cover.jpg', written)
+
+    def test_a_discogs_cover_keeps_its_own_name(self):
+        """Discogs is untyped, so its album art is `cover`, not `front`."""
+        from massmusictagger.core.attachments import from_discogs_list
+        images = from_discogs_list([
+            {'uri': 'https://img.discogs/a.jpg', 'type': 'primary',
+             'width': 600, 'height': 600}])
+        self._run(images, {'details.download_only_cover': 'false'})
+        self.assertIn('cover.jpg', self._on_disk())
+
+    # ── failure ──────────────────────────────────────────────────────────────
+
+    def test_a_failed_download_leaves_the_local_cover_alone(self):
+        self._local('cover.jpg', 1400, 1400)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        conn = self._connector(fail=('https://caa/front.jpg',))
+        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+
+        from massmusictagger.image_utils import _measure
+        self.assertEqual(_measure(os.path.join(self.target, 'cover.jpg')),
+                         (1400, 1400))
+
+    def test_no_scratch_files_are_left_behind(self):
+        self._local('cover.jpg', 1400, 1400)
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        self._run(images, {'details.image_policy': 'prefer_larger'},
+                  self._connector(size=(600, 600)))
+        leftovers = [n for n in os.listdir(self.target)
+                     if n.startswith('.') or n.endswith('.part')]
+        self.assertEqual(leftovers, [])
 
 
 # ── embed_typed_images ────────────────────────────────────────────────────────
