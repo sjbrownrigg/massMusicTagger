@@ -54,6 +54,12 @@ def load_substitutions(yaml_path: str | None, profile: str) -> dict:
     profile:
         Name of the profile to load (e.g. ``"linux"``, ``"windows"``).
     """
+    # A path the user configured is a request; the packaged default is a
+    # fallback. Failing to find the first is worth a warning, the second is not
+    # -- and conflating them is how char_profile: windows ran for months
+    # applying no substitutions at all, because the configured path pointed at
+    # a directory layout that no longer existed.
+    configured = bool(yaml_path)
     path = yaml_path or _DEFAULT_YAML
 
     try:
@@ -69,7 +75,14 @@ def load_substitutions(yaml_path: str | None, profile: str) -> dict:
         with open(path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
     except FileNotFoundError:
-        logger.debug('Char substitutions file not found: %s', path)
+        if configured:
+            logger.warning(
+                'char_substitutions is set to %s, which does not exist — no '
+                'character substitutions will be applied and char_profile '
+                '"%s" will have no effect. Leave the setting empty to use the '
+                'packaged table.', path, profile)
+        else:
+            logger.debug('Char substitutions file not found: %s', path)
         return {}
     except Exception as e:
         logger.warning('Failed to load char substitutions from %s: %s', path, e)
