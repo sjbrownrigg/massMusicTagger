@@ -68,72 +68,114 @@ def _make_album(images):
     return a
 
 
-# ── caa_basename ──────────────────────────────────────────────────────────────
+# ── CAA vocabulary → kind, basename, picture type ────────────────────────────
 
-class TestCaaBasename(unittest.TestCase):
+class TestCaaVocabulary(unittest.TestCase):
+    """Replaces TestCaaBasename and TestCaaImageType.
 
-    def setUp(self):
-        from massmusictagger.image_utils import caa_basename
-        self.fn = caa_basename
+    image_utils carried its own CAA type tables alongside attachments.py's,
+    and the two had already drifted apart on five types -- image_utils named
+    a tray scan `tray`, attachments flattened it to `other` and called it
+    image-01. One table now answers, and these test it through the live path.
+    """
+
+    def _att(self, *caa_types):
+        from massmusictagger.core.attachments import from_caa
+        return from_caa({'uri': 'https://caa/x.jpg', 'caa_types': list(caa_types)})
+
+    def _name(self, att, counter):
+        from massmusictagger.core.attachments import basename_for
+        return basename_for(att, counter)
+
+    # naming
 
     def test_front(self):
-        c = {}
-        self.assertEqual(self.fn(['Front'], c), 'front')
+        self.assertEqual(self._name(self._att('Front'), {}), 'front')
 
     def test_back(self):
-        c = {}
-        self.assertEqual(self.fn(['Back'], c), 'back')
+        self.assertEqual(self._name(self._att('Back'), {}), 'back')
 
     def test_medium(self):
-        c = {}
-        self.assertEqual(self.fn(['Medium'], c), 'medium')
+        self.assertEqual(self._name(self._att('Medium'), {}), 'medium')
 
     def test_booklet_numbering(self):
         c = {}
-        self.assertEqual(self.fn(['Booklet'], c), 'booklet')
-        self.assertEqual(self.fn(['Booklet'], c), 'booklet-01')
-        self.assertEqual(self.fn(['Booklet'], c), 'booklet-02')
+        self.assertEqual(self._name(self._att('Booklet'), c), 'booklet')
+        self.assertEqual(self._name(self._att('Booklet'), c), 'booklet-01')
 
     def test_front_then_back_independent_counters(self):
         c = {}
-        self.assertEqual(self.fn(['Front'], c), 'front')
-        self.assertEqual(self.fn(['Back'], c), 'back')
-        self.assertEqual(self.fn(['Front'], c), 'front-01')
+        self.assertEqual(self._name(self._att('Front'), c), 'front')
+        self.assertEqual(self._name(self._att('Back'), c), 'back')
 
-    def test_unknown_type_falls_back_to_image(self):
-        c = {}
-        self.assertEqual(self.fn(['Illustration'], c), 'image')
+    def test_a_type_caa_does_not_define_falls_back_to_image(self):
+        self.assertEqual(self._name(self._att('Illustration'), {}), 'image-01')
 
     def test_empty_types_falls_back_to_image(self):
-        c = {}
-        self.assertEqual(self.fn([], c), 'image')
+        self.assertEqual(self._name(self._att(), {}), 'image-01')
 
+    def test_the_rest_of_the_vocabulary_is_named_not_numbered(self):
+        """These five used to be flattened to `other` and numbered."""
+        for caa_type, expected in [('Tray', 'tray'), ('Spine', 'spine'),
+                                   ('Sticker', 'sticker'), ('Poster', 'poster'),
+                                   ('Liner', 'liner'), ('Obi', 'obi')]:
+            with self.subTest(caa_type):
+                self.assertEqual(self._name(self._att(caa_type), {}), expected)
 
-# ── caa_image_type ────────────────────────────────────────────────────────────
+    def test_slashed_caa_types_are_handled(self):
+        self.assertEqual(self._name(self._att('Matrix/Runout'), {}), 'matrix')
+        self.assertEqual(self._name(self._att('Raw/Unedited'), {}), 'raw')
 
-class TestCaaImageType(unittest.TestCase):
-
-    def setUp(self):
-        from massmusictagger.image_utils import caa_image_type
-        from mediafile import ImageType
-        self.fn = caa_image_type
-        self.IT = ImageType
+    # embedded picture type
 
     def test_front_maps_to_front(self):
-        self.assertEqual(self.fn(['Front']), self.IT.front)
+        from mediafile import ImageType
+        from massmusictagger.image_utils import attachment_image_type
+        self.assertEqual(attachment_image_type(self._att('Front')), ImageType.front)
 
     def test_back_maps_to_back(self):
-        self.assertEqual(self.fn(['Back']), self.IT.back)
+        from mediafile import ImageType
+        from massmusictagger.image_utils import attachment_image_type
+        self.assertEqual(attachment_image_type(self._att('Back')), ImageType.back)
 
     def test_booklet_maps_to_leaflet(self):
-        self.assertEqual(self.fn(['Booklet']), self.IT.leaflet)
+        from mediafile import ImageType
+        from massmusictagger.image_utils import attachment_image_type
+        self.assertEqual(attachment_image_type(self._att('Booklet')),
+                         ImageType.leaflet)
+
+    def test_liner_notes_are_a_leaflet_page_too(self):
+        from mediafile import ImageType
+        from massmusictagger.image_utils import attachment_image_type
+        self.assertEqual(attachment_image_type(self._att('Liner')),
+                         ImageType.leaflet)
 
     def test_medium_maps_to_media(self):
-        self.assertEqual(self.fn(['Medium']), self.IT.media)
+        from mediafile import ImageType
+        from massmusictagger.image_utils import attachment_image_type
+        self.assertEqual(attachment_image_type(self._att('Medium')), ImageType.media)
 
     def test_unknown_maps_to_other(self):
-        self.assertEqual(self.fn(['Tray']), self.IT.other)
-        self.assertEqual(self.fn([]), self.IT.other)
+        from mediafile import ImageType
+        from massmusictagger.image_utils import attachment_image_type
+        self.assertEqual(attachment_image_type(self._att('Tray')), ImageType.other)
+        self.assertEqual(attachment_image_type(self._att()), ImageType.other)
+
+    def test_a_named_kind_still_sorts_after_the_album_art(self):
+        from massmusictagger.core.attachments import sort_key
+        atts = [self._att('Poster'), self._att('Front'), self._att('Back')]
+        order = [a.kind for a in sorted(atts, key=sort_key)]
+        self.assertEqual(order[0], 'front')
+        self.assertEqual(order[-1], 'poster')
+
+    def test_the_deleted_helpers_are_gone(self):
+        """image_utils must not grow a second CAA table again."""
+        import massmusictagger.image_utils as iu
+        for name in ('caa_basename', 'caa_image_type', 'caa_image_type_id',
+                     '_CAA_TYPE_BASENAME', '_CAA_TYPE_IMAGE_TYPE_ID',
+                     'has_caa_type_metadata'):
+            self.assertFalse(hasattr(iu, name),
+                             f'{name} is back; there should be one CAA table')
 
 
 # ── has_caa_type_metadata ─────────────────────────────────────────────────────

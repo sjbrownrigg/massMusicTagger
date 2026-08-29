@@ -30,8 +30,19 @@ from typing import Optional
 COVER, FRONT, BACK, BOOKLET, MEDIUM, OTHER = (
     'cover', 'front', 'back', 'booklet', 'medium', 'other')
 
-#: Also the naming and sort order: album art first.
-KINDS = (COVER, FRONT, BACK, BOOKLET, MEDIUM, OTHER)
+#: The rest of the Cover Art Archive's vocabulary. These were being flattened
+#: to `other` and named image-01, image-02, … which threw away type
+#: information the source had already given us -- a tray scan and a poster
+#: became indistinguishable on disk. CAA names them, so we name them.
+LINER, TRAY, SPINE, OBI, STICKER, POSTER = (
+    'liner', 'tray', 'spine', 'obi', 'sticker', 'poster')
+TOP, BOTTOM, MATRIX, RAW, TRACK, WATERMARK = (
+    'top', 'bottom', 'matrix', 'raw', 'track', 'watermark')
+
+#: Also the naming and sort order: album art first, then the rest of the
+#: package roughly as you would meet it, with the obscure types last.
+KINDS = (COVER, FRONT, BACK, BOOKLET, LINER, MEDIUM, TRAY, SPINE, OBI,
+         STICKER, POSTER, TOP, BOTTOM, MATRIX, RAW, TRACK, WATERMARK, OTHER)
 
 #: Kinds that are the album art, whichever name they carry. Policy decisions --
 #: download_only_cover, prefer_larger -- apply to all of these.
@@ -43,15 +54,20 @@ _CAA_KIND = {
     'Front': FRONT,
     'Back': BACK,
     'Booklet': BOOKLET,
+    'Liner': LINER,
     'Medium': MEDIUM,
-    'Tray': OTHER,
-    'Obi': OTHER,
-    'Spine': OTHER,
-    'Track': OTHER,
-    'Liner': BOOKLET,
-    'Sticker': OTHER,
-    'Poster': OTHER,
-    'Watermark': OTHER,
+    'Tray': TRAY,
+    'Spine': SPINE,
+    'Obi': OBI,
+    'Sticker': STICKER,
+    'Poster': POSTER,
+    'Top': TOP,
+    'Bottom': BOTTOM,
+    'Matrix/Runout': MATRIX,
+    'Raw/Unedited': RAW,
+    'Track': TRACK,
+    'Watermark': WATERMARK,
+    'Other': OTHER,
 }
 
 

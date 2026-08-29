@@ -36,74 +36,6 @@ logger = logging.getLogger(__name__)
 # better to skip just that one image than lose the whole embed.
 MAX_EMBEDDED_IMAGE_SIZE = 2 ** 24 - 1
 
-# ── CAA type → file basename ────────────────────────────────────────────────
-# Determines how each image is named on disk.  Types not listed here fall back
-# to 'image'.  When multiple images share a basename the second and subsequent
-# are numbered: booklet-01.jpg, booklet-02.jpg, …
-_CAA_TYPE_BASENAME: dict[str, str] = {
-    'Front':   'front',
-    'Back':    'back',
-    'Medium':  'medium',    # disc/vinyl label scan
-    'Booklet': 'booklet',
-    'Tray':    'tray',
-    'Spine':   'spine',
-    'Sticker': 'sticker',
-    'Poster':  'poster',
-    'Liner':   'liner',
-}
-
-# ── CAA type → mediafile ImageType ─────────────────────────────────────────
-# Maps each CAA type to the ID3/FLAC picture-type value so media players
-# (foobar2000, MusicBee, Picard, etc.) recognise each image's role.
-# Numbers are ID3v2 APIC picture-type codes (also used by Vorbis).
-_CAA_TYPE_IMAGE_TYPE_ID: dict[str, int] = {
-    'Front':   3,   # Cover (front)
-    'Back':    4,   # Cover (back)
-    'Booklet': 5,   # Leaflet page
-    'Medium':  6,   # Media (e.g. label side of a CD)
-    'Tray':    0,   # Other
-    'Spine':   0,   # Other
-    'Sticker': 0,   # Other
-    'Poster':  0,   # Other
-    'Liner':   0,   # Other
-}
-
-
-
-
-def has_caa_type_metadata(images: list) -> bool:
-    """Deprecated: there is one attachment shape now, so nothing branches.
-
-    Kept briefly because removing it and its callers in the same change made
-    the diff hard to read. Callers are gone; this goes with phase 5.
-    """
-    return bool(images and getattr(images[0], 'provenance', '') == 'coverartarchive')
-
-
-def caa_basename(caa_types: list[str], counter: dict[str, int]) -> str:
-    """Return the disk filename (without .jpg extension) for a CAA image.
-
-    counter is mutated in-place to track how many images of each basename
-    have been assigned, so that booklet-01.jpg, booklet-02.jpg, … are unique.
-    """
-    base = 'image'
-    for t in caa_types:
-        if t in _CAA_TYPE_BASENAME:
-            base = _CAA_TYPE_BASENAME[t]
-            break
-    n = counter.get(base, 0)
-    counter[base] = n + 1
-    return base if n == 0 else f'{base}-{n:02d}'
-
-
-def caa_image_type_id(caa_types: list[str]) -> int:
-    """Return the ID3 picture-type integer for a CAA image type list."""
-    for t in caa_types:
-        if t in _CAA_TYPE_IMAGE_TYPE_ID:
-            return _CAA_TYPE_IMAGE_TYPE_ID[t]
-    return 0   # Other
-
-
 def _find_written(target_dir: str, base: str):
     """The file the download step wrote for this basename, whatever extension."""
     from massmusictagger.core.attachments import _EXTENSIONS
@@ -118,7 +50,7 @@ def attachment_image_type(att):
     """Embedded picture type for an attachment, from its kind."""
     from mediafile import ImageType
     from massmusictagger.core.attachments import (
-        COVER, FRONT, BACK, BOOKLET, MEDIUM)
+        COVER, FRONT, BACK, BOOKLET, LINER, MEDIUM)
     return {
         # Both are the album art; the distinction is how much the source told
         # us, not what the picture is, so both embed as the front cover.
@@ -127,17 +59,11 @@ def attachment_image_type(att):
         BACK:    ImageType.back,
         MEDIUM:  ImageType.media,
         BOOKLET: ImageType.leaflet,
+        # ID3 picture type 5 is "Leaflet page", which is what liner notes are.
+        LINER:   ImageType.leaflet,
     }.get(att.kind, ImageType.other)
-
-
-def caa_image_type(caa_types: list[str]):
-    """Return the mediafile ImageType enum value for a CAA image type list."""
-    from mediafile import ImageType
-    id_ = caa_image_type_id(caa_types)
-    try:
-        return ImageType(id_)
-    except ValueError:
-        return ImageType.other
+    # Everything else embeds as `other`: tray, spine, obi and the rest have
+    # names on disk but no ID3 picture type of their own.
 
 
 # ── Download ────────────────────────────────────────────────────────────────
