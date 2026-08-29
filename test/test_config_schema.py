@@ -257,3 +257,93 @@ def test_a_removed_key_says_why(caplog):
 def test_no_removed_key_is_still_in_the_schema():
     for key in config_schema.REMOVED:
         assert key not in config_schema.DEFAULTS, f'{key} is both removed and live'
+
+
+# ── --migrate-config ─────────────────────────────────────────────────────────
+
+def _migrate(tmp_path, body):
+    import re as _re
+    from massmusictagger import __main__ as mmt_main
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(body, encoding="utf-8")
+
+    class _Opts:
+        migrate_config = str(tmp_path)
+
+    class _Parser:
+        @staticmethod
+        def error(msg):
+            raise AssertionError(msg)
+
+    mmt_main._migrate_config(_Parser(), _Opts())
+    return cfg.read_text(encoding="utf-8")
+
+
+def test_migrate_moves_a_setting_to_its_new_section(tmp_path):
+    import re
+    out = _migrate(tmp_path, "details:\n  char_profile: windows\n")
+    assert "naming:" in out
+    assert "char_profile: windows" in out
+    assert not re.search(r"^details:", out, re.M), "[details] should be gone"
+
+
+def test_migrate_keeps_the_value(tmp_path):
+    import yaml as _yaml
+    out = _migrate(tmp_path, "details:\n  char_profile: windows\n"
+                             "  image_policy: prefer_larger\n")
+    data = _yaml.safe_load(out)
+    assert data["naming"]["char_profile"] == "windows"
+    assert data["artwork"]["image_policy"] == "prefer_larger"
+
+
+def test_migrate_drops_a_removed_setting(tmp_path):
+    out = _migrate(tmp_path, "details:\n  split_discs: false\n"
+                             "  char_profile: linux\n")
+    assert "split_discs" not in out
+
+
+def test_migrate_keeps_the_comments(tmp_path):
+    """These files are mostly comments; that is most of their value.
+
+    A YAML round-trip would reformat the file and discard every one, which
+    is why the migration is line-based.
+    """
+    body = ("details:\n"
+            "  # Windows/Samba profile: replaces characters illegal on NTFS\n"
+            "  char_profile: windows\n")
+    out = _migrate(tmp_path, body)
+    assert "# Windows/Samba profile" in out
+    lines = out.splitlines()
+    i = lines.index("  char_profile: windows")
+    assert "Windows/Samba" in lines[i - 1], "the comment must travel with its setting"
+
+
+def test_migrate_leaves_settings_that_did_not_move(tmp_path):
+    out = _migrate(tmp_path, "common:\n  source_dir: /incoming\n"
+                             "details:\n  char_profile: linux\n")
+    assert "source_dir: /incoming" in out
+
+
+def test_migrate_writes_a_backup(tmp_path):
+    _migrate(tmp_path, "details:\n  char_profile: windows\n")
+    assert (tmp_path / "config.yaml.bak").exists()
+
+
+def test_migrate_leaves_an_already_migrated_file_alone(tmp_path, capsys):
+    body = "naming:\n  char_profile: windows\n"
+    out = _migrate(tmp_path, body)
+    assert out == body
+    assert "needs no changes" in capsys.readouterr().out
+    assert not (tmp_path / "config.yaml.bak").exists()
+
+
+def test_a_migrated_config_loads_without_moved_key_warnings(tmp_path, caplog):
+    from massmusictagger.core.tagger_config import TaggerConfig
+    _migrate(tmp_path, "details:\n  char_profile: windows\n"
+                       "  image_policy: prefer_larger\n"
+                       "  source_action: move\n"
+                       "  split_discs: false\n")
+    with caplog.at_level("WARNING"):
+        TaggerConfig(str(tmp_path / "config.yaml"))
+    assert "moved to" not in caplog.text
+    assert "was removed" not in caplog.text

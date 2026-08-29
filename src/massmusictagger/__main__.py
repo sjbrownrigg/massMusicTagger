@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import os
 import shutil
 import sys
@@ -32,6 +33,11 @@ def _build_parser() -> argparse.ArgumentParser:
                         'and exit. Defaults to the configuration directory, '
                         'so plain --new-config sets you up where the next run '
                         'will look. Existing files are never overwritten.')
+    p.add_argument('--migrate-config', dest='migrate_config', nargs='?',
+                   const='', metavar='DIR',
+                   help='Move settings that changed section in 3.0.0 into '
+                        'their new homes, in place. Writes a .bak first. '
+                        'Defaults to the configuration directory in use.')
     p.add_argument('--force-new-config', dest='force_new_config',
                    action='store_true',
                    help='With --new-config, overwrite files that already exist. '
@@ -305,6 +311,117 @@ def _merge_config_file(cfg, path: str) -> None:
     except Exception as exc:
         logger.warning('config: failed to load %s: %s', path, exc)
 
+def _drop_empty_sections(text: str) -> str:
+    """Remove a section header with no settings under it.
+
+    [details] is empty once everything has moved out, and an empty section is
+    not merely untidy -- it reads as though something belongs there. Done by
+    walking the lines rather than by regex, so a section at the end of the
+    file is handled like any other, which a lookahead pattern was not.
+    """
+    lines = text.splitlines(keepends=True)
+    header_at = [i for i, l in enumerate(lines)
+                 if re.match(r'^[a-z_][a-z_0-9-]*:\s*$', l)]
+    drop = set()
+    for n, i in enumerate(header_at):
+        end = header_at[n + 1] if n + 1 < len(header_at) else len(lines)
+        has_setting = any(re.match(r'^\s+\S', lines[j]) and
+                          not lines[j].lstrip().startswith('#')
+                          for j in range(i + 1, end))
+        if not has_setting:
+            drop.add(i)
+    return ''.join(l for i, l in enumerate(lines) if i not in drop)
+
+
+def _migrate_config(parser, opts):
+    """Rewrite a config.yaml for the 3.0.0 section names.
+
+    [details] held 28 keys and was split across [naming], [artwork] and
+    [archiving]; a few settings were removed outright. The load-time warnings
+    say where each one went, but a configuration of any size is tedious to
+    move by hand, and moving it by hand is how a setting gets dropped.
+
+    Line-based on purpose. Round-tripping through a YAML parser would
+    reformat the file and discard every comment in it, and these files are
+    heavily commented -- that is most of their value.
+    """
+    from massmusictagger import roots
+    from massmusictagger.config_schema import MOVED, REMOVED
+
+    target = opts.migrate_config or roots.config_dir()
+    path = os.path.join(os.path.abspath(os.path.expanduser(target)),
+                        roots.CONFIG_FILENAME)
+    if not os.path.exists(path):
+        parser.error(f'No {roots.CONFIG_FILENAME} in {target}')
+
+    with open(path, encoding='utf-8') as fh:
+        lines = fh.readlines()
+
+    moved, removed, new_lines, section = [], [], [], None
+    buckets = {}
+    pending = []          # comment lines that belong to the next setting
+
+    for line in lines:
+        stripped = line.strip()
+        header = re.match(r'^([a-z_][a-z_0-9-]*):\s*$', line)
+        if header:
+            section = header.group(1)
+            new_lines.extend(pending); pending = []
+            new_lines.append(line)
+            continue
+        setting = re.match(r'^(\s+)([a-z_][a-z_0-9-]*):', line)
+        if setting and section:
+            key = setting.group(2)
+            if (section, key) in REMOVED:
+                removed.append(f'{section}.{key}')
+                pending = []
+                continue
+            dest = MOVED.get((section, key))
+            if dest:
+                moved.append(f'{section}.{key} -> {dest}.{key}')
+                buckets.setdefault(dest, []).extend(pending + [line])
+                pending = []
+                continue
+            new_lines.extend(pending); pending = []
+            new_lines.append(line)
+            continue
+        if stripped.startswith('#') or not stripped:
+            pending.append(line)     # hold: it may describe a moving setting
+            continue
+        new_lines.extend(pending); pending = []
+        new_lines.append(line)
+    new_lines.extend(pending)
+
+    if not moved and not removed:
+        print(f'{path} needs no changes.')
+        return
+
+    text = ''.join(new_lines)
+    for dest, block in buckets.items():
+        body = ''.join(block).rstrip('\n') + '\n'
+        existing = re.search(rf'^{dest}:\s*$', text, re.M)
+        if existing:
+            text = text[:existing.end() + 1] + body + text[existing.end() + 1:]
+        else:
+            rule = '# ' + '\u2500' * 77 + '\n'
+            text = text.rstrip('\n') + f'\n\n{rule}{dest}:\n{rule}\n{body}'
+
+    text = _drop_empty_sections(text)
+
+    backup = path + '.bak'
+    os.replace(path, backup)
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(text)
+
+    print(f'Migrated {path}')
+    print(f'  previous version kept at {backup}')
+    for m in moved:
+        print(f'  moved   {m}')
+    for r in removed:
+        print(f'  removed {r} -- {REMOVED[tuple(r.split(".", 1))]}')
+    print('\nRun massMusicTagger once to confirm it loads without warnings.')
+
+
 def _new_config(parser, opts):
     """Scaffold a fresh configuration and print what to do next."""
     from massmusictagger.core.tagger_config import write_new_config
@@ -555,6 +672,9 @@ def _main(argv: list[str] | None = None) -> None:
     # no usable configuration yet.
     if opts.new_config is not None:
         return _new_config(parser, opts)
+
+    if opts.migrate_config is not None:
+        return _migrate_config(parser, opts)
 
     # Show help when invoked with no arguments and no persistent source_dir
     # is configured — avoids a confusing error about missing source directory.
