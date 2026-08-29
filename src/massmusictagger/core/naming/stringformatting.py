@@ -1,9 +1,36 @@
 # -*- coding: utf-8 -*-
+import logging
 import re, os
+
+logger = logging.getLogger(__name__)
 
 # Alias built-ins before the class defines methods with the same names.
 builtins_any = any
 builtins_all = all
+
+
+def _literal_list(raw):
+    """Parse a Python-literal list without executing it, or None.
+
+    This was eval(). $inarray and $flatten fall back to it whenever the value
+    is not valid JSON, and the value is metadata -- so pointing $inarray at an
+    album title, which is a reasonable thing for a format string to do, ran
+    that title as Python. A title of
+
+        __import__('sys').modules.setdefault('PWNED', 1) or []
+
+    imported sys. Discogs titles are editable by anyone with an account.
+
+    ast.literal_eval understands the same literals and cannot call anything.
+    """
+    import ast
+    text = re.sub(r'\\', '', str(raw))
+    try:
+        value = ast.literal_eval(text)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return None
+    return value if isinstance(value, list) else None
+
 
 class StringFormatting(object):
     """ The goal here is to have one formatting string that can cope with any
@@ -135,9 +162,8 @@ class StringFormatting(object):
         try:
             lst = _json.loads(raw)
         except (ValueError, TypeError):
-            try:
-                lst = eval(re.sub(r'\\', '', raw))
-            except Exception:
+            lst = _literal_list(raw)
+            if lst is None:
                 return ''
         if not isinstance(lst, list) or not lst:
             return ''
@@ -174,12 +200,8 @@ class StringFormatting(object):
         try:
             lst = _json.loads(l)
         except (ValueError, TypeError):
-            # Fallback for non-JSON lists (e.g. simple ['a','b'] format):
-            # strip backslashes and parse as Python.
-            try:
-                lst = eval(re.sub(r'\\', '', l))
-            except Exception:
-                lst = []
+            # Fallback for non-JSON lists, e.g. a simple ['a','b'].
+            lst = _literal_list(l) or []
         return itm in [str(x) for x in lst]
 
     def lower(self, string):
@@ -344,7 +366,7 @@ class StringFormatting(object):
         return default
 
     def valid(self, val):
-        """Return True when val is non-empty and non-None — a boolean validity test.
+        r"""Return True when val is non-empty and non-None — a boolean validity test.
 
         Useful for composing existence checks with $any/$all/$neg/$if1:
             $if1($valid('%edition%'),'has edition','')
@@ -375,83 +397,38 @@ class StringFormatting(object):
         return (str(before) + s + str(after)) if self._truthy(s) else ''
 
     def parseString(self, string):
-        """ Walk through the input string, collecting functions along the way.
+        """Evaluate a format string.
 
-            string = 'some text $functionname(arg1,arg2, ...)'
+        The dialect is unchanged; how it is evaluated is not. This used to
+        find a balanced $fn(...), rewrite $ to self., and eval() the result --
+        so nesting worked because Python's parser did it, and every metadata
+        value had to be neutralised before it could be spliced into that
+        source. naming.formatparser parses the dialect directly.
 
-            There is probably a clever way to do this with regex, but doing
-            it this way to properly manage nested functions
+        values maps a bare variable name to its value, resolved at evaluation
+        time so it is never parsed. Callers that substitute %tokens% into the
+        text beforehand pass nothing and keep the old behaviour, because an
+        unresolved %name% evaluates to itself.
         """
-        output = ''
+        return self.render(string, values=None)
 
-        # print('parseString, input: {}'.format(string))
+    def render(self, string, values=None):
+        """Parse and evaluate, with variables resolved from *values*."""
+        from massmusictagger.core.naming import formatparser
+        try:
+            return formatparser.render(string, self._function_table(), values)
+        except formatparser.FormatSyntaxError as exc:
+            logger.warning('Bad format string: %s', exc)
+            return ''
 
-        command = ''
-        hierarchy = 0
-        lastchar = ''
-        in_string = False   # True when inside a '...' in a function argument
-
-        for c in string:
-            if c == '$' and not in_string:
-                hierarchy += 1
-                command += c
-            elif c == "'" and hierarchy > 0:
-                # Toggle string mode when inside a function argument.
-                # While in_string=True, ) will not decrement hierarchy so that
-                # parentheses inside string values (e.g. disc titles like
-                # "#8385 (1983-1985)") don't prematurely close the function.
-                in_string = not in_string
-                command += c
-            elif c == '(' and lastchar != '\\':
-                if hierarchy > 0:
-                    command += c
-                else:
-                    output += c
-            elif c == ')' and lastchar != '\\':
-                if hierarchy > 0 and not in_string:
-                    hierarchy -= 1
-                    command += c
-                    if hierarchy == 0:
-                        result = self.execute(command)
-                        # execute() may return a bool (e.g. from $any/$all/$neg/$strcmp
-                        # used as a top-level expression rather than nested inside $if1).
-                        # Convert to string so output concatenation never raises TypeError.
-                        output += str(result) if result is not None else ''
-                        command = ''
-                elif hierarchy > 0:   # in_string=True — treat ) as literal
-                    command += c
-                else:
-                    output += c
-            elif hierarchy > 0:
-                command += c
-            else:
-                output += c
-            lastchar = c
-
-        # print('parseString, output: {}'.format(output))
-
-        return output
-
-    def execute(self, string):
-        """ Unpick the command, validate the function name and arguments
-            Returns a string
-        """
-        output = ''
-
-#TODO:  regex to capture empty & unquoted parameters
-
-        functNameMatch = re.findall(r'(\$[a-z0-9_]+)\(', string)
-        for match in functNameMatch:
-            if match not in self.functions:
-                 return 'unknown command'
-        string = re.sub(r'\$', 'self.', string)
-        # \( and \) are not valid Python escape sequences (warn in 3.12,
-        # error in 3.13).  get_clean_filename strips the backslash anyway,
-        # so converting them to bare parens produces identical output.
-        string = string.replace('\\(', '(').replace('\\)', ')')
-        result = eval(string)
-
-        return result
+    def _function_table(self):
+        """Bare name -> bound method, built once per instance."""
+        table = getattr(self, '_fn_table', None)
+        if table is None:
+            table = {name.lstrip('$'): getattr(self, name.lstrip('$'))
+                     for name in self.functions}
+            self._fn_table = table
+        return table
 
     def test(self):
         track = {

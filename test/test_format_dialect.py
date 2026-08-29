@@ -98,15 +98,32 @@ class KnownQuirks(unittest.TestCase):
         self.assertEqual(
             self._r("$if1('x',$upper('a')+' '+$upper('b'))"), 'A B')
 
-    def test_a_trailing_backslash_in_a_value_raises(self):
-        """Values are spliced into the eval'd source, and \\ is not escaped.
+    def test_a_value_is_never_parsed(self):
+        """The reason the escaping could go.
 
-        _value_from_tag_format escapes ' and $ before substitution but not the
-        backslash, so a title ending in one closes the Python string literal
-        it was interpolated into. An album called "AC\\" cannot be tagged.
+        Values used to be spliced into Python source before eval(), so
+        anything meaningful to Python had to be neutralised first: ' became
+        \\x27 and $ became a private-use codepoint. The backslash never was,
+        so an album called "AC\\" closed the string literal it had been
+        interpolated into and raised SyntaxError -- it could not be tagged.
+
+        Values are data now. None of these characters need escaping, which is
+        just as well: escaping metadata reliably is the problem that keeps
+        coming back.
         """
-        with self.assertRaises(SyntaxError):
-            self._r("$upper('AC\\')")
+        from massmusictagger.core.naming.stringformatting import StringFormatting
+        sf = StringFormatting()
+        for album in ('Leaders + Followers', "Don't Stop", '$5 Shake',
+                      'AC\\', 'Hits (Remastered)', 'Alpha, Beta',
+                      "$upper('pwned')"):
+            with self.subTest(album=album):
+                self.assertEqual(
+                    sf.render("$wrap('%album%','[',']')", {'album': album}),
+                    f'[{album}]')
+
+    def test_a_malformed_format_string_warns_rather_than_raising(self):
+        """A format string is the user's; a bad one should not end the run."""
+        self.assertEqual(self._r("$upper('unterminated"), '')
 
     def test_an_unknown_function_returns_a_string_not_an_error(self):
         self.assertEqual(self._r("$nosuchfunction('a')"), 'unknown command')
@@ -114,3 +131,89 @@ class KnownQuirks(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MetadataIsNeverExecuted(unittest.TestCase):
+    """$inarray and $flatten fell back to eval() on the value.
+
+    Both parse a list, and both used json.loads first and eval() when that
+    failed. The value is metadata, and pointing $inarray at an album title is
+    a reasonable thing for a format string to do:
+
+        $if1($inarray('%album%','Box Set'),'B','')
+
+    so an album titled
+
+        __import__('sys').modules.setdefault('PWNED', 1) or []
+
+    imported sys during tagging. Discogs titles are editable by anyone with an
+    account, and the release being tagged is chosen by matching against them.
+
+    ast.literal_eval reads the same literals and cannot call anything.
+    """
+
+    def _sf(self):
+        from massmusictagger.core.naming.stringformatting import StringFormatting
+        return StringFormatting()
+
+    def test_inarray_does_not_execute_its_argument(self):
+        import sys
+        marker = 'MMT_TEST_MARKER_INARRAY'
+        sys.modules.pop(marker, None)
+        self.addCleanup(sys.modules.pop, marker, None)
+        probe = f"__import__('sys').modules.setdefault({marker!r}, 1) or []"
+        self._sf().render("$if1($inarray('%album%','x'),'y','')", {'album': probe})
+        self.assertNotIn(marker, sys.modules)
+
+    def test_flatten_does_not_execute_its_argument(self):
+        import sys
+        marker = 'MMT_TEST_MARKER_FLATTEN'
+        sys.modules.pop(marker, None)
+        self.addCleanup(sys.modules.pop, marker, None)
+        probe = f"__import__('sys').modules.setdefault({marker!r}, 1) or []"
+        self._sf().render("$flatten('%catnos%','0','')", {'catnos': probe})
+        self.assertNotIn(marker, sys.modules)
+
+    def test_a_json_list_still_works(self):
+        sf = self._sf()
+        self.assertTrue(sf.inarray('["a","b"]', 'a'))
+        self.assertFalse(sf.inarray('["a","b"]', 'z'))
+        self.assertEqual(sf.flatten('["A","B","C"]', ':2', ' / '), 'A / B')
+
+    def test_a_python_literal_list_still_works(self):
+        """The fallback existed for these, and still handles them."""
+        sf = self._sf()
+        self.assertTrue(sf.inarray("['a','b']", 'a'))
+        self.assertEqual(sf.flatten("['A','B','C']", ':2', ' / '), 'A / B')
+
+    def test_something_that_is_not_a_list_is_not_a_list(self):
+        sf = self._sf()
+        self.assertFalse(sf.inarray('not a list', 'a'))
+        self.assertEqual(sf.flatten('not a list', ':', ', '), '')
+        self.assertEqual(sf.flatten('2 + 2', ':', ', '), '')
+
+    def test_the_evaluator_has_no_eval_left(self):
+        """Checked against the compiled code, not the source text.
+
+        Grepping the source and skipping comments is fragile -- the word
+        appears in several explanations of why it is gone. What a module
+        actually calls is in its code objects.
+        """
+        from massmusictagger.core.naming import stringformatting, formatparser
+        for mod in (stringformatting, formatparser):
+            names, seen = set(), set()
+            stack = [v for v in vars(mod).values()
+                     if callable(v) and getattr(v, '__module__', '') == mod.__name__]
+            while stack:
+                obj = stack.pop()
+                if isinstance(obj, type):
+                    stack.extend(v for v in vars(obj).values() if callable(v))
+                    continue
+                code = getattr(obj, '__code__', None)
+                if code is None or id(code) in seen:
+                    continue
+                seen.add(id(code))
+                names |= set(code.co_names)
+                stack.extend(c for c in code.co_consts if hasattr(c, 'co_names'))
+            self.assertNotIn('eval', names,
+                             mod.__name__ + ' still references eval')

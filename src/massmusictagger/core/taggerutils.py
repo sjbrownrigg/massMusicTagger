@@ -896,22 +896,21 @@ class TaggerUtils(object):
                     break   # no more %__name__% tokens to replace
                 format = expanded
 
-        for hashtag in property_map:
-            value = str(property_map[hashtag])
-            # Escape single quotes as the 4-char sequence \x27 so they survive
-            # eval() safely when the value is interpolated into a function
-            # argument (e.g. $strcmp('%disctitle%','')).  Python's eval()
-            # interprets \x27 as the apostrophe character inside string
-            # literals.  The escaping is reversed after parseString() runs.
-            value = value.replace("'", '\\x27')
-            # Escape literal '$' in tag values using a private-use-area
-            # placeholder (U+E024) so parseString() never mistakes a dollar sign
-            # in a title/artist/etc. for the start of a $function() call.
-            # Reversed in _value_from_tag() after parseString() completes.
-            value = value.replace('$', '')
-            format = format.replace(hashtag, value)
+        # Values are no longer substituted into the format string. They are
+        # handed to the evaluator as data, keyed by the bare name, so a title
+        # containing an apostrophe, a dollar sign, a bracket, a comma, a plus
+        # or a backslash is simply a string.
+        #
+        # This is what the \x27 and U+E024 escaping existed for: values used
+        # to be spliced into Python source before eval(), so every character
+        # that meant something to Python had to be neutralised first -- and
+        # the backslash never was, which is why an album called "AC\" could
+        # not be tagged at all.
+        values = {}
+        for hashtag, raw in property_map.items():
+            values[hashtag.strip('%').strip()] = '' if raw is None else str(raw)
 
-        return format
+        return format, values
 
     def get_real_track_number(self, format, discno=1, trackno=1):
         if self.album.disc(discno).track(trackno).real_tracknumber is not None:
@@ -925,16 +924,11 @@ class TaggerUtils(object):
         """
 
         stringFormatting = StringFormatting()
-        format = self._value_from_tag_format(format, discno, trackno, filetype)
-        format = stringFormatting.parseString(format)
-        # Restore apostrophes that were escaped as \x27 before substitution
-        # to survive eval() inside function arguments.
-        format = format.replace('\\x27', "'")
-        # Restore literal dollar signs that were escaped as U+E024 to prevent
-        # parseString() from interpreting them as $function() calls.
-        format = format.replace('', '$')
-
-        return format
+        format, values = self._value_from_tag_format(
+            format, discno, trackno, filetype)
+        # Nothing to unescape afterwards: values never entered the format
+        # string, so nothing had to be disguised to survive the trip.
+        return stringFormatting.render(format, values)
 
     def _set_target_discs_and_tracks(self, filetype):
         """

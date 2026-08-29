@@ -112,7 +112,13 @@ def _expand_move_template(template: str, tu, sourcedir: str) -> str:
     """
     folder = os.path.basename(sourcedir.rstrip('/\\'))
     t = template.replace('%current_folder%', folder)
-    return tu._value_from_tag_format(t)
+    # _value_from_tag_format returns the format and its values separately now,
+    # because values are handed to the evaluator as data rather than pasted
+    # into the string. This template has no $functions, but it does have
+    # %variables%, so it goes through the evaluator like any other.
+    from massmusictagger.core.naming.stringformatting import StringFormatting
+    fmt, values = tu._value_from_tag_format(t)
+    return StringFormatting().render(fmt, values)
 
 
 def _verify_target_or_raise(target_dir: Optional[str]) -> None:

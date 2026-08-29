@@ -65,7 +65,7 @@ class TestProcessingResult:
 class TestExpandMoveTemplate:
     def _make_tu(self, return_value):
         tu = MagicMock()
-        tu._value_from_tag_format.return_value = return_value
+        tu._value_from_tag_format.return_value = (return_value, {})
         return tu
 
     def test_current_folder_substituted_before_dt3(self):
@@ -196,7 +196,7 @@ class TestPostProcessSource:
     @patch('shutil.move')
     def test_move_uses_template_and_archive_root(self, mock_move, mock_makedirs, mock_verify):
         tu = MagicMock()
-        tu._value_from_tag_format.return_value = 'discogs/Ohota/My Album'
+        tu._value_from_tag_format.return_value = ('discogs/Ohota/My Album', {})
         fh = MagicMock()
         r = _make_result(sourcedir='/src/My Album')
         _post_process_source(
@@ -227,7 +227,7 @@ class TestPostProcessSource:
     @patch('shutil.move')
     def test_move_uses_default_template_when_none_set(self, mock_move, mock_makedirs, mock_verify):
         tu = MagicMock()
-        tu._value_from_tag_format.return_value = 'musicbrainz/Artist/Folder'
+        tu._value_from_tag_format.return_value = ('musicbrainz/Artist/Folder', {})
         fh = MagicMock()
         r = _make_result(sourcedir='/src/Folder')
         _post_process_source(
@@ -249,7 +249,7 @@ class TestPostProcessSource:
         # First dest exists, second does not → should move to dest (2)
         mock_exists.side_effect = lambda p: p.endswith('My Album')
         tu = MagicMock()
-        tu._value_from_tag_format.return_value = 'discogs/Artist/My Album'
+        tu._value_from_tag_format.return_value = ('discogs/Artist/My Album', {})
         r = _make_result(sourcedir='/src/My Album')
         _post_process_source(
             r,
@@ -271,7 +271,7 @@ class TestPostProcessSource:
                     '/archive/discogs/Artist/My Album (2)'}
         mock_exists.side_effect = lambda p: p in existing
         tu = MagicMock()
-        tu._value_from_tag_format.return_value = 'discogs/Artist/My Album'
+        tu._value_from_tag_format.return_value = ('discogs/Artist/My Album', {})
         r = _make_result(sourcedir='/src/My Album')
         _post_process_source(
             r,
@@ -373,7 +373,7 @@ class TestPostProcessSourceCleanup:
         archive = tmp_path / 'archive'
 
         tu = MagicMock()
-        tu._value_from_tag_format.return_value = 'discogs/The Fair Sex/Thin Walls'
+        tu._value_from_tag_format.return_value = ('discogs/The Fair Sex/Thin Walls', {})
         fh = MagicMock()
         r = _make_result(sourcedir=str(album))
         _post_process_source(
