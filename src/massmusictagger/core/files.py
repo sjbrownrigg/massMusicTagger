@@ -282,6 +282,18 @@ class FileUtils(object):
                     else '%d .m4a file(s)' % len(task.files))
             if dry_run:
                 logger.info('Would convert %s in %s', what, _fssafe(task.dirpath))
+                if task.kind == 'cue':
+                    # Worth saying plainly: the album is one file until the
+                    # sheet is split, so a dry run matches against a single
+                    # untagged track and usually reports no match. That is
+                    # the dry run being honest about not having written
+                    # anything, not a prediction that the real run fails.
+                    logger.warning(
+                        '%s is a single-file CUE album. A dry run does not '
+                        'split it, so there is nothing per-track to match on '
+                        'and this will likely report no match — run without '
+                        '--dry-run to see the real result.',
+                        _fssafe(os.path.basename(task.dirpath.rstrip('/'))))
                 continue
             try:
                 if task.kind == 'cue':

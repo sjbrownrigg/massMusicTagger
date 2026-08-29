@@ -216,3 +216,40 @@ class ScanReadsPrepareWrites(unittest.TestCase):
         src = inspect.getsource(mmt_main._get_source_dirs)
         self.assertIn('fu.scan(source_dir)', src)
         self.assertIn('fu.prepare(prep_tasks', src)
+
+
+class ADryRunSaysWhyACueAlbumCannotMatch(unittest.TestCase):
+    """A dry run does not split, so a CUE album has nothing to match on.
+
+    That is correct -- the flag promises not to write -- but it reports the
+    album as failed, which reads as a prediction about the real run. It is
+    not: the real run splits first and matches the tracks.
+    """
+
+    def test_it_warns(self):
+        import tempfile, logging
+        with tempfile.TemporaryDirectory() as tmp:
+            album = os.path.join(tmp, 'album')
+            os.makedirs(album)
+            open(os.path.join(album, 'whole.flac'), 'wb').write(b'\0' * 16)
+            open(os.path.join(album, 'whole.cue'), 'w').write('FILE "x" WAVE\n')
+            fu = _fileutils(True, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+            with self.assertLogs('massmusictagger.core.files', level='WARNING') as cm:
+                fu.prepare(tasks, dry_run=True)
+        joined = '\n'.join(cm.output)
+        self.assertIn('single-file CUE album', joined)
+        self.assertIn('--dry-run', joined)
+
+    def test_a_real_run_does_not_warn(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            album = os.path.join(tmp, 'album')
+            os.makedirs(album)
+            open(os.path.join(album, 'whole.flac'), 'wb').write(b'\0' * 16)
+            open(os.path.join(album, 'whole.cue'), 'w').write('FILE "x" WAVE\n')
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+            with patch.object(fu, '_processCueFiles', return_value=0):
+                with self.assertNoLogs('massmusictagger.core.files', level='WARNING'):
+                    fu.prepare(tasks)
