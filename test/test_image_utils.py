@@ -864,3 +864,74 @@ class PromotingAKeptCover(unittest.TestCase):
         from massmusictagger.image_utils import _promote_local
         src = self._img('front.jpg', 600, 600)
         self.assertEqual(_promote_local(src, self.target, 'front'), src)
+
+
+class TwoFrontsFromOneSource(unittest.TestCase):
+    """A second front cover must not delete the first.
+
+    The supersede step -- which removes a pre-existing local cover once a
+    download replaces it -- reassigned its bookkeeping to each downloaded
+    file. So when a source offered two Front images, the second superseded
+    the first: the release ended up with front-01.jpg and no front.jpg, and
+    folder.jpg copied from the survivor. Cover Art Archive really does return
+    two fronts for some releases.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def _jpeg(self, w, h):
+        from PIL import Image
+        import io
+        buf = io.BytesIO()
+        Image.new('RGB', (w, h), (7, 7, 7)).save(buf, 'JPEG')
+        return buf.getvalue()
+
+    def _run(self, images, local=None):
+        from massmusictagger.image_utils import download_typed_images
+        cfg = _make_cfg(**{'artwork.download_only_cover': 'false',
+                           'artwork.image_policy': 'always',
+                           'artwork.use_folder_jpg': 'true'})
+        album = _make_album(images)
+        album.target_dir = self.target
+        if local:
+            with open(os.path.join(self.target, local), 'wb') as f:
+                f.write(self._jpeg(400, 400))
+        payload = self._jpeg(900, 900)
+        conn = MagicMock()
+        conn.fetch_image = MagicMock(
+            side_effect=lambda dest, uri: open(dest, 'wb').write(payload))
+        download_typed_images(album, conn, cfg)
+        return sorted(n for n in os.listdir(self.target) if not n.startswith('.'))
+
+    def test_both_fronts_survive(self):
+        images = [
+            {'uri': 'https://caa/a.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+            {'uri': 'https://caa/b.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+        ]
+        written = self._run(images)
+        self.assertIn('front.jpg', written)
+        self.assertIn('front-01.jpg', written)
+
+    def test_the_pre_existing_local_cover_is_still_replaced_once(self):
+        images = [
+            {'uri': 'https://caa/a.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+            {'uri': 'https://caa/b.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+        ]
+        written = self._run(images, local='cover.jpg')
+        self.assertNotIn('cover.jpg', written)
+        self.assertIn('front.jpg', written)
+        self.assertIn('front-01.jpg', written)
+
+    def test_folder_jpg_is_the_first_front(self):
+        images = [
+            {'uri': 'https://caa/a.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+            {'uri': 'https://caa/b.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+        ]
+        self._run(images)
+        a = open(os.path.join(self.target, 'folder.jpg'), 'rb').read()
+        b = open(os.path.join(self.target, 'front.jpg'), 'rb').read()
+        self.assertEqual(a, b)

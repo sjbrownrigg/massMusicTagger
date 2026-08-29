@@ -104,6 +104,7 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                     os.path.basename(local_front_path), *local_front_dims)
 
     basename_counter: dict[str, int] = {}
+    superseded = False   # has the pre-existing local cover been replaced yet
 
     for att in sorted(album.attachments, key=attachment_sort_key):
         uri = att.url
@@ -186,12 +187,17 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
         # here keeps the promise extension_for's own docstring makes.
         dest = _correct_extension(dest, att)
 
-        # A downloaded front cover supersedes a local one under a different
-        # name, so the directory is never left holding two of them.
-        if is_front and local_front_path and \
+        # A downloaded front cover supersedes the cover that was already in
+        # the directory, so it is never left holding two of them.
+        #
+        # Only the pre-existing one. This used to reassign local_front_path to
+        # each download, so when a source offered a *second* front image the
+        # supersede fired again and deleted the first: a release with two CAA
+        # fronts ended up with front-01.jpg and no front.jpg at all.
+        if is_front and local_front_path and not superseded and \
                 os.path.abspath(local_front_path) != os.path.abspath(dest):
             _discard(local_front_path)
-            local_front_path = dest
+            superseded = True
 
         # Also write folder.jpg for the front cover (media-player compatibility)
         if is_front and use_folder_jpg:
