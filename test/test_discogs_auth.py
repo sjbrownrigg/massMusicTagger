@@ -93,3 +93,36 @@ class AuthFailureDetection(unittest.TestCase):
         import discogs_client.exceptions as dce
         self.assertTrue(
             conn_mod._is_auth_failure(dce.AuthorizationError('no', 401, None)))
+
+
+class ConfigErrorsReachTheUser(unittest.TestCase):
+    """A config problem is a message and an exit code, not a stack trace.
+
+    _validate_config's problems already printed cleanly and exited 78. A
+    rejected token cannot be found that way -- it takes asking Discogs -- so
+    it surfaced later, as a traceback, burying an actionable message under a
+    call stack.
+    """
+
+    def test_a_config_error_becomes_a_message_and_exit_78(self):
+        from unittest.mock import patch
+        import io
+        from massmusictagger import __main__ as mmt_main
+
+        with patch.object(mmt_main, '_main',
+                          side_effect=ConfigError('Discogs rejected the token.')):
+            err = io.StringIO()
+            with patch('sys.stderr', err):
+                with self.assertRaises(SystemExit) as exit_:
+                    mmt_main.main([])
+        self.assertEqual(exit_.exception.code, 78)
+        self.assertIn('Discogs rejected the token.', err.getvalue())
+        self.assertNotIn('Traceback', err.getvalue())
+
+    def test_other_exceptions_are_not_swallowed(self):
+        from unittest.mock import patch
+        from massmusictagger import __main__ as mmt_main
+
+        with patch.object(mmt_main, '_main', side_effect=RuntimeError('boom')):
+            with self.assertRaises(RuntimeError):
+                mmt_main.main([])

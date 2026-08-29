@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 
+from massmusictagger.config_schema import ConfigError
 from massmusictagger import roots, __version__
 
 logger = logging.getLogger(__name__)
@@ -484,6 +485,23 @@ def _undo(dir_path: str, cfg) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Entry point. Turns a configuration problem into a message, not a stack.
+
+    Config problems are found in two places: _validate_config at startup, and
+    later, when something first tries to use a setting -- a rejected Discogs
+    token cannot be detected without asking Discogs. The first path already
+    printed and exited 78; the second reached the user as a traceback, which
+    buries an actionable message under a call stack that is no help to anyone
+    reading it.
+    """
+    try:
+        return _main(argv)
+    except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(78)   # EX_CONFIG, as the startup validation path uses
+
+
+def _main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     opts = parser.parse_args(argv)
 
