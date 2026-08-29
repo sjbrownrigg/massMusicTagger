@@ -72,7 +72,13 @@ def discover_credentials(config_root_dir):
     if not config_root_dir:
         return []
 
-    pattern = os.path.join(config_root_dir, CREDENTIALS_DIRNAME, "*.yaml")
+    # glob.escape on the directory, not the pattern: [ and ] are character
+    # classes to glob, so a configuration directory whose path contains them
+    # -- "/mnt/nas/[2024] config" -- matches nothing and every credential is
+    # silently skipped, leaving the run unauthenticated with no error. This
+    # project puts brackets in directory names as a matter of convention.
+    pattern = os.path.join(glob.escape(config_root_dir),
+                           CREDENTIALS_DIRNAME, "*.yaml")
     return sorted(glob.glob(pattern))
 
 

@@ -127,3 +127,31 @@ def test_every_deprecated_key_says_what_replaced_it():
                     - set(config_schema.DEPRECATION_NOTES))
     assert not silent, (
         f'deprecated with no explanation: {silent}')
+
+
+# ── credential discovery survives the paths this project creates ─────────────
+
+def test_credentials_are_found_under_a_bracketed_path(tmp_path):
+    """[ and ] are character classes to glob.
+
+    massMusicTagger writes album directories like "[1991] Leaders + Followers",
+    so a bracketed path is entirely ordinary here. Point the configuration
+    directory at one and glob matched nothing: every credentials file was
+    skipped and the run went out unauthenticated, with no error to say so.
+    """
+    cfg = tmp_path / "[2024] config"
+    (cfg / "credentials").mkdir(parents=True)
+    (cfg / "credentials" / "discogs.yaml").write_text("discogs: {}\n",
+                                                      encoding="utf-8")
+    found = roots.discover_credentials(str(cfg))
+    assert [os.path.basename(p) for p in found] == ["discogs.yaml"]
+
+
+def test_an_ordinary_path_still_works(tmp_path):
+    cfg = tmp_path / "config"
+    (cfg / "credentials").mkdir(parents=True)
+    for name in ("musicbrainz.yaml", "discogs.yaml"):
+        (cfg / "credentials" / name).write_text("{}\n", encoding="utf-8")
+    found = roots.discover_credentials(str(cfg))
+    assert [os.path.basename(p) for p in found] == ["discogs.yaml",
+                                                    "musicbrainz.yaml"]
