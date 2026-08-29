@@ -219,10 +219,16 @@ def test_details_is_gone():
 
 
 def test_every_moved_key_names_a_section_that_exists():
+    """A key may have moved and later been deprecated, so accept either.
+
+    naming.format_codes did both: [details] to [naming] in 3.0.0, then
+    deprecated once format_codes.yaml became discoverable by name.
+    """
     sections = {s for s, _ in config_schema.DEFAULTS}
+    known = set(config_schema.DEFAULTS) | set(config_schema.DEPRECATED)
     for (old_section, key), new_section in config_schema.MOVED.items():
         assert new_section in sections, f'{key} moved to a section that is gone'
-        assert (new_section, key) in config_schema.DEFAULTS, (
+        assert (new_section, key) in known, (
             f'{old_section}.{key} says it moved to {new_section}, '
             'but that key is not there')
 

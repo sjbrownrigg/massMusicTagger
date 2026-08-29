@@ -39,29 +39,61 @@ logger = logging.getLogger(__name__)
 _DEFAULT_YAML = os.path.join(roots.BUNDLED_CONF, 'format_codes.yaml')
 
 
-def load_format_codes(yaml_path: str | None = None) -> dict:
-    """Load format code rules from a YAML file.
-
-    Returns an empty dict (and logs a warning) if the file is missing or
-    PyYAML is not installed — the caller falls back to the raw format name.
-    """
-    path = yaml_path or _DEFAULT_YAML
+def _read_yaml(path: str) -> dict | None:
+    """Parse a YAML mapping, or None when it is not there or not readable."""
     try:
         import yaml
     except ImportError:
         logger.warning('pyyaml is not installed — format codes unavailable')
-        return {}
+        return None
     try:
         with open(path, encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
-        logger.debug('Loaded format codes from %s', path)
-        return data
+            return yaml.safe_load(f) or {}
     except FileNotFoundError:
-        logger.debug('Format codes file not found: %s', path)
-        return {}
-    except Exception as e:
-        logger.warning('Failed to load format codes from %s: %s', path, e)
-        return {}
+        return None
+    except Exception as exc:
+        logger.warning('Failed to load format codes from %s: %s', path, exc)
+        return None
+
+
+def load_format_codes(yaml_path: str | None = None) -> dict:
+    """The format-code rules: the bundled table, with a user file merged over.
+
+    A missing user file falls back to the bundled table and says so. It used
+    to return {} instead, and at debug level -- so a config naming a path that
+    did not resolve turned every abbreviation off in silence, and a release on
+    Digital Media was filed as "Digital Media" rather than "DM". That is the
+    same shape as the char_substitutions path that left char_profile: windows
+    inert across a whole library.
+
+    Merged rather than replaced, one level deep, because the table has several
+    independent sections. Supplying a file with only base_formats used to
+    discard vinyl_sizes and the quantity rules with it, and an upgrade that
+    added a section would never reach anyone who had overridden one line.
+    """
+    base = _read_yaml(_DEFAULT_YAML)
+    if base is None:
+        logger.warning('The bundled format code table is missing at %s',
+                       _DEFAULT_YAML)
+        base = {}
+
+    if not yaml_path:
+        return base
+
+    user = _read_yaml(yaml_path)
+    if user is None:
+        logger.warning('format_codes names %s, which does not exist — using '
+                       'the bundled table', yaml_path)
+        return base
+
+    merged = dict(base)
+    for key, value in user.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        else:
+            merged[key] = value
+    logger.info('Format codes: %s merged over the bundled table', yaml_path)
+    return merged
 
 
 def compute_edition(descriptions: list, format_codes: dict, *,

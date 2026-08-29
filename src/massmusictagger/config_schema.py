@@ -88,6 +88,7 @@ REQUIRED = frozenset()
 # common.formats_file: formats.ini is found beside config.yaml. See roots.LAYOUT.
 DEPRECATED = frozenset({
     ('naming', 'use_lower_filenames'),
+    ('naming', 'format_codes'),
     ('common', 'formats_file'),
     ('file-formatting', 'image'),
 })
@@ -98,6 +99,12 @@ DEPRECATED = frozenset({
 #: common.formats_file warns from TaggerConfig.resource() when it is actually
 #: used to resolve a path, which is more specific than anything sayable here.
 DEPRECATION_NOTES = {
+    ('naming', 'format_codes'):
+        'format_codes.yaml is found beside config.yaml, so nothing needs to '
+        'declare where it is, and what it finds is merged over the bundled '
+        'table rather than replacing it. The key still works and warns; a '
+        'path that does not resolve now falls back to the bundled table '
+        'instead of turning every format abbreviation off.',
     ('naming', 'use_lower_filenames'):
         'it sets all six case keys at once. Use case_dir, case_song, '
         'case_disc, case_va_song, case_nfo and case_m3u instead, which can '
@@ -184,7 +191,6 @@ DEFAULTS = {
     ('artwork', 'image_policy'): 'prefer_larger',
     ('naming', 'char_profile'): 'linux',
     ('naming', 'char_substitutions'): '',
-    ('naming', 'format_codes'): '',
     ('naming', 'path_sep_replacement'): '',
     ('naming', 'control_replacement'): '',
     ('tags', 'keep_tags'): 'freedb_id',
@@ -352,7 +358,17 @@ def validate(config, source=None):
         )
 
     for (section, key), note in DEPRECATION_NOTES.items():
-        if config.has_section(section) and config.has_option(section, key):
+        if not (config.has_section(section) and config.has_option(section, key)):
+            continue
+        # A deprecated key left empty is doing nothing, and saying so is
+        # noise -- the sample config carries several of them precisely so a
+        # reader can see they exist. Warn about the ones with a value, which
+        # are the ones still having an effect.
+        try:
+            value = (config.get(section, key, raw=True) or '').strip()
+        except Exception:
+            value = ''
+        if value:
             logger.warning('%s.%s is deprecated%s: %s',
                            section, key, where, note)
 

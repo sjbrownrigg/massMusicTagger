@@ -132,6 +132,13 @@ BUNDLED_TEMPLATES = os.path.join(PACKAGE_ROOT, "templates")
 # obvious place, so they were four more things to get wrong for no benefit.
 LAYOUT = {
     "formats": "formats.ini",
+    # The format-code rule table. Bundled by default so it keeps improving
+    # with each upgrade, but discoverable here because it decides how a
+    # release is *named* -- "Digital Media" or "DM" -- and anything that
+    # decides that belongs where the user can see it. A file here is merged
+    # over the bundled one, so overriding a single abbreviation does not
+    # discard the rest of the table.
+    "format_codes": "format_codes.yaml",
 }
 
 

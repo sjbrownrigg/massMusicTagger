@@ -629,12 +629,20 @@ class TaggerUtils(object):
         # format_code needs the original Discogs strings ("Maxi-Single" etc).
         # An explicit escape hatch for tuning the rule table; normally unset,
         # in which case the version bundled in the package is used.
+        # format_codes.yaml beside config.yaml is found by name; the
+        # naming.format_codes key is the deprecated way of saying where it is.
+        _fc_path = None
         try:
-            _fc_path = tagger_config.resolve_path(
-                tagger_config.get('naming', 'format_codes'),
-                'naming.format_codes')
+            _fc_path = tagger_config.resource('format_codes')
         except Exception:
-            _fc_path = None
+            pass
+        if not _fc_path:
+            try:
+                _fc_path = tagger_config.resolve_path(
+                    tagger_config.get('naming', 'format_codes'),
+                    'naming.format_codes')
+            except Exception:
+                _fc_path = None
         _format_codes = load_format_codes(_fc_path)
         _raw_descs = list(self.album.format_description or [])
         self._vinyl_size = extract_vinyl_size(_raw_descs)

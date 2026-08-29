@@ -141,7 +141,11 @@ naming:
 
   char_profile: linux
   char_substitutions: ""
-  format_codes: ""
+  # Deprecated: drop a format_codes.yaml beside this file instead. What it
+  # contains is merged over the table bundled with the package, so
+  # overriding one abbreviation keeps the rest -- and keeps gaining
+  # whatever later versions add.
+  # format_codes: ""
   path_sep_replacement: ""
   control_replacement: ""
   case_dir:     lower
