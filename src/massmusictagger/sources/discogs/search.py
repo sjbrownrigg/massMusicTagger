@@ -699,13 +699,31 @@ class DiscogsSearch(DiscogsConnector):
                     )
                     trackInfo = trackInfo_merged
                 else:
-                    logger.info(
-                        '  [%s] rejected — local has %d tracks, Discogs '
-                        'has %d (%d audio, %d non-audio)',
-                        rid, local_count, len(trackInfo),
-                        len(trackInfo_audio), non_audio_count,
-                    )
-                    return False
+                    # Pass 4: an index entry carrying a parent duration and
+                    # timed sub_tracks -- or neither -- reads equally as one
+                    # file or several, and nothing in the Discogs data
+                    # settles it. Collapsing is the default; try expanding
+                    # before rejecting the release outright.
+                    trackInfo_expanded = self._expanded_track_info(release, local_count)
+                    if (trackInfo_expanded is not None
+                            and local_count == len(trackInfo_expanded)):
+                        logger.info(
+                            '  [%s] sub-track expansion: %d index entr%s '
+                            'read as separate files → retrying with %d '
+                            'tracks', rid,
+                            len(trackInfo_expanded) - len(trackInfo_audio),
+                            'y' if len(trackInfo_expanded) - len(trackInfo_audio) == 1
+                            else 'ies',
+                            len(trackInfo_expanded))
+                        trackInfo = trackInfo_expanded
+                    else:
+                        logger.info(
+                            '  [%s] rejected — local has %d tracks, Discogs '
+                            'has %d (%d audio, %d non-audio)',
+                            rid, local_count, len(trackInfo),
+                            len(trackInfo_audio), non_audio_count,
+                        )
+                        return False
 
         # Format hint: reject releases whose medium type conflicts with the
         # source-folder signal injected from massMusicTagger.  Catches the
@@ -801,6 +819,23 @@ class DiscogsSearch(DiscogsConnector):
                 total += fuzz.token_sort_ratio(lt, dt)
                 count += 1
         return total / count if count > 0 else 0.0
+
+    def _expanded_track_info(self, version, local_count):
+        """The other reading of an ambiguous index entry, or None.
+
+        Returns None when the release has no ambiguous index entry, so the
+        common case costs one cheap check rather than a second flatten.
+        """
+        from massmusictagger.sources.discogs.utils import prefers_expanded_index
+        try:
+            tracklist = version.tracklist
+            if not prefers_expanded_index(tracklist, local_count):
+                return None
+            return build_flat_tracklist(tracklist, skip_non_audio=True,
+                                        expand_ambiguous_index=True)
+        except Exception as exc:
+            logger.debug('Could not build the expanded tracklist: %s', exc)
+            return None
 
     def _getTrackInfo(self, version, skip_non_audio: bool = True):
         """Get track data from a Discogs release version, with disk-cache support.

@@ -175,7 +175,9 @@ def _resolve_discogs(source: str, ctx: '_Attempt'):
         return None
     raw, release_id = found
     from massmusictagger.source_factory import make_discogs_mapper
-    album = make_discogs_mapper(ctx.cfg, connector=conn).map(raw)
+    album = make_discogs_mapper(ctx.cfg, connector=conn,
+                                local_count=_local_audio_count(ctx.sourcedir)
+                                ).map(raw)
     album.release_id_str = release_id
     return album, conn
 
@@ -473,13 +475,20 @@ def _discogs_track_count(raw, local_count: Optional[int] = None) -> Optional[int
     lettered sub-track merge (13a+13b+13c → 13) as a fallback so that
     explicit-ID validation doesn't emit a spurious mismatch warning.
     """
-    from massmusictagger.sources.discogs.utils import build_flat_tracklist, merge_indexed_subtracks
+    from massmusictagger.sources.discogs.utils import (
+        build_flat_tracklist, merge_indexed_subtracks, prefers_expanded_index)
     try:
         flat = build_flat_tracklist(raw.tracklist)
         if local_count is not None and len(flat) != local_count:
             merged = merge_indexed_subtracks(flat)
             if merged is not None and len(merged) == local_count:
                 return len(merged)
+            # An index entry with a parent duration and timed sub_tracks --
+            # or neither -- reads equally as one file or several, and Discogs
+            # carries nothing that settles it. Try the other reading before
+            # calling it a mismatch.
+            if prefers_expanded_index(raw.tracklist, local_count):
+                return local_count
         return len(flat)
     except Exception:
         return None

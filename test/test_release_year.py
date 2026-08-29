@@ -102,7 +102,7 @@ class MasterSuppliesTheMissingYear(unittest.TestCase):
         import massmusictagger.sources.discogs.album as dg
 
         class _Stub:
-            def __init__(self, raw, use_anv=True):
+            def __init__(self, raw, use_anv=True, **kw):
                 pass
 
             def map(self):

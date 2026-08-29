@@ -29,12 +29,19 @@ class DiscogsAlbum(object):
     """Wraps the Discogs API client, mapping release data to the Album/Track
     model used by the tagger."""
 
-    def __init__(self, release, use_anv=True):
+    def __init__(self, release, use_anv=True, expand_ambiguous_index=False):
         self.release = release
         # When True, artist display uses the Discogs Artist Name Variation (ANV)
         # — the name as credited on the physical release sleeve.  Set False to
         # always use the canonical Discogs database name.
         self.use_anv = use_anv
+        # An index entry with a parent duration and timed sub_tracks -- or
+        # neither -- reads equally as one file or several. The caller decides
+        # which, from the local file count, via
+        # discogs.utils.prefers_expanded_index. It must be the same decision
+        # the search was scored on, or the release is accepted as one shape
+        # and tagged as another.
+        self.expand_ambiguous_index = expand_ambiguous_index
 
     # Discogs container formats whose payload is described by the subsequent
     # entries in the formats list (e.g. Box Set → CD + Vinyl; All Media → 2×CD).
@@ -661,9 +668,15 @@ class DiscogsAlbum(object):
             # Identified by: type=index, no parent duration, sub_tracks each
             # have their own duration and explicit positions.
             # Example: "Continuous Mix" → 8 individual songs, each ripped separately.
-            if _type == 'index' and real_subs and not t.duration and \
-                    all(s.get('duration', '') for s in real_subs):
-                logger.debug('Pattern A: expanding %d sub_tracks of %r as separate files',
+            _timed_subs = sum(1 for s in real_subs if s.get('duration', ''))
+            _ambiguous = (_type == 'index' and real_subs
+                          and ((t.duration and _timed_subs == len(real_subs))
+                               or (not t.duration and _timed_subs == 0)))
+            if (_type == 'index' and real_subs
+                    and ((not t.duration
+                          and all(s.get('duration', '') for s in real_subs))
+                         or (_ambiguous and self.expand_ambiguous_index))):
+                logger.debug('Expanding %d sub_tracks of %r as separate files',
                              len(real_subs), t.title)
                 for sub in real_subs:
                     sub_pos = sub.get('position', '')
@@ -694,8 +707,8 @@ class DiscogsAlbum(object):
             # individual durations (they are CD index markers, not separate files).
             # Example: "Mighty Mix (Part 1)" with 4 named movements 9a–9d.
             # Treated as a single track; movements stored in the comments tag.
-            if _type == 'index' and real_subs and t.duration and \
-                    not any(s.get('duration', '') for s in real_subs):
+            if (_type == 'index' and real_subs and t.duration
+                    and not any(s.get('duration', '') for s in real_subs)):
                 logger.debug('Pattern B: collapsing %d sub-movements of %r into one track',
                              len(real_subs), t.title)
                 # Fall through to normal track creation; sub_track notes handled below.

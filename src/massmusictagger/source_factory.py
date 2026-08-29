@@ -39,18 +39,38 @@ def make_mb_search(cfg: 'TaggerConfig', connector=None) -> 'SourceSearch':
     return MBSearch(cfg, connector=connector)
 
 
-def make_discogs_mapper(cfg: 'TaggerConfig', connector=None, **kwargs) -> 'SourceMapper':
+def make_discogs_mapper(cfg: 'TaggerConfig', connector=None,
+                        local_count=None, **kwargs) -> 'SourceMapper':
     """Return a callable that maps a raw Discogs Release to an Album.
 
     A connector is optional but worth passing: a reissue frequently carries no
     year of its own, and the master it belongs to almost always does.
+
+    local_count is worth passing too. An index entry with a parent duration
+    and timed sub_tracks -- or neither -- reads equally as one file or
+    several, and only the number of files on disk settles it. Without the
+    count the mapper takes the collapsed reading, which is what it has always
+    done; with it, the mapper reaches the same conclusion the search did.
     """
     use_anv = cfg.getboolean('naming', 'use_anv') if cfg.has_option('naming', 'use_anv') else True
 
     class _DiscogsMapper:
         def map(self, raw_release):
             from massmusictagger.sources.discogs.album import DiscogsAlbum
-            album = DiscogsAlbum(raw_release, use_anv=use_anv).map()
+            from massmusictagger.sources.discogs.utils import (
+                prefers_expanded_index)
+            expand = False
+            try:
+                expand = prefers_expanded_index(raw_release.tracklist,
+                                                local_count)
+            except Exception as exc:
+                logger.debug('Could not choose an index reading: %s', exc)
+            if expand:
+                logger.info('Release %s: index sub-tracks read as separate '
+                            'files to match %d local file(s)',
+                            getattr(raw_release, 'id', '?'), local_count)
+            album = DiscogsAlbum(raw_release, use_anv=use_anv,
+                                 expand_ambiguous_index=expand).map()
             album.source = 'discogs'
 
             # The mapper reports honestly that the release has no year; the

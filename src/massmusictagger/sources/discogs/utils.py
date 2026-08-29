@@ -204,7 +204,8 @@ def merge_indexed_subtracks(flat_list: list) -> 'list | None':
     return result
 
 
-def build_flat_tracklist(tracklist, skip_non_audio: bool = True) -> list:
+def build_flat_tracklist(tracklist, skip_non_audio: bool = True,
+                         expand_ambiguous_index: bool = False) -> list:
     """Flatten a Discogs tracklist into one dict per physical file.
 
     Applies the same Pattern A / Pattern B logic used by DiscogsAlbum when
@@ -219,6 +220,20 @@ def build_flat_tracklist(tracklist, skip_non_audio: bool = True) -> list:
         individual durations (e.g. "Mighty Mix (Part 1)" covering four
         named movements in a single file).
         Collapsed: one entry using the parent title and duration.
+
+    Anything else -- a parent duration *and* timed sub_tracks, or neither --
+    is genuinely ambiguous. Across 23,102 cached releases those are 12% of
+    index entries (85 of 711), and nothing in the Discogs data settles them:
+    the parent position is empty for every index entry, so it cannot be used
+    as a signal, and where both durations exist the sub-tracks usually sum to
+    the parent exactly, which is true of one file or several.
+
+    So this does not guess. By default an ambiguous entry collapses, as it
+    always has; with expand_ambiguous_index=True it becomes one entry per
+    sub_track. Callers that know the local file count try the second reading
+    when the first does not match, the same way merge_indexed_subtracks() is
+    used. All 85 carry a position and a title on every sub_track, so the
+    expansion is always well-formed.
 
     All other headings, bare structural labels and Video/DVD entries are
     skipped.
@@ -277,6 +292,20 @@ def build_flat_tracklist(tracklist, skip_non_audio: bool = True) -> list:
             })
             continue
 
+        # ── Ambiguous index: neither pattern fits ─────────────────────────
+        # Collapsing is what has always happened here, by falling through to
+        # the normal-track branch below. It is now explicit, so the other
+        # reading can be asked for.
+        if _type == 'index' and real_subs and expand_ambiguous_index:
+            for sub in real_subs:
+                sub_dur = (sub.get('duration', '') or '').strip()
+                result.append({
+                    'position': sub.get('position', ''),
+                    'title':    sub.get('title', ''),
+                    'duration': sub_dur if sub_dur else None,
+                })
+            continue
+
         # ── Normal track ──────────────────────────────────────────────────
         result.append({
             'position': pos,
@@ -285,6 +314,53 @@ def build_flat_tracklist(tracklist, skip_non_audio: bool = True) -> list:
         })
 
     return result
+
+
+def prefers_expanded_index(tracklist, local_count, skip_non_audio: bool = True) -> bool:
+    """Is "separate files" the reading that matches what is on disk?
+
+    The one place this decision is made. The search uses it to accept a
+    release it would otherwise reject, the ID validation uses it to avoid a
+    spurious mismatch warning, and the mapper uses it to build the same
+    tracks the search was scored on -- three places that must agree, because
+    a release accepted under one reading and tagged under the other produces
+    a track list that does not match the files.
+
+    False whenever the collapsed reading already matches, so the default is
+    never overturned by a coincidence.
+    """
+    if local_count is None:
+        return False
+    if not has_ambiguous_index(tracklist):
+        return False
+    collapsed = build_flat_tracklist(tracklist, skip_non_audio)
+    if len(collapsed) == local_count:
+        return False
+    expanded = build_flat_tracklist(tracklist, skip_non_audio,
+                                    expand_ambiguous_index=True)
+    return len(expanded) == local_count
+
+
+def has_ambiguous_index(tracklist) -> bool:
+    """Would expand_ambiguous_index change anything for this tracklist?
+
+    Lets callers skip the second flatten when there is nothing to reinterpret,
+    which is the overwhelming majority of releases.
+    """
+    for t in tracklist:
+        _type = (t.data.get('type_', 'track')
+                 if hasattr(t, 'data') else getattr(t, 'type_', 'track'))
+        if _type != 'index':
+            continue
+        subs = (t.data.get('sub_tracks', []) if hasattr(t, 'data') else [])
+        real_subs = [s for s in subs if s.get('type_', '') == 'track']
+        if not real_subs:
+            continue
+        dur = (t.duration or '') if hasattr(t, 'duration') else ''
+        timed = sum(1 for s in real_subs if (s.get('duration', '') or '').strip())
+        if (dur and timed == len(real_subs)) or (not dur and timed == 0):
+            return True
+    return False
 
 
 def strip_discogs_id_suffix(name: str) -> str:
