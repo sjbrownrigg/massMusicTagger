@@ -345,8 +345,19 @@ class MBConnector:
         ext = ext if ext in ('jpg', 'jpeg', 'png', 'gif', 'webp') else 'jpg'
         return self._cache_root / 'images' / f'{_url_hash(url)}.{ext}'
 
+    #: Bump when the rules that turn a search into a chosen release change.
+    #:
+    #: A cached search stores the *decision*, not the API response, so a
+    #: cached answer bypasses the ranking entirely. Adding a minimum artist
+    #: similarity therefore changed nothing for any album already searched:
+    #: "Pariah" by Anja Huwe kept resolving to Red Dons from cache, and the
+    #: fix looked broken. Including the version in the key retires the old
+    #: answers instead of requiring anyone to remember to delete them.
+    SEARCH_LOGIC_VERSION = 2
+
     def _search_path(self, query_key: str) -> Path:
-        return self._cache_root / 'searches' / f'{_url_hash(query_key)}.json'
+        versioned = f'v{self.SEARCH_LOGIC_VERSION}:{query_key}'
+        return self._cache_root / 'searches' / (_url_hash(versioned) + '.json')
 
     # ── JSON helpers ──────────────────────────────────────────────────────────
 

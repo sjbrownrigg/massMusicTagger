@@ -114,3 +114,40 @@ class WhenThereIsNothingToCompare(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ACachedDecisionMustNotOutliveTheRuleThatMadeIt(unittest.TestCase):
+    """The search cache stores the decision, not the API response.
+
+    So a cached answer bypasses ranking entirely. Adding the artist floor
+    changed nothing for any album already searched -- "Pariah" kept resolving
+    to Red Dons out of cache, and the fix looked broken until the cache was
+    the suspect rather than the code.
+    """
+
+    def _conn(self, version):
+        from massmusictagger.sources.musicbrainz.connector import MBConnector
+        import pathlib, tempfile
+        c = MBConnector.__new__(MBConnector)
+        c._cache_root = pathlib.Path(tempfile.mkdtemp())
+        return c
+
+    def test_the_key_includes_the_logic_version(self):
+        from massmusictagger.sources.musicbrainz.connector import MBConnector
+        c = self._conn(1)
+        first = c._search_path('text:Anja Huwe|Pariah|2')
+        with patch.object(MBConnector, 'SEARCH_LOGIC_VERSION',
+                          MBConnector.SEARCH_LOGIC_VERSION + 1):
+            second = c._search_path('text:Anja Huwe|Pariah|2')
+        self.assertNotEqual(first, second,
+                            'a version bump must retire the old answers')
+
+    def test_the_same_version_is_stable(self):
+        c = self._conn(1)
+        self.assertEqual(c._search_path('text:a|b|2'),
+                         c._search_path('text:a|b|2'))
+
+    def test_different_queries_still_differ(self):
+        c = self._conn(1)
+        self.assertNotEqual(c._search_path('text:a|b|2'),
+                            c._search_path('text:a|c|2'))
