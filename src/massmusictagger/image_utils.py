@@ -548,7 +548,17 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
             if header[:2] != b'\xff\xd8' and header != b'\x89PNG':
                 logger.warning('Skipping non-JPEG/PNG image: %s', local_filename)
                 continue
-            images.append(MFImage(data=data, type=img_type))
+            # A description per image, and it must be distinct. ID3 keys a
+            # picture frame by its description, so images written with the
+            # same one overwrite each other: four images embedded into an MP3
+            # read back as one, the last written, whatever its type. An album
+            # with a front, a back and two extras kept only an untyped
+            # thumbnail. FLAC was unaffected, which is why it went unnoticed.
+            #
+            # The basename is already unique within the release -- front,
+            # back, image-01 -- so it is the description, and it says
+            # something useful to anyone reading the tags.
+            images.append(MFImage(data=data, type=img_type, desc=base))
             logger.debug('Queued %s (%s, type=%s) for embedding',
                          local_filename, att.kind, img_type.name)
         except Exception as exc:

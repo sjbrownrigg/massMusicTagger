@@ -978,3 +978,69 @@ class TwoFrontsFromOneSource(unittest.TestCase):
         self.assertEqual(_measure(os.path.join(self.target, 'folder.jpg')),
                          (1500, 1400),
                          'folder.jpg takes the first front, not the last')
+
+
+class EmbeddingIntoAnMP3(unittest.TestCase):
+    """ID3 keys a picture frame by its description.
+
+    Images written with the same description overwrite each other, so four
+    images embedded into an MP3 read back as one -- the last written,
+    whatever its type. A Von Thronstahl album kept a 165x159 untyped
+    thumbnail as its only artwork and lost the 595x600 front entirely.
+
+    FLAC stores pictures as separate blocks and was unaffected, which is why
+    this survived a suite that only ever tested FLAC.
+    """
+
+    def _images(self):
+        import io
+        from PIL import Image
+        import mediafile
+        IT = mediafile.ImageType
+
+        def jpg(w, h):
+            b = io.BytesIO()
+            Image.new('RGB', (w, h)).save(b, 'JPEG')
+            return b.getvalue()
+
+        return [mediafile.Image(data=jpg(400, 400), type=IT.front, desc='front'),
+                mediafile.Image(data=jpg(300, 300), type=IT.back, desc='back'),
+                mediafile.Image(data=jpg(200, 200), type=IT.other, desc='image-01'),
+                mediafile.Image(data=jpg(100, 100), type=IT.other, desc='image-02')]
+
+    def _roundtrip(self, images, suffix):
+        import shutil, tempfile, subprocess
+        from massmusictagger.core.mediafile import MediaFile
+        with tempfile.TemporaryDirectory() as t:
+            path = os.path.join(t, 'x' + suffix)
+            codec = {'.mp3': 'libmp3lame', '.flac': 'flac'}[suffix]
+            subprocess.run(
+                ['ffmpeg', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+                 '-t', '1', '-c:a', codec, '-loglevel', 'error', path, '-y'],
+                check=True)
+            m = MediaFile(path)
+            m.images = images
+            m.save()
+            return MediaFile(path).images
+
+    def test_distinct_descriptions_survive_in_an_mp3(self):
+        got = self._roundtrip(self._images(), '.mp3')
+        self.assertEqual(len(got), 4)
+        self.assertEqual(sorted(i.desc for i in got),
+                         ['back', 'front', 'image-01', 'image-02'])
+
+    def test_identical_descriptions_collapse_to_one(self):
+        """The behaviour being worked around, pinned so it stays understood."""
+        import mediafile
+        images = [mediafile.Image(data=i.data, type=i.type, desc='')
+                  for i in self._images()]
+        self.assertEqual(len(self._roundtrip(images, '.mp3')), 1)
+
+    def test_flac_is_unaffected_either_way(self):
+        self.assertEqual(len(self._roundtrip(self._images(), '.flac')), 4)
+
+    def test_the_embed_step_sets_a_description(self):
+        import inspect
+        from massmusictagger import image_utils
+        src = inspect.getsource(image_utils.embed_typed_images)
+        self.assertIn('desc=base', src)
