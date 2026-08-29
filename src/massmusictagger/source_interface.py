@@ -1,4 +1,14 @@
-"""Abstract interfaces that every metadata source adapter must implement.
+"""The contract every metadata source presents.
+
+Satisfied at the source_factory boundary rather than by the source classes
+themselves: both album classes take the raw release in their constructor and
+expose `map(self)`, and LocalDiscogsConnector takes an extra source_dir on
+fetch_release, so neither can declare SourceMapper/SourceConnector directly.
+The factory adapters reconcile that, and test_discogs_search.py checks the
+objects it returns actually satisfy these signatures.
+
+SourceSearch is the exception: DiscogsSearch and MBSearch both implement
+search(sourcedir) directly, so the cascade treats them identically.
 
 Each source (Discogs, MusicBrainz, …) provides concrete implementations of:
   SourceConnector — fetches raw release data from the remote service or cache
@@ -10,7 +20,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from discogstagger.album import Album
+from massmusictagger.core.album import Album
 
 
 class SourceConnector(ABC):

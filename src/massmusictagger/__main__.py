@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 
+from massmusictagger.config_schema import ConfigError
 from massmusictagger import roots, __version__
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,7 @@ def _validate_config(cfg, config_path: str, source_arg: str | None = None) -> li
     user sees every issue in one run, not one at a time.  Call before any
     processing; print errors and exit if any have level 'ERROR'.
     """
-    from discogstagger.tagger_config import extract_sample_section
+    from massmusictagger.core.tagger_config import extract_sample_section
     from massmusictagger.cascade import _get_priority
 
     here = os.path.dirname(os.path.abspath(__file__))
@@ -280,7 +281,7 @@ def _merge_config_file(cfg, path: str) -> None:
 
 def _new_config(parser, opts):
     """Scaffold a fresh configuration and print what to do next."""
-    from discogstagger.tagger_config import write_new_config
+    from massmusictagger.core.tagger_config import write_new_config
 
     dest = os.path.abspath(os.path.expanduser(opts.new_config))
     try:
@@ -378,8 +379,8 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tup
         logger.error('Source directory does not exist: %s', source_dir)
         sys.exit(1)
 
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
-    from discogstagger.fileutils import FileUtils
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    from massmusictagger.core.files import FileUtils
 
     id_file = cfg.get('batch', 'id_file') if cfg.has_option('batch', 'id_file') else 'id.txt'
     searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
@@ -484,6 +485,23 @@ def _undo(dir_path: str, cfg) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Entry point. Turns a configuration problem into a message, not a stack.
+
+    Config problems are found in two places: _validate_config at startup, and
+    later, when something first tries to use a setting -- a rejected Discogs
+    token cannot be detected without asking Discogs. The first path already
+    printed and exited 78; the second reached the user as a traceback, which
+    buries an actionable message under a call stack that is no help to anyone
+    reading it.
+    """
+    try:
+        return _main(argv)
+    except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(78)   # EX_CONFIG, as the startup validation path uses
+
+
+def _main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     opts = parser.parse_args(argv)
 
@@ -498,7 +516,7 @@ def main(argv: list[str] | None = None) -> None:
         config_path = roots.discover_config()
         if config_path:
             try:
-                from discogstagger.tagger_config import TaggerConfig
+                from massmusictagger.core.tagger_config import TaggerConfig
                 _cfg = TaggerConfig(config_path)
                 _has_source = bool(
                     _cfg.has_option('common', 'source_dir')
@@ -530,7 +548,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         sys.exit(78)  # EX_CONFIG
 
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
     # The user's config is the sole source of settings. Credentials come from
     # credentials/*.yaml beside it, and formats.ini is discovered by

@@ -28,7 +28,7 @@ _FAKE_REC_ID = '11111111-2222-3333-4444-555555555555'
 
 
 def _make_cfg(**overrides):
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
     cfg = TaggerConfig(MMT_CONFIG)
     for section_key, value in overrides.items():
         section, _, key = section_key.partition('.')

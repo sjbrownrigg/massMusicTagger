@@ -23,9 +23,11 @@ from rich.progress import (
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.tagger_config import TaggerConfig
 
 logger = logging.getLogger(__name__)
+
+
 console = Console(stderr=True)
 
 
@@ -101,7 +103,7 @@ def _verify_target_or_raise(target_dir: Optional[str]) -> None:
     Uses os.walk so multi-disc albums with audio in subdirectories (split_discs)
     are handled correctly.
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
     if not target_dir or not os.path.isdir(target_dir):
         raise RuntimeError(
             f'source_action remove/move: target directory not found: {target_dir!r}')
@@ -298,7 +300,7 @@ class MassProcessor:
 
             album, connector = match
 
-            # Image source preference: may override album.images and the
+            # Image source preference: may override album.attachments and the
             # connector used for downloading, independently of metadata source.
             connector = self._apply_image_source(album, connector, sourcedir, cfg)
             result.source = getattr(album, 'source', None)
@@ -336,7 +338,7 @@ class MassProcessor:
 
             destdir = os.path.expanduser(cfg.get('common', 'dest_dir') or sourcedir)
 
-            from discogstagger.taggerutils import TaggerUtils, TagHandler, FileHandler
+            from massmusictagger.core.taggerutils import TaggerUtils, TagHandler, FileHandler
             tu = TaggerUtils(sourcedir, destdir, cfg, album)
 
             # For MB releases: when compute_edition() finds no keyword match in
@@ -382,33 +384,43 @@ class MassProcessor:
                 th.tag_album()
 
                 if connector:
-                    from massmusictagger.image_utils import (
-                        has_caa_type_metadata, download_typed_images,
-                    )
-                    if has_caa_type_metadata(album.images or []):
-                        # MB Cover Art Archive images — use typed download so each
-                        # image is named (front.jpg, back.jpg, medium.jpg, …)
-                        # and embedded with its correct picture type.
-                        download_typed_images(album, connector, cfg)
-                    else:
-                        # Discogs images — existing FileHandler behaviour.
-                        fh.get_images(connector)
+                    # One path for every source. Artwork follows the Cover Art
+                    # Archive convention -- front, back, medium, booklet -- and
+                    # anything we could not type becomes image-01, image-02,
+                    # which is where Discogs secondary images land.
+                    from massmusictagger.image_utils import download_typed_images
+                    download_typed_images(album, connector, cfg)
 
                 # Embed cover art
                 embed_coverart = (cfg.getboolean('details', 'embed_coverart')
                                   if cfg.has_option('details', 'embed_coverart') else True)
                 if embed_coverart:
-                    from massmusictagger.image_utils import (
-                        has_caa_type_metadata, embed_typed_images,
-                    )
-                    if has_caa_type_metadata(album.images or []):
-                        embed_typed_images(album, cfg)
-                    else:
-                        fh.embed_coverart_album()
+                    from massmusictagger.image_utils import embed_typed_images
+                    embed_typed_images(album, cfg)
             else:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 
             fh.add_replay_gain_tags()
+
+            # .nfo and .m3u, in discogstagger3's order: after the images and
+            # ReplayGain, before the source is dealt with.
+            #
+            # massMusicTagger never wrote these -- only discogstagger3's CLI
+            # did -- which is the drift you get from two places knowing the
+            # assembly order. Guarded individually so a template problem costs
+            # you the sidecar file, not the tagged album.
+            for kind, write in (('m3u', tu.create_m3u), ('nfo', tu.create_nfo)):
+                fmt = (cfg.get('file-formatting', kind) or '').strip()
+                if not fmt:
+                    logger.debug('%s not written: file-formatting.%s is empty',
+                                 kind, kind)
+                    continue
+                try:
+                    write(album.target_dir)
+                except Exception as exc:
+                    logger.warning('Could not write the .%s for %r: %s',
+                                   kind, album.title, exc)
+
             _post_process_source(result, cfg, fh, tu)
 
             result.outcome = OUTCOME_OK
@@ -470,7 +482,7 @@ class MassProcessor:
         logger.debug('Audit log updated: %s', self.audit_log_path)
 
     def _apply_image_source(self, album, connector, sourcedir: str, cfg) -> object:
-        """Override album.images and image connector based on image_source config.
+        """Override album.attachments and the image connector, per image_source.
 
         Returns the connector that should be used for image downloading.
 
@@ -512,7 +524,8 @@ class MassProcessor:
             if mbid:
                 caa_images = mb_conn.fetch_image_list(mbid)
                 if caa_images:
-                    album.images = caa_images
+                    from massmusictagger.core.attachments import from_caa
+                    album.attachments = [from_caa(i) for i in caa_images]
                     logger.info('image_source=musicbrainz: %d CAA image(s) for %r',
                                 len(caa_images), album.title)
                     return mb_conn

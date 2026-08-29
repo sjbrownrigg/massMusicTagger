@@ -254,17 +254,19 @@ class TestAlbumShapeParity(unittest.TestCase):
 
     # ── Images ───────────────────────────────────────────────────────────
 
-    def test_images_is_list(self):
-        self.assertIsInstance(self.album.images, list)
+    def test_attachments_is_a_list(self):
+        self.assertIsInstance(self.album.attachments, list)
 
-    def test_images_has_primary(self):
-        front = [i for i in self.album.images if i.get('type') == 'primary']
-        self.assertEqual(len(front), 1)
+    def test_exactly_one_front_attachment(self):
+        from massmusictagger.core.attachments import front
+        self.assertIsNotNone(front(self.album.attachments))
+        self.assertEqual(
+            sum(1 for a in self.album.attachments if a.is_front), 1)
 
-    def test_images_have_uri(self):
-        for img in self.album.images:
-            self.assertIn('uri', img)
-            self.assertTrue(img['uri'])
+    def test_attachments_carry_a_url_and_their_provenance(self):
+        for a in self.album.attachments:
+            self.assertTrue(a.url)
+            self.assertEqual(a.provenance, 'coverartarchive')
 
     # ── Discs / totals ────────────────────────────────────────────────────
 
@@ -444,7 +446,7 @@ class TestVinylFormatNormalisation(unittest.TestCase):
 
     def test_12_inch_vinyl_album_produces_lp_format_code(self):
         """12" Album → LP: 12" is the standard LP size so no size suffix needed."""
-        from discogstagger.formatcodes import load_format_codes, compute_format_code
+        from massmusictagger.core.naming.formatcodes import load_format_codes, compute_format_code
         album = self._album_with_format('12" Vinyl')
         # The packaged table, not a working-directory-relative path. The old
         # 'conf/format_codes.yaml' resolved only from a source checkout, and
@@ -457,7 +459,7 @@ class TestVinylFormatNormalisation(unittest.TestCase):
 
     def test_12_inch_vinyl_single_produces_12_inch_format_code(self):
         """12" Single → 12″: conditional vinyl_sizes fires for non-album release types."""
-        from discogstagger.formatcodes import load_format_codes, compute_format_code
+        from massmusictagger.core.naming.formatcodes import load_format_codes, compute_format_code
         fc = load_format_codes(None)
         self.assertTrue(fc, 'packaged format codes should have loaded')
         code = compute_format_code('Vinyl', ['12"', 'Single'], 1, fc)

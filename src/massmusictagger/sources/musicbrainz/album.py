@@ -33,7 +33,7 @@ import logging
 import re
 from typing import Optional
 
-from discogstagger.album import Album, Disc, Track
+from massmusictagger.core.album import Album, Disc, Track
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +143,13 @@ class MusicBrainzAlbum:
         # this with the full typed image list from MBConnector.fetch_image_list()
         # immediately after map() returns, so downstream code always sees a
         # complete list.
-        album.images = (
-            [{'uri': f'https://coverartarchive.org/release/{mbid}/front',
-              'type': 'primary', 'caa_types': ['Front'],
-              'width': None, 'height': None}]
+        # A placeholder front cover; the full typed list is a second request
+        # the connector makes. CAA never reports dimensions.
+        from massmusictagger.core.attachments import Attachment, FRONT
+        album.attachments = (
+            [Attachment(url=f'https://coverartarchive.org/release/{mbid}/front',
+                        kind=FRONT, provenance='coverartarchive',
+                        source_types=('Front',))]
             if mbid else []
         )
 

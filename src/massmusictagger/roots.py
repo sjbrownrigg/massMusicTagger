@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Where massMusicTagger finds its configuration.
 
-Mirrors discogstagger3's ``discogstagger.roots``, with massMusicTagger's own
+Mirrors discogstagger3's ``massmusictagger.roots``, with massMusicTagger's own
 environment variable and application directory. The reasoning is the same:
 
 A configuration is a **directory**, not a file. ``config.yaml``, ``formats.ini``
@@ -96,3 +96,162 @@ def cache_root():
     xdg = os.environ.get("XDG_CACHE_HOME") or os.path.join(
         os.path.expanduser("~"), ".cache")
     return os.path.join(os.path.expanduser(xdg), APP_NAME)
+
+
+# ── Package resources ────────────────────────────────────────────────────────
+# Mako templates for .nfo/.m3u. Absorbed from discogstagger3 along with the
+# rest of the tagging core, so they now ship inside massMusicTagger.
+BUNDLED_TEMPLATES = os.path.join(PACKAGE_ROOT, "templates")
+
+
+# ── Config-relative resolution ───────────────────────────────────────────────
+
+# The fixed layout inside a configuration directory.
+#
+# The configuration directory holds what the *user* owns, and nothing else:
+#
+#   config.yaml    the entry point -- their settings
+#   formats.ini    their file and directory naming
+#
+# That is the whole list. Mako templates and the rule tables
+# (format_codes.yaml, char_substitutions.yaml) belong to discogstagger3, ship
+# inside the package, and are not copied into a user's config directory --
+# so they keep improving with each upgrade instead of freezing at whatever
+# version happened to be installed the day the config was created.
+#
+# formats.ini is optional: absent means the bundled format strings are used.
+#
+# This replaced a set of config keys that named paths to these files. With one
+# configuration directory there was nothing for them to point at but the
+# obvious place, so they were four more things to get wrong for no benefit.
+LAYOUT = {
+    "formats": "formats.ini",
+}
+
+
+def discover(config_root_dir, what):
+    """Return the path to *what* inside *config_root_dir*, if it is there.
+
+    *what* is a key of :data:`LAYOUT`. Returns None when the config directory
+    does not provide that file, meaning the bundled default should be used.
+    """
+    try:
+        relative = LAYOUT[what]
+    except KeyError:
+        raise ValueError(
+            f"Unknown config resource {what!r}; expected one of "
+            f"{sorted(LAYOUT)}") from None
+
+    if not config_root_dir:
+        return None
+
+    path = os.path.join(config_root_dir, relative)
+    return path if os.path.exists(path) else None
+
+
+def config_root(config_file):
+    """Return the directory *config_file* lives in, or None when there isn't one.
+
+    Used as the base for paths a config file names.
+    """
+    if not config_file:
+        return None
+    return os.path.dirname(os.path.abspath(config_file))
+
+
+def resolve_config_path(value, base_dir, key_name="path"):
+    """Resolve *value*, a path read from a config file, to an absolute path.
+
+    Resolution order:
+
+    1. ``~`` expansion, and absolute paths returned as-is.
+    2. Relative to *base_dir* -- the directory of the config file naming it.
+    3. Relative to the working directory, which is the historic behaviour.
+       This still works but emits a deprecation warning naming both paths
+       tried, so the fix is obvious from the log.
+
+    Returns None when *value* is empty.  Returns the step-2 candidate when
+    nothing exists, so callers raise a "not found" error naming the path the
+    user is meant to create rather than the legacy one.
+    """
+    if not value:
+        return None
+
+    expanded = os.path.expanduser(value)
+
+    if os.path.isabs(expanded):
+        return expanded
+
+    preferred = (os.path.join(base_dir, expanded)
+                 if base_dir else os.path.abspath(expanded))
+    if os.path.exists(preferred):
+        return preferred
+
+    legacy = os.path.abspath(expanded)
+    if legacy != preferred and os.path.exists(legacy):
+        logger.warning(
+            "%s resolved relative to the working directory, which is "
+            "deprecated: %s\n"
+            "  Move it beside the config file (expected at %s), or make the "
+            "value an absolute path. The working-directory fallback will be "
+            "removed in a future release.",
+            key_name, legacy, preferred)
+        return legacy
+
+    return preferred
+
+
+# ── State root ───────────────────────────────────────────────────────────────
+
+_LEGACY_STATE_FILENAMES = (".token",)
+
+
+# ── State root ───────────────────────────────────────────────────────────────
+
+_LEGACY_STATE_FILENAMES = (".token",)
+
+
+def state_root():
+    """Return the directory for mutable runtime state, creating it if needed.
+
+    MMT_STATE_DIR wins, then DISCOGSTAGGER_STATE_DIR -- which deployments
+    already set and which keeps working unchanged -- then the XDG state
+    directory. Never the working directory.
+    """
+    explicit = (os.environ.get("MMT_STATE_DIR")
+                or os.environ.get("DISCOGSTAGGER_STATE_DIR"))
+    if explicit:
+        base = os.path.expanduser(explicit)
+    else:
+        xdg = os.environ.get("XDG_STATE_HOME") or os.path.join(
+            os.path.expanduser("~"), ".local", "state")
+        base = os.path.join(os.path.expanduser(xdg), APP_NAME)
+    try:
+        os.makedirs(base, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Could not create state directory %s: %s", base, exc)
+    return base
+
+
+def state_path(filename):
+    """Return the path to *filename* within the state root.
+
+    When the file is absent there but a legacy copy exists in the working
+    directory, the legacy path is returned so an existing OAuth token keeps
+    working instead of silently forcing re-authentication.
+    """
+    current = os.path.join(state_root(), filename)
+    if os.path.exists(current):
+        return current
+
+    if filename in _LEGACY_STATE_FILENAMES:
+        legacy = os.path.join(os.getcwd(), filename)
+        if os.path.exists(legacy):
+            logger.warning(
+                "Using %s from the working directory. This location is "
+                "deprecated; move it to %s (or set DISCOGSTAGGER_STATE_DIR).",
+                legacy, current)
+            return legacy
+
+    return current
+

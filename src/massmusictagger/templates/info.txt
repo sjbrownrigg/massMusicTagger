@@ -1,0 +1,16 @@
+____________________________________________________
+  Name : ${album.artist}, ${album.title}
+ Label : ${album.labels[0] if album.labels else ''}
+ Genre : ${album.genre}
+ Catno : ${album.catnumbers[0] if album.catnumbers else ''}
+  Year : ${album.year}
+   URL : ${album.url}
+
+Master : http://www.discogs.com/master/${album.master_id}
+____________________________________________________
+
+% for disc in album.discs:
+    % for track in disc.tracks:
+  ${str(track.tracknumber).zfill(2)} ${track.artist} ${track.title}
+    % endfor
+% endfor

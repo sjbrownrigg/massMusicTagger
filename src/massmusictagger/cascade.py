@@ -26,12 +26,15 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Optional, TYPE_CHECKING
+from typing import NamedTuple, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from discogstagger.album import Album
-    from discogstagger.tagger_config import TaggerConfig
+    from massmusictagger.core.album import Album
+    from massmusictagger.core.tagger_config import TaggerConfig
     from massmusictagger.source_interface import SourceConnector
+
+from massmusictagger.sources.hints import (
+    _load_source_hints, _folder_format_hint, _folder_descriptor_hints)
 
 logger = logging.getLogger(__name__)
 
@@ -86,45 +89,106 @@ def search_and_map(
         Skip source-specific search and use this release ID directly.
         Applied to the first source in the priority list that accepts IDs.
     """
+    ctx = _Attempt(
+        sourcedir=sourcedir, cfg=cfg,
+        discogs_connector=discogs_connector,
+        discogs_local_connector=discogs_local_connector,
+        discogs_search=discogs_search,
+        mb_connector=mb_connector, mb_search=mb_search,
+        release_id_override=release_id_override,
+    )
+
     priority = _get_priority(cfg)
     logger.debug('Source priority: %s', priority)
 
     for source in priority:
+        resolve = _SOURCES.get(source)
+        if resolve is None:
+            # Previously this fell through the if/elif chain in silence, so a
+            # typo in source.priority simply removed that source.
+            logger.warning(
+                'Unknown source %r in source.priority — ignored. Known sources: %s',
+                source, ', '.join(sorted(_SOURCES)))
+            continue
+
         logger.debug('Trying source: %s', source)
-
-        if source in ('discogs', 'local'):
-            conn = discogs_local_connector if source == 'local' else discogs_connector
-            result = _try_discogs(sourcedir, cfg, conn, discogs_search,
-                                  release_id_override=release_id_override)
-            if result is not None:
-                raw, release_id = result
-                from massmusictagger.source_factory import make_discogs_mapper
-                album = make_discogs_mapper(cfg).map(raw)
-                album.release_id_str = release_id
-                return album, conn
-
-        elif source == 'musicbrainz':
-            result = _try_musicbrainz(sourcedir, cfg, mb_connector, mb_search,
-                                      release_id_override=release_id_override)
-            if result is not None:
-                raw, mbid = result
-                from massmusictagger.source_factory import make_mb_mapper
-                album = make_mb_mapper(cfg).map(raw)
-                album.release_id_str = mbid
-                # Immediately replace the placeholder image with the full
-                # typed CAA image list (Front, Back, Medium, Booklet, …).
-                if mb_connector and mbid:
-                    caa_images = mb_connector.fetch_image_list(mbid)
-                    if caa_images:
-                        album.images = caa_images
-                return album, mb_connector
-
-        elif source == 'existing_tags':
-            album = _map_existing_tags(sourcedir, cfg)
-            if album is not None:
-                return album, None
+        resolved = resolve(source, ctx)
+        if resolved is not None:
+            return resolved
 
     return None
+
+
+
+# ── One pipeline ─────────────────────────────────────────────────────────────
+#
+# Every source answers the same question -- "is this album yours, and if so
+# what is it?" -- and returns (Album, connector) or None. Adding a fourth
+# source is a registration below, not another branch in search_and_map.
+
+
+class _Attempt(NamedTuple):
+    """Everything a source needs to answer for one directory."""
+    sourcedir: str
+    cfg: 'TaggerConfig'
+    discogs_connector: Optional['SourceConnector']
+    discogs_local_connector: Optional['SourceConnector']
+    discogs_search: object
+    mb_connector: Optional['SourceConnector']
+    mb_search: object
+    release_id_override: Optional[str]
+
+
+def _resolve_discogs(source: str, ctx: '_Attempt'):
+    """discogs and local differ only in which connector fetches."""
+    conn = (ctx.discogs_local_connector if source == 'local'
+            else ctx.discogs_connector)
+    found = _try_discogs(ctx.sourcedir, ctx.cfg, conn, ctx.discogs_search,
+                         release_id_override=ctx.release_id_override)
+    if found is None:
+        return None
+    raw, release_id = found
+    from massmusictagger.source_factory import make_discogs_mapper
+    album = make_discogs_mapper(ctx.cfg, connector=conn).map(raw)
+    album.release_id_str = release_id
+    return album, conn
+
+
+def _resolve_musicbrainz(source: str, ctx: '_Attempt'):
+    found = _try_musicbrainz(ctx.sourcedir, ctx.cfg, ctx.mb_connector,
+                             ctx.mb_search,
+                             release_id_override=ctx.release_id_override)
+    if found is None:
+        return None
+    raw, mbid = found
+    from massmusictagger.source_factory import make_mb_mapper
+    album = make_mb_mapper(ctx.cfg).map(raw)
+    album.release_id_str = mbid
+
+    # The mapper leaves a placeholder image; the full typed Cover Art Archive
+    # list (Front, Back, Medium, Booklet, …) is a second request. This is the
+    # only per-source step left in the cascade, and phase 4 removes it by
+    # carrying attachments in the mapped result.
+    if ctx.mb_connector and mbid:
+        caa_images = ctx.mb_connector.fetch_image_list(mbid)
+        if caa_images:
+            from massmusictagger.core.attachments import from_caa
+            album.attachments = [from_caa(i) for i in caa_images]
+    return album, ctx.mb_connector
+
+
+def _resolve_existing_tags(source: str, ctx: '_Attempt'):
+    """Last resort: whatever the files already say. No release, no connector."""
+    album = _map_existing_tags(ctx.sourcedir, ctx.cfg)
+    return (album, None) if album is not None else None
+
+
+_SOURCES = {
+    'discogs':       _resolve_discogs,
+    'local':         _resolve_discogs,
+    'musicbrainz':   _resolve_musicbrainz,
+    'existing_tags': _resolve_existing_tags,
+}
 
 
 # ── Source attempt helpers ────────────────────────────────────────────────────
@@ -195,38 +259,10 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
             searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                              if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
-                searcher.getSearchParams(sourcedir)
-
-                # ── Source format hint ─────────────────────────────────────
-                # Infer digital/vinyl origin from folder-name keywords and
-                # inject into search_params so _compareRelease() can reject
-                # format-conflicting candidates (e.g. vinyl LP for a 24-bit
-                # remaster folder).  When the hint is "digital" the year is
-                # also suppressed: the original album year (e.g. 1974) would
-                # restrict results to 1974 pressings (all vinyl), bypassing
-                # the actual remaster release on Discogs.
-                _hints = _load_source_hints(cfg)
-                _fmt_hint = _folder_format_hint(sourcedir, _hints)
-                if _fmt_hint:
-                    searcher.search_params['format_hint'] = _fmt_hint
-                    if _fmt_hint == 'digital':
-                        _yr = searcher.search_params.pop('year', None)
-                        if _yr:
-                            logger.debug(
-                                'Format hint "digital": suppressed year %s '
-                                'from Discogs search so remaster releases can '
-                                'surface (folder: %s)',
-                                _yr, os.path.basename(sourcedir),
-                            )
-                _desc_hints = _folder_descriptor_hints(sourcedir, _hints)
-                if _desc_hints:
-                    searcher.search_params['descriptor_hints'] = _desc_hints
-
-                raw = searcher.search_discogs()
+                relid = searcher.search(sourcedir)
+                raw = connector.fetch_release(relid) if relid else None
                 if raw is not None:
                     try:
-                        _ = raw.tracklist   # trigger lazy fetch; may raise on 404
-                        relid = str(raw.id)
                         release_count = _discogs_track_count(raw, local_count=local_count)
                         if not _validate_id_match(local_count, release_count,
                                                    'Discogs', relid, from_explicit=False):
@@ -241,85 +277,6 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
     except Exception as exc:
         logger.warning('Discogs failed for %s: %s', sourcedir, exc)
         return None
-
-
-def _load_source_hints(cfg) -> dict:
-    """Return source_hints dict from the configured YAML file, or {}.
-
-    Tries details.source_hints_file first (shared by all sources), then
-    musicbrainz.source_hints_file for backward compatibility.
-    """
-    path = ''
-    for section, key in (('details', 'source_hints_file'),
-                          ('musicbrainz', 'source_hints_file')):
-        try:
-            p = (cfg.get(section, key) or '').strip()
-            if p:
-                path = p
-                break
-        except Exception:
-            pass
-    if path:
-        # An override named by the config resolves beside that config file.
-        try:
-            path = cfg.resolve_path(path, 'details.source_hints_file') or path
-        except Exception:
-            path = os.path.expanduser(path)
-    else:
-        # No override: use the copy shipped inside the package. This used to
-        # return {} instead, so the feature was silently off for every
-        # installed copy -- the repo-relative default in the sample config
-        # only ever resolved from a source checkout.
-        from massmusictagger import roots
-        path = os.path.join(roots.BUNDLED_CONF, 'source_hints.yaml')
-    path = os.path.normpath(path)
-    try:
-        import yaml as _yaml
-        with open(path, encoding='utf-8') as f:
-            data = _yaml.safe_load(f) or {}
-        return data.get('source_hints', {})
-    except FileNotFoundError:
-        logger.debug('source_hints_file not found: %s', path)
-        return {}
-    except Exception as exc:
-        logger.warning('Failed to load source hints from %s: %s', path, exc)
-        return {}
-
-
-def _folder_format_hint(sourcedir: str, hints: dict) -> str:
-    """Return 'digital', 'vinyl', or '' based on folder name keywords."""
-    if not hints:
-        return ''
-    folder = os.path.basename(sourcedir.rstrip('/\\'))
-    folder_lower = folder.lower()
-    for kw in hints.get('digital', []):
-        if str(kw).lower() in folder_lower:
-            logger.debug("Format hint 'digital' matched keyword %r in %r", kw, folder)
-            return 'digital'
-    for kw in hints.get('vinyl', []):
-        if str(kw).lower() in folder_lower:
-            logger.debug("Format hint 'vinyl' matched keyword %r in %r", kw, folder)
-            return 'vinyl'
-    return ''
-
-
-def _folder_descriptor_hints(sourcedir: str, hints: dict) -> list:
-    """Return descriptor_boost keywords matched in the folder name.
-
-    Unlike format hints (which hard-reject mismatched releases), these are
-    passed to the Discogs searcher as a soft scoring signal: candidates whose
-    Discogs descriptions include a matched keyword receive a ranking bonus.
-    """
-    if not hints:
-        return []
-    folder = os.path.basename(sourcedir.rstrip('/\\'))
-    folder_lower = folder.lower()
-    matched = []
-    for kw in hints.get('descriptor_boost', []):
-        if str(kw).lower() in folder_lower:
-            logger.debug("Descriptor hint %r matched in %r", kw, folder)
-            matched.append(kw)
-    return matched
 
 
 def _try_musicbrainz(sourcedir, cfg, connector, searcher,
@@ -416,7 +373,7 @@ def _local_audio_count(sourcedir: str) -> int:
     subdirectories rather than directly in sourcedir — in that case the
     counts from all disc subdirs are summed.
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
 
     def _count_direct(path: str) -> int:
         try:
@@ -493,7 +450,7 @@ def _discogs_track_count(raw, local_count: Optional[int] = None) -> Optional[int
     lettered sub-track merge (13a+13b+13c → 13) as a fallback so that
     explicit-ID validation doesn't emit a spurious mismatch warning.
     """
-    from discogstagger.discogs_utils import build_flat_tracklist, merge_indexed_subtracks
+    from massmusictagger.sources.discogs.utils import build_flat_tracklist, merge_indexed_subtracks
     try:
         flat = build_flat_tracklist(raw.tracklist)
         if local_count is not None and len(flat) != local_count:
@@ -515,9 +472,9 @@ def _mb_track_count(raw: dict) -> Optional[int]:
 
 def _read_existing_discogs_id_tag(sourcedir: str) -> Optional[str]:
     """Read discogs_id from the first tagged audio file in sourcedir."""
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
     try:
-        from discogstagger.mediafile_ext import MediaFile
+        from massmusictagger.core.mediafile import MediaFile
         for f in sorted(os.listdir(sourcedir)):
             if f.lower().endswith(AUDIO_EXTENSIONS) and os.path.isfile(os.path.join(sourcedir, f)):
                 mf = MediaFile(os.path.join(sourcedir, f))
@@ -598,7 +555,7 @@ def _clean_fallback_title(fname: str) -> str:
     snowball duplicate track numbers and extensions into the title on every
     pass — each run converges to the same cleaned title instead.
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
 
     name = fname
     while True:
@@ -622,11 +579,11 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     using the configured format strings.  No new tag values are written
     (tagging is skipped when album.source == 'existing_tags').
     """
-    from discogstagger.discogs_utils import AUDIO_EXTENSIONS
-    from discogstagger.album import Album, Disc, Track
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    from massmusictagger.core.album import Album, Disc, Track
 
     try:
-        from discogstagger.mediafile_ext import MediaFile
+        from massmusictagger.core.mediafile import MediaFile
     except ImportError:
         logger.warning('existing_tags fallback requires discogstagger3 MediaFile')
         return None
@@ -675,7 +632,7 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
     album.release_date = year or None
     album.labels = []
     album.catnumbers = []
-    album.images = []
+    album.attachments = []
     album.genres = list(mf.genres or [])
     album.styles = []
     # Derive album.format and format_description from the embedded media tag so

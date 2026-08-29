@@ -10,15 +10,19 @@ requires-python = ">=3.10"
 license = {text = "GPL-3.0-or-later"}
 
 dependencies = [
-    # Shared core + Discogs adapter: album model, taggerutils, tag writing,
-    # charmap, formatcodes, discogs_search, discogsalbum, discogs_connector.
-    # Pinned to a SHA, not a branch. An unpinned @master means the same
-    # Dockerfile produces a different image on every rebuild, and this package
-    # calls discogstagger3's private members -- so an upstream refactor breaks
-    # it at run time, silently and at a distance from the change.
-    # Update this ref deliberately, and re-run the tests when you do.
-    # This SHA is discogstagger3 v4.0.0 (including the daemon backlog fix).
-    "discogstagger3 @ git+https://github.com/sjbrownrigg/discogstagger3.git@64e1d97b8212000c6c9ce2c7f71e8f05e4573192",
+
+    # Absorbed from discogstagger3 with its tagging core.
+    "python3-discogs-client>=2.8",
+    "mediafile>=0.17",
+    "mutagen>=1.47",
+    "requests>=2.31",
+    "mako>=1.3",
+    "watchdog>=4.0",
+    "chardet",
+    "r128gain>=1.0",
+    "rapidfuzz>=3.0",
+    "pyyaml>=6.0",
+    "Pillow>=10.0",
 
     # MusicBrainz
     "musicbrainzngs>=0.7.1",
@@ -63,7 +67,7 @@ where = ["src"]
 # locatable from __file__. conf/source_hints.yaml used to sit at the repo root
 # and be named by a working-directory-relative config path, so the feature was
 # silently inert for every installed copy.
-"massmusictagger" = ["conf/*.yaml", "conf/*.ini"]
+"massmusictagger" = ["conf/*.yaml", "conf/*.ini", "conf/*.conf", "templates/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
