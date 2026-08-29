@@ -1,8 +1,40 @@
 # massMusicTagger
 
-Multi-source mass audio tagger built on [discogstagger3](https://github.com/sjbrownrigg/discogstagger3).
+Multi-source mass audio tagger. Discogs and MusicBrainz are peer sources
+feeding one pipeline, with Cover Art Archive typed images, AcoustID
+fingerprinting, concurrent processing, foobar2000-style format strings and
+Docker deployment.
 
-Adds MusicBrainz metadata, Cover Art Archive typed images, AcoustID fingerprinting, concurrent processing, and Docker deployment — while keeping the Discogs path from discogstagger3 working unchanged.
+Since 3.0.0 it carries its own tagging core, absorbed from
+[discogstagger3](https://github.com/sjbrownrigg/discogstagger3), which it no
+longer depends on. discogstagger3 continues as its own project.
+
+---
+
+> ## ⚠ Breaking changes in 3.0.0 — read before upgrading
+>
+> **A 2.x `config.yaml` will not work as written.** `[details]` had grown to
+> 28 keys and its contents moved to `[naming]`, `[artwork]`, `[archiving]`,
+> `[tags]` and `[source]`. The old names are **not** honoured: a setting that
+> looks present simply does not apply.
+>
+> Migrate in place — comments preserved, original kept as `config.yaml.bak`:
+>
+> ```bash
+> mmt --migrate-config              # the configuration directory in use
+> mmt --migrate-config /path/to/dir # or a specific one
+> ```
+>
+> It prints what it moved and what it dropped. Afterwards a clean start logs
+> no `moved to [section]` or `was removed in 3.0.0` warnings — if it does,
+> that setting is not being applied.
+>
+> **3.1.0 is a security release.** `$inarray` and `$flatten` fell back to
+> `eval()` on their argument, and both are meant to be pointed at metadata,
+> so an album title could execute code during tagging. Discogs titles are
+> editable by anyone with an account. Upgrade rather than staying on 3.0.0.
+>
+> Full detail: [docs/HISTORY.md](docs/HISTORY.md).
 
 ---
 
