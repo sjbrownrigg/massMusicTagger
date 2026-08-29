@@ -89,3 +89,36 @@ cheap to exclude, since `%bitdepth%` is already gathered.
 
 Worth care in one direction only: 24-bit rules *out* CD, but 16-bit rules
 nothing out, since a 16-bit file may be a CD rip or a lossless download.
+
+---
+
+## Tagging is bound by the share, not the CPU
+
+Measured on the WSL2 host, tagging a 313 MiB album takes about 139 seconds,
+and raising `batch.workers` from 1 to 4 changed that to 145 → 139 — nothing.
+The container sits at **1.5% CPU** throughout.
+
+| path | throughput |
+|---|---|
+| NAS → local disk (read) | 31 MiB/s |
+| local disk → NAS (write) | 21 MiB/s |
+| **NAS → NAS (what tagging does)** | **9.8 MiB/s** |
+| local → local | 1280 MiB/s |
+
+A NAS-to-NAS copy is mediated by the client, so it pays both directions on
+one link and lands well below either. More workers cannot help: the link is
+already saturated, and they would only contend for it.
+
+Where the time goes, per album: the source is read from the share and written
+back to it, then ReplayGain reads the destination again, then tagging
+rewrites it. Most of that traffic exists only because the working directory
+*is* the share.
+
+**Worth considering:** stage each album on local disk — copy in once, tag and
+ReplayGain there at 1280 MiB/s, copy the finished album out once. That trades
+two slow passes for two fast ones and one fewer round trip. It is a real
+change to how the processor handles files, not a setting, so it wants
+deciding rather than assuming.
+
+Running on a host that mounts the share natively, rather than through WSL2's
+drvfs to the Windows SMB client, may be a bigger win for less work.
