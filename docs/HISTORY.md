@@ -2,6 +2,119 @@
 
 ---
 
+## Version 3.0.0 (2026-08-29)
+
+massMusicTagger no longer depends on discogstagger3. It carries the tagging
+core itself, and Discogs and MusicBrainz are peer sources feeding one
+pipeline.
+
+discogstagger3 is untouched — same repo, same CLI, same behaviour, still
+standing alone for its own users. It simply stops being a dependency.
+
+### Breaking changes
+
+**`[details]` is gone.** It had grown to 28 of 69 keys, covering filename
+casing, character profiles, artwork policy, source archiving and tag
+handling — settings with nothing in common but having nowhere else to go. It
+was the single biggest reason the configuration read as confusing. Its keys
+are now:
+
+| Section | Holds |
+|---|---|
+| `[naming]` | casing, character profiles, format codes, artist joining |
+| `[artwork]` | embedding, image policy and source, `folder.jpg` |
+| `[archiving]` | `source_action`, archive directory, move template, done file |
+| `[tags]` | `keep_tags`, beside `suppress_tags` |
+| `[source]` | `source_hints_file`, beside `priority` |
+
+The old names are **not** honoured. A configuration still using them is told
+which section each setting moved to and that it is not being applied — an
+"unknown key" warning is not something a person can act on. A genuine typo
+still reads as a typo.
+
+**Settings removed**, because nothing read them. Each loaded without
+complaint and did nothing:
+
+- `details.split_discs` — multi-disc layouts come from the directory tree
+- `tags.encoder` — the encoder is chosen per target format in `[conversion]`
+- `logging.config_file` — logging is `logging.level` and `logging.log_file`
+- `source.discogs`, `source.amg`, `source.local` — the source-to-tag-field
+  mapping, whose only remaining user was `id.txt`, which reads `<source>_id`
+  directly now. AllMusic has not been a source for a long time.
+
+**`use_lower_filenames`** moves to `[naming]` and is properly deprecated: it
+sets all six case keys at once, which they can now differ from.
+
+### Things that claimed to work and did not
+
+The theme of this release. None of these raised an error; each produced a run
+that looked successful.
+
+- **`--releaseid` was accepted and thrown away.** argparse took it, `--help`
+  documented it, `cascade.search_and_map` implemented it in full — and
+  `MassProcessor` never passed it, so `-r <id>` searched anyway. It also
+  accepts `musicbrainz:<mbid>` now, because the sources number releases
+  differently.
+
+- **`--dry-run` rewrote the files it was reporting on.** CUE splitting and
+  `.m4a` conversion happened inside the function that lists directories, which
+  runs before the flag is consulted. Scanning and preparing are separate
+  stages now: `scan()` reads, `prepare()` writes and reports.
+
+- **`id.txt` was honoured as a marker and its contents ignored.** The reader
+  that pulls the release ID out of it had no callers. There were also two
+  parsers, and the one that ran only ever looked for `discogs_id`. One reader
+  now accepts every format there has been, and routes the ID to the source
+  the file names.
+
+- **A Discogs token was trusted without being checked.** The connector logged
+  "Authenticated" because the string was non-empty. Discogs issues one token
+  per account, so registering a second application invalidates the first — and
+  with a warm cache a whole run completed while every live call was refused.
+
+- **`prefer_larger` always lost against the Cover Art Archive**, which never
+  reports dimensions, so the comparison was skipped and the download won. A
+  1400×1400 local scan sat beside a 600×600 download, with `folder.jpg` copied
+  from the smaller one.
+
+- **`logging.level` did nothing.** A daemon container runs `mmt -w` with no
+  tty, so the config file was the only place the level could come from.
+
+- **Credentials vanished under a bracketed config path.** `[` and `]` are glob
+  character classes, and this project puts brackets in directory names by
+  convention.
+
+- **A release with no year became `[1900]`**, and a missing year is now taken
+  from the Discogs master where there is one.
+
+### Artwork
+
+Artwork follows the Cover Art Archive naming convention, from every source.
+There is one type table where there were two, already drifted apart on five
+types: `Tray`, `Spine`, `Sticker`, `Poster` and `Liner` were being flattened
+to `image-01.jpg`, discarding what the source had told us.
+
+Untyped album art — Discogs says only primary/secondary — is `cover.jpg`.
+Anything untypeable is `image-01.jpg`, `image-02.jpg`. A file is named for
+what its bytes are, not what its URL claims. `file-formatting.image` is
+deprecated: it no longer names anything.
+
+The second image pipeline is gone. `FileHandler.get_images()` had been
+unreachable since the Attachment work but still carried its own copy of the
+policy logic, including the `prefer_larger` bug above.
+
+### Internals
+
+- Every config key has a default, in one table. Fifteen of massMusicTagger's
+  own had none — a leftover of the era when the schema lived in the other
+  package — so each call site carried its own idea of the fallback.
+- `register_known_keys` and `register_freeform_sections` are gone: extension
+  points for an embedding package, and there is one package now.
+- The suite is 358 tests, up from 211. The image tests run against a real
+  directory rather than mocks, which is how several of the above were found.
+
+---
+
 ## Version 2.0.0 (2026-08-27)
 
 Configuration follows discogstagger3 4.0.0: a **directory** massMusicTagger

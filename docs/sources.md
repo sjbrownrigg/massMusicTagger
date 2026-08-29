@@ -133,7 +133,7 @@ pip install "massmusictagger[fingerprint]"   # installs both discid + pyacoustid
 
 ## Post-processing: source_action
 
-After a successful tag, `details.source_action` controls what happens to the
+After a successful tag, `archiving.source_action` controls what happens to the
 source directory:
 
 | Value | Behaviour |

@@ -66,6 +66,48 @@ MMT_CONFIG_DIR=~/configs/vinyl mmt ~/Music/incoming
 Create one with `mmt --new-config`. Credentials can also come from the
 environment (`DISCOGS_USER_TOKEN`), which overrides the file.
 
+Settings are grouped by what they affect:
+
+| Section | Holds |
+|---|---|
+| `[common]` | source and destination directories, user agent |
+| `[source]` | which sources to try, in order, and source hints |
+| `[naming]` | filename casing, character profiles, format codes |
+| `[artwork]` | cover art: embedding, policy, which source to take it from |
+| `[archiving]` | what happens to the source directory after a successful tag |
+| `[batch]` | concurrency, the audit log, `id_file` |
+| `[tags]` | tags to keep, and `suppress_tags` |
+
+In 3.0.0 these came out of a single `[details]` section that had grown to 28
+keys. A configuration still using the old names is told where each setting
+went; see [HISTORY.md](docs/HISTORY.md).
+
+### Pinning a release
+
+Three ways to say which release an album is, strongest first:
+
+```bash
+mmt -r 14726546 ~/Music/incoming/album          # one album
+mmt -r musicbrainz:4fe0825c-... ~/Music/album   # qualify when not Discogs
+```
+
+For a whole tree, put an `id.txt` beside each release that needs pinning —
+it travels with the album, so one run can pin a different release for each:
+
+```ini
+[source]
+name = discogs
+discogs_id = 14726546
+```
+
+A bare release number on its own line also works, and means Discogs.
+
+Failing both, a `discogs_id` or `musicbrainz_releaseid` already in the file
+tags is used before searching. The difference is deliberate: an ID you gave
+is used even if the track count disagrees, because you chose it, while an
+embedded tag falls through to searching, because it may be stale after a
+reissue.
+
 ## Source priority
 
 Configured in `config.yaml` — see [sources.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/sources.md):
