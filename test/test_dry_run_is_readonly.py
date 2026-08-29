@@ -253,3 +253,71 @@ class ADryRunSaysWhyACueAlbumCannotMatch(unittest.TestCase):
             with patch.object(fu, '_processCueFiles', return_value=0):
                 with self.assertNoLogs('massmusictagger.core.files', level='WARNING'):
                     fu.prepare(tasks)
+
+
+class DuplicateCueSheets(unittest.TestCase):
+    """A ripper often leaves two sheets describing the same album.
+
+    "album.cue" beside "album.flac.cue", or "album FLAC.CUE" beside
+    "album WAV.CUE". Counted separately they outnumber the audio, and the
+    test for a single-file album is that the counts match -- so a genuine
+    one-file rip with a spare sheet was never split. It reached the tagger as
+    one untagged track and matched nothing.
+    """
+
+    def _dedupe(self, cues, audio):
+        from massmusictagger.core.files import dedupe_cue_sheets
+        return sorted(dedupe_cue_sheets(cues, audio))
+
+    def test_a_format_suffixed_duplicate_collapses(self):
+        self.assertEqual(
+            self._dedupe(['Modern Blues.cue', 'Modern Blues.flac.cue'],
+                         ['01 Modern Blues.flac']),
+            ['Modern Blues.flac.cue'])
+
+    def test_a_space_separated_format_word_collapses(self):
+        self.assertEqual(
+            self._dedupe(['Ziggy Disc 1 FLAC.CUE', 'Ziggy Disc 1 WAV.CUE'],
+                         ['01.flac']),
+            ['Ziggy Disc 1 FLAC.CUE'])
+
+    def test_the_sheet_naming_the_format_present_is_preferred(self):
+        self.assertEqual(
+            self._dedupe(['x WAV.CUE', 'x FLAC.CUE'], ['01.flac']),
+            ['x FLAC.CUE'])
+
+    def test_genuinely_different_albums_are_not_merged(self):
+        self.assertEqual(
+            self._dedupe(['disc one.cue', 'disc two.cue'], ['a.flac', 'b.flac']),
+            ['disc one.cue', 'disc two.cue'])
+
+    def test_a_single_sheet_is_unchanged(self):
+        self.assertEqual(self._dedupe(['album.cue'], ['a.flac']), ['album.cue'])
+
+    def test_a_one_file_album_with_a_spare_sheet_is_split(self):
+        """The case this exists for, through scan()."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            album = os.path.join(tmp, 'album')
+            os.makedirs(album)
+            open(os.path.join(album, 'whole.flac'), 'wb').write(b'\0' * 16)
+            for name in ('whole.cue', 'whole.flac.cue'):
+                open(os.path.join(album, name), 'w').write('FILE "whole.flac" WAVE\n')
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+        self.assertEqual([t.kind for t in tasks], ['cue'])
+        self.assertEqual(len(tasks[0].files), 1)
+
+    def test_an_already_split_album_is_still_left_alone(self):
+        """1 sheet describing 11 separate tracks is not a single-file rip."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            album = os.path.join(tmp, 'album')
+            os.makedirs(album)
+            for i in range(11):
+                open(os.path.join(album, f'{i:02d}.flac'), 'wb').write(b'\0' * 16)
+            for name in ('set FLAC.CUE', 'set WAV.CUE'):
+                open(os.path.join(album, name), 'w').write('FILE "x" WAVE\n')
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+        self.assertEqual([t.kind for t in tasks], [])

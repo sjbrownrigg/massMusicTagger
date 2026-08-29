@@ -14,6 +14,60 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+#: Format words a ripper appends to a cue sheet's name to say which audio it
+#: describes: "album.flac.cue" beside "album.cue", or "album FLAC.CUE" beside
+#: "album WAV.CUE".
+_CUE_FORMAT_WORDS = ('flac', 'wav', 'ape', 'wv', 'mp3', 'tta', 'tak')
+
+
+def _cue_stem(name: str) -> str:
+    """The album a cue sheet describes, with any format word removed."""
+    stem = os.path.splitext(name)[0]
+    base, sep, tail = stem.rpartition('.')
+    if sep and tail.lower() in _CUE_FORMAT_WORDS:
+        return base.strip().lower()
+    for sep in (' ', '-', '_'):
+        base, found, tail = stem.rpartition(sep)
+        if found and tail.lower() in _CUE_FORMAT_WORDS:
+            return base.strip().lower()
+    return stem.strip().lower()
+
+
+def dedupe_cue_sheets(cue_files, audio_files):
+    """One cue sheet per album, preferring the one naming the audio present.
+
+    A ripper often leaves two sheets for the same album -- "album.cue" beside
+    "album.flac.cue", or "album FLAC.CUE" beside "album WAV.CUE". Counting
+    them separately made the sheets outnumber the audio, and the test for a
+    single-file album is that the two counts match, so a genuine one-file rip
+    with a spare sheet was never split: it reached the tagger as one untagged
+    track and matched nothing.
+
+    Every multi-sheet directory in the library this was written against is a
+    duplicate pair of exactly this kind.
+    """
+    audio_exts = {os.path.splitext(a)[1].lstrip('.').lower() for a in audio_files}
+    groups = {}
+    for name in cue_files:
+        groups.setdefault(_cue_stem(name), []).append(name)
+
+    def preference(name):
+        stem = os.path.splitext(name)[0]
+        tail = stem.rpartition('.')[2].lower()
+        word = tail if tail in _CUE_FORMAT_WORDS else ''
+        if not word:
+            for sep in (' ', '-', '_'):
+                t = stem.rpartition(sep)[2].lower()
+                if t in _CUE_FORMAT_WORDS:
+                    word = t
+                    break
+        # A sheet naming the format actually present first, then an unmarked
+        # sheet, then anything else -- deterministic either way.
+        return (0 if word and word in audio_exts else (1 if not word else 2), name)
+
+    return [sorted(names, key=preference)[0] for names in groups.values()]
+
+
 class PrepTask(NamedTuple):
     """Work a source directory needs before it can be tagged."""
     dirpath: str
@@ -260,6 +314,8 @@ class FileUtils(object):
                             audio_files.append(str(file))
             dirs[:] = [d for d in dirs if d not in unwalk]
 
+            if parse_cue_files and cue_files:
+                cue_files = dedupe_cue_sheets(cue_files, audio_files)
             if parse_cue_files and cue_files and len(cue_files) == len(audio_files):
                 tasks.append(PrepTask(root, 'cue', tuple(sorted(cue_files))))
                 source_dirs.append(root + '/')
