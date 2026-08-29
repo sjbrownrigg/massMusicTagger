@@ -73,3 +73,19 @@ cover to prefer.
 
 Not obviously right to impose: the source *said* it was the front, and some
 releases genuinely have wide covers. Worth a decision rather than a default.
+
+---
+
+## Bit depth can rule out a CD match
+
+A 24-bit source cannot be a CD rip — CD audio is 16-bit by definition. The
+same album matched both `Codes (SBR331) [9xDM]` and `Codes (SBR331CD) [CD]`
+across two runs of a 24-bit/44.1 download, and only the first is possible.
+
+`format_hint` already rejects a vinyl release for a digital source, and a
+non-vinyl release for a vinyl source. It does not use bit depth, so a
+hi-res download can still match a CD pressing — which is both wrong and
+cheap to exclude, since `%bitdepth%` is already gathered.
+
+Worth care in one direction only: 24-bit rules *out* CD, but 16-bit rules
+nothing out, since a 16-bit file may be a CD rip or a lossless download.
