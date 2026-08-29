@@ -112,3 +112,18 @@ def test_the_sample_user_agent_names_this_program_too():
     ua = _sample_pairs(('config_sample.yaml',))[('common', 'user_agent')]
     assert ua.startswith('massMusicTagger/')
     assert 'discogstagger' not in ua
+
+
+# ── deprecations explain themselves ──────────────────────────────────────────
+
+def test_every_deprecated_key_says_what_replaced_it():
+    """A warning that names a key and stops is not much help.
+
+    common.formats_file warned without a note for as long as the mechanism
+    existed, so the one place a user could learn what to do instead was the
+    commit that deprecated it.
+    """
+    silent = sorted(set(config_schema.DEPRECATED)
+                    - set(config_schema.DEPRECATION_NOTES))
+    assert not silent, (
+        f'deprecated with no explanation: {silent}')

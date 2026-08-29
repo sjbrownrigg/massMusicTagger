@@ -86,6 +86,11 @@ DEPRECATED = frozenset({
 #: common.formats_file warns from TaggerConfig.resource() when it is actually
 #: used to resolve a path, which is more specific than anything sayable here.
 DEPRECATION_NOTES = {
+    ('common', 'formats_file'):
+        'formats.ini is found beside config.yaml in the configuration '
+        'directory, so nothing needs to declare where it is. The value is '
+        'still honoured, but remove the key and move the file next to '
+        'config.yaml instead.',
     ('file-formatting', 'image'):
         'artwork is named by a fixed convention now -- the Cover Art '
         'Archive vocabulary (front, back, booklet, liner, medium, tray, '
