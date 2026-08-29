@@ -2,6 +2,70 @@
 
 ---
 
+## Version 3.1.0 (2026-08-29)
+
+### Security
+
+**Metadata could execute code during tagging.** `$inarray` and `$flatten`
+both parse a list, both tried `json.loads` first, and both **fell back to
+`eval()`** on the value. Both are meant to be pointed at metadata:
+
+```
+$if1($inarray('%album%','Box Set'),'B','')
+```
+
+so an album titled `__import__('sys')…` ran that code. Discogs titles are
+editable by anyone with an account, and the release being tagged is chosen
+by matching against them, so this was reachable in ordinary use. Closed with
+`ast.literal_eval`, which reads the same literals and cannot call anything.
+JSON and Python-literal lists still work.
+
+Anyone tagging against Discogs with a version before 3.1.0 should upgrade.
+
+### Format strings are parsed, not `eval`ed
+
+The foobar2000 dialect is unchanged — all 50 dialect cases and all 70
+renderings of a real `formats.ini` come out byte-identical. What changed is
+how it is evaluated.
+
+`parseString` used to find a balanced `$fn(...)`, rewrite `$` to `self.`,
+and hand the result to `eval()`; nesting worked because Python's parser did
+it. The cost was that metadata had to be spliced into Python source, so
+every character meaningful to Python was neutralised on the way in — `'`
+became `\x27`, `$` became a private-use codepoint, and `\` was never
+handled at all, so an album called `AC\` could not be tagged.
+
+`naming/formatparser.py` parses the dialect directly. Two contexts: text is
+literal, with `$name(` and `%name%` embedded in it; an argument list is an
+expression, where terms concatenate, `+` joins them as it did under `eval`,
+and `\+` is a literal plus.
+
+**Values are data now**, resolved at evaluation time and never parsed. A
+title containing an apostrophe, dollar, bracket, comma, plus or backslash is
+simply a string, and all three escaping hacks are gone.
+
+### An ambiguous index entry is settled by the file count
+
+Discogs groups sub-tracks under a `type='index'` entry. Two shapes are
+unambiguous; anything else — both durations present, or neither — reads
+equally as one file or several. Across 23,102 cached releases that is 12% of
+index entries (85 of 711), and nothing in the data settles them.
+
+So nothing guesses: collapsing stays the default, and the number of files on
+disk chooses when it disagrees. One rule, used by the search, by explicit-ID
+validation, and by the mapper — a release accepted with *N* tracks and
+tagged with *N−1* would be worse than rejecting it.
+
+### Added
+
+- **`mmt --migrate-config`** moves a 2.x configuration to the 3.0.0 section
+  names in place, keeping every comment and writing a `.bak` first.
+- **`format_preview.py` works again.** It still imported `discogstagger`, so
+  it had been dead since the core was absorbed. `--conf <dir>` previews
+  against a real configuration rather than the sample.
+
+---
+
 ## Version 3.0.0 (2026-08-29)
 
 massMusicTagger no longer depends on discogstagger3. It carries the tagging
