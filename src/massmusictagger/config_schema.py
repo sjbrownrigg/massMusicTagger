@@ -49,6 +49,17 @@ def _default_user_agent() -> str:
 #: Recomputed per release, so it can never be compared against a literal.
 COMPUTED = frozenset({('common', 'user_agent')})
 
+#: Keys whose sample value is an example to be replaced, not a default. The
+#: schema default is empty and the run fails loudly if the setting is needed
+#: and unset -- showing "" in the sample would document nothing.
+PLACEHOLDERS = frozenset({
+    # MusicBrainz requires a user agent that identifies you and gives them a
+    # contact, so the sample shows the shape rather than an empty string.
+    # The credentials proper stay blank in their samples on purpose -- they
+    # come from the environment -- so they are not listed here.
+    ('musicbrainz', 'user_agent'),
+})
+
 
 class ConfigError(Exception):
     """Raised when a configuration is missing something it cannot run without."""
@@ -180,40 +191,50 @@ DEFAULTS = {
     # ── [logging] ─────────────────────────────────────────────────────
     ('logging', 'level'): '20',
     ('logging', 'config_file'): '',
+    ('logging', 'log_file'): '',
+
+    # ── massMusicTagger's own settings ────────────────────────────────
+    # These had no defaults: the schema lived in the other package, so
+    # massMusicTagger registered its key names without being able to give
+    # them values. Every call site then carried its own idea of the
+    # fallback -- `cfg.get(...) if cfg.has_option(...) else 'auto'` -- which
+    # is the hidden-baseline problem again, spread across the code instead
+    # of a sample file. Each value below is the fallback that call site was
+    # already applying, so behaviour is unchanged.
+    ('batch', 'audit_log'): '',
+    ('batch', 'workers'): '1',
+    ('details', 'image_source'): 'auto',
+    ('details', 'source_action'): 'done_file',
+    ('details', 'source_archive_dir'): '',
+    ('details', 'source_hints_file'): '',
+    ('details', 'source_move_template'): '%source%/%albumartist%/%current_folder%',
+    ('musicbrainz', 'acoustid_api_key'): '',
+    ('musicbrainz', 'acoustid_submitter_key'): '',
+    ('musicbrainz', 'acoustid_early'): 'False',
+    ('musicbrainz', 'caa_request_delay'): '0.5',
+    ('musicbrainz', 'cache_directory'): '',
+    ('musicbrainz', 'user_agent'): '',
+    # Written as a YAML list in the sample, which flattens to this string.
+    # _get_priority accepts either that or a comma-separated form.
+    ('source', 'priority'): "['discogs', 'musicbrainz', 'existing_tags']",
 }
 
 
-# massMusicTagger's own settings -- source priority, MusicBrainz, concurrency.
-# These were registered at import time when the schema lived in a separate
-# package; with one package they are simply declared.
-#
-# A key added to conf/config_sample.yaml must be added here too, or it will be
-# reported as unknown at runtime.
-MMT_KEYS = (
-    ('batch',       'audit_log'),
-    ('batch',       'workers'),
-    ('details',     'image_source'),
-    ('details',     'source_action'),
-    ('details',     'source_archive_dir'),
-    ('details',     'source_hints_file'),
-    ('details',     'source_move_template'),
-    ('logging',     'log_file'),
-    ('musicbrainz', 'acoustid_api_key'),
-    # Reserved: the second argument to acoustid.submit(). Nothing reads it yet
-    # -- massMusicTagger only calls acoustid.match(), which takes the
-    # application key alone.
-    #
-    # Named for its role rather than its type because AcoustID calls both
-    # credentials an "API key": the page at /api-key hands you this one, while
-    # acoustid_api_key above is the application key from the app registration.
-    # "submitter" collides with neither.
+# Kept as a name for the keys that were once registered separately, so the
+# tests that check the sample documents them can still say what they mean.
+# They now carry defaults like everything else; this is a view, not a
+# second class of key.
+MMT_KEYS = tuple(sorted(k for k in DEFAULTS if k in {
+    ('batch', 'audit_log'), ('batch', 'workers'),
+    ('details', 'image_source'), ('details', 'source_action'),
+    ('details', 'source_archive_dir'), ('details', 'source_hints_file'),
+    ('details', 'source_move_template'), ('logging', 'log_file'),
+    ('musicbrainz', 'acoustid_api_key'), ('musicbrainz', 'acoustid_early'),
     ('musicbrainz', 'acoustid_submitter_key'),
-    ('musicbrainz', 'acoustid_early'),
-    ('musicbrainz', 'caa_request_delay'),
-    ('musicbrainz', 'cache_directory'),
-    ('musicbrainz', 'user_agent'),
-    ('source',      'priority'),
-)
+    ('musicbrainz', 'caa_request_delay'), ('musicbrainz', 'cache_directory'),
+    ('musicbrainz', 'user_agent'), ('source', 'priority'),
+}))
+
 
 _EXTRA_KNOWN = set(MMT_KEYS)
 

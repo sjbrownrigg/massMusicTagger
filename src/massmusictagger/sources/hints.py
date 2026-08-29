@@ -33,6 +33,7 @@ def _load_source_hints(cfg) -> dict:
                 break
         except Exception:
             pass
+    configured = bool(path)
     if path:
         # An override named by the config resolves beside that config file.
         try:
@@ -53,7 +54,15 @@ def _load_source_hints(cfg) -> dict:
             data = _yaml.safe_load(f) or {}
         return data.get('source_hints', {})
     except FileNotFoundError:
-        logger.debug('source_hints_file not found: %s', path)
+        if configured:
+            # Asked for by name and not there. Debug-level was how
+            # char_profile: windows went a whole library unnoticed -- the
+            # substitutions file was named with a path that did not resolve,
+            # and the only trace was a message nobody sees.
+            logger.warning('source_hints_file names %s, which does not exist '
+                           '— no source hints will be applied', path)
+        else:
+            logger.debug('no bundled source hints at %s', path)
         return {}
     except Exception as exc:
         logger.warning('Failed to load source hints from %s: %s', path, exc)

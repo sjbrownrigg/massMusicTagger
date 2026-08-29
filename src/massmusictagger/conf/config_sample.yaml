@@ -185,7 +185,11 @@ details:
   #              releases on Discogs can surface beyond the original year.
   #   MB       — logs a WARNING when matched release format conflicts.
   # Leave empty to disable.
-  source_hints_file: "conf/source_hints.yaml"
+  # Leave empty to use the copy shipped inside the package. A path here
+  # resolves beside config.yaml -- "conf/source_hints.yaml" pointed at a
+  # directory that only exists in a source checkout, so the feature was
+  # silently off for every installed copy.
+  source_hints_file: ""
   variousartists: Various
   download_only_cover: true
 

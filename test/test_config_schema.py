@@ -80,7 +80,9 @@ def test_sample_values_match_schema_defaults():
     mismatched = {
         key: (sample[key], default)
         for key, default in config_schema.DEFAULTS.items()
-        if key in sample and key not in config_schema.COMPUTED
+        if key in sample
+        and key not in config_schema.COMPUTED
+        and key not in config_schema.PLACEHOLDERS
         and sample[key] != default
     }
     assert not mismatched, (
@@ -155,3 +157,15 @@ def test_an_ordinary_path_still_works(tmp_path):
     found = roots.discover_credentials(str(cfg))
     assert [os.path.basename(p) for p in found] == ["discogs.yaml",
                                                     "musicbrainz.yaml"]
+
+
+def test_placeholders_show_an_example_not_an_empty_string():
+    """A credential's sample value teaches the format; "" teaches nothing."""
+    sample = _sample_pairs()
+    for key in sorted(config_schema.PLACEHOLDERS):
+        if key not in sample:
+            continue
+        assert sample[key], f'{key} is a placeholder but the sample is empty'
+        assert config_schema.DEFAULTS.get(key) == '', (
+            f'{key} is a placeholder, so its schema default must be empty -- '
+            'a credential must never have a working-looking default')
