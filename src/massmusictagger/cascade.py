@@ -76,6 +76,7 @@ def search_and_map(
     mb_connector: Optional['SourceConnector'] = None,
     mb_search=None,
     release_id_override: Optional[str] = None,
+    release_id_source: Optional[str] = None,
 ) -> Optional[tuple['Album', Optional['SourceConnector']]]:
     """Try each source in priority order; return (Album, connector) on first match.
 
@@ -96,6 +97,7 @@ def search_and_map(
         discogs_search=discogs_search,
         mb_connector=mb_connector, mb_search=mb_search,
         release_id_override=release_id_override,
+        release_id_source=release_id_source,
     )
 
     priority = _get_priority(cfg)
@@ -137,6 +139,30 @@ class _Attempt(NamedTuple):
     mb_connector: Optional['SourceConnector']
     mb_search: object
     release_id_override: Optional[str]
+    #: Which source the override names. None means "whichever source accepts
+    #: IDs first", the old behaviour. An id.txt always says, because a Discogs
+    #: release number and a MusicBrainz MBID are not interchangeable and
+    #: handing one to the other wastes a lookup at best.
+    release_id_source: Optional[str] = None
+
+
+def _override_for(source: str, ctx: '_Attempt') -> Optional[str]:
+    """The explicit release ID, if it was meant for this source.
+
+    An unqualified ID goes to whichever source is tried first, which is what
+    --releaseid always did. A qualified one -- from an id.txt, or
+    `--releaseid musicbrainz:<mbid>` -- only applies to the source it names,
+    so the others fall back to searching instead of being handed an ID from
+    a numbering scheme they do not use.
+    """
+    if not ctx.release_id_override:
+        return None
+    if ctx.release_id_source in (None, source):
+        return ctx.release_id_override
+    # 'local' reads the same Discogs numbering from a local JSON dump.
+    if ctx.release_id_source == 'discogs' and source == 'local':
+        return ctx.release_id_override
+    return None
 
 
 def _resolve_discogs(source: str, ctx: '_Attempt'):
@@ -144,7 +170,7 @@ def _resolve_discogs(source: str, ctx: '_Attempt'):
     conn = (ctx.discogs_local_connector if source == 'local'
             else ctx.discogs_connector)
     found = _try_discogs(ctx.sourcedir, ctx.cfg, conn, ctx.discogs_search,
-                         release_id_override=ctx.release_id_override)
+                         release_id_override=_override_for(source, ctx))
     if found is None:
         return None
     raw, release_id = found
@@ -157,7 +183,7 @@ def _resolve_discogs(source: str, ctx: '_Attempt'):
 def _resolve_musicbrainz(source: str, ctx: '_Attempt'):
     found = _try_musicbrainz(ctx.sourcedir, ctx.cfg, ctx.mb_connector,
                              ctx.mb_search,
-                             release_id_override=ctx.release_id_override)
+                             release_id_override=_override_for(source, ctx))
     if found is None:
         return None
     raw, mbid = found

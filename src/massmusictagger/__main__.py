@@ -39,7 +39,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument('-r', '--releaseid',
                    default=None,
                    metavar='ID',
-                   help='Override: use this release ID instead of searching')
+                   help='Override: use this release ID instead of searching. '
+                        'Qualify it with a source when the ID is not a Discogs '
+                        'release number, e.g. musicbrainz:<mbid>. For a whole '
+                        'tree, put an id.txt beside each release instead.')
     p.add_argument('-s', '--source',
                    default=None,
                    choices=['auto', 'discogs', 'musicbrainz', 'local'],
@@ -631,8 +634,9 @@ def _main(argv: list[str] | None = None) -> None:
                 f'album directories were found under\n'
                 f'  {opts.sourcedir}\n'
                 f'\n'
-                f'  Point it at one album directory, or drop --releaseid to '
-                f'search for each.',
+                f'  Point it at one album directory, drop --releaseid to '
+                f'search for each, or put an\n'
+                f'  id.txt beside each release that needs an explicit ID.',
                 file=sys.stderr)
             sys.exit(2)
 

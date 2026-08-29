@@ -131,9 +131,10 @@ class ReleaseIdOverrideIsWired(unittest.TestCase):
         import inspect
         from massmusictagger import processor as proc
         src = inspect.getsource(proc)
-        call = src[src.index('search_and_map('):]
-        call = call[:call.index(')')]
-        self.assertIn('release_id_override=self.release_id', call)
+        call = src[src.index('match = search_and_map('):]
+        call = call[:call.index('\n            )')]
+        self.assertIn('release_id_override=override_id', call)
+        self.assertIn('release_id_source=override_source', call)
 
     def test_main_passes_the_flag_to_the_processor(self):
         import inspect

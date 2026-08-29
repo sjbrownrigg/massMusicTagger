@@ -50,6 +50,24 @@ OUTCOME_SKIPPED = 'skipped'
 OUTCOME_DRY_RUN = 'dry_run'
 
 
+def _split_source_id(value):
+    """Split "musicbrainz:<mbid>" into ("musicbrainz", "<mbid>").
+
+    --releaseid was Discogs-only when it was written, so a bare value still
+    means "whichever source is tried first" and keeps working. Qualifying it
+    matters now that the sources have separate numbering: a Discogs release
+    number handed to MusicBrainz is not a near miss, it is a different
+    namespace.
+    """
+    if not value:
+        return None, None
+    text = str(value).strip()
+    for source in ('discogs', 'musicbrainz', 'local'):
+        if text.lower().startswith(source + ':'):
+            return source, text[len(source) + 1:].strip()
+    return None, text
+
+
 class ProcessingResult:
     __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
                  'title', 'albumartist', 'elapsed', 'error', 'target_dir',
@@ -209,7 +227,9 @@ class MassProcessor:
         self.force = force
         #: --releaseid. Skips search entirely for the one directory being
         #: processed, which is why __main__ refuses it for a multi-album run.
-        self.release_id = release_id
+        #: An id.txt does the same per directory, and works across a whole
+        #: tree in one run; the flag wins where both are present.
+        self.release_id_source, self.release_id = _split_source_id(release_id)
         self.audit_log_path = audit_log_path
 
         # Build connectors and searchers once per session (they hold caches).
@@ -286,6 +306,11 @@ class MassProcessor:
                 result.elapsed = time.monotonic() - t0
                 return result
 
+            # --releaseid wins; otherwise an id.txt in this directory.
+            override_source, override_id = self.release_id_source, self.release_id
+            if not override_id:
+                override_source, override_id = self._id_file_override(sourcedir)
+
             from massmusictagger.cascade import search_and_map
             match = search_and_map(
                 sourcedir, cfg,
@@ -294,7 +319,8 @@ class MassProcessor:
                 discogs_search=self._discogs_search,
                 mb_connector=self._mb_conn,
                 mb_search=self._mb_search,
-                release_id_override=self.release_id,
+                release_id_override=override_id,
+                release_id_source=override_source,
             )
 
             if match is None:
@@ -485,6 +511,30 @@ class MassProcessor:
         with open(self.audit_log_path, 'w', encoding='utf-8') as fh:
             json.dump(existing, fh, indent=2, ensure_ascii=False)
         logger.debug('Audit log updated: %s', self.audit_log_path)
+
+    def _id_file_override(self, sourcedir: str):
+        """(source, release_id) from an id.txt in this directory, or (None, None).
+
+        Read per directory rather than once per run: an id.txt sits with the
+        release it names, which is the whole point of it -- one run over a
+        tree can carry a different explicit ID for every album, where
+        --releaseid can only carry one.
+        """
+        id_file = (self.cfg.get('batch', 'id_file')
+                   if self.cfg.has_option('batch', 'id_file') else 'id.txt')
+        if not id_file:
+            return None, None
+        from massmusictagger.core.files import FileUtils
+
+        class _Opts:
+            forceUpdate = False
+            dry_run = False
+
+        try:
+            return FileUtils(self.cfg, _Opts()).read_id_file(sourcedir, id_file)
+        except Exception as exc:
+            logger.warning('Could not read %s in %s: %s', id_file, sourcedir, exc)
+            return None, None
 
     def _apply_image_source(self, album, connector, sourcedir: str, cfg) -> object:
         """Override album.attachments and the image connector, per image_source.

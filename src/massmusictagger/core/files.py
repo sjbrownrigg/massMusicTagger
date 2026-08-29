@@ -89,20 +89,61 @@ class FileUtils(object):
         #: --dry-run rewrote the directory it was only meant to report on.
         self.dry_run = getattr(options, 'dry_run', False)
 
-    def read_id_file(self, dir, file_name, options):
-        # read tags from batch file if available
-        releaseid = None
-        idfile = os.path.join(dir, file_name)
-        if os.path.exists(idfile):
-            logger.info("reading id file %s in %s", file_name, dir)
-            self.config.read(idfile)
-            source_type = self.config.get("source", "name")
-            id_name = self.config.get("source", source_type)
-            releaseid = self.config.get("source", id_name)
-        elif options.releaseid:
-            releaseid = options.releaseid
+    def read_id_file(self, dirpath, file_name=None):
+        """Return (source, release_id) declared by an id.txt, or (None, None).
 
-        return releaseid
+        The format is discogstagger3's, unchanged, so an existing tree of
+        id.txt files keeps working:
+
+            [source]
+            name = discogs
+            discogs_id = 14726546
+
+        The ID key is read as ``<name>_id`` directly. discogstagger3 went
+        through a configured name-to-key mapping in the main config
+        (source.discogs = discogs_id), which meant a file could only name a
+        source the config had a mapping for -- and the mapping's only other
+        job was choosing a tag field. Reading it directly lets an id.txt name
+        musicbrainz without anything being declared first.
+
+        Parsed with its own parser. The old implementation called
+        self.config.read(idfile), merging each album's id.txt into the shared
+        run configuration, so values leaked from one directory into the next.
+        """
+        from configparser import RawConfigParser, Error as _CPError
+
+        idfile = os.path.join(dirpath, file_name or 'id.txt')
+        if not os.path.exists(idfile):
+            return None, None
+
+        parser = RawConfigParser()
+        try:
+            parser.read(idfile, encoding='utf-8')
+        except (_CPError, UnicodeDecodeError) as exc:
+            logger.warning('Ignoring unreadable %s: %s', _fssafe(idfile), exc)
+            return None, None
+
+        if not parser.has_section('source'):
+            logger.warning('%s has no [source] section — ignoring',
+                           _fssafe(idfile))
+            return None, None
+
+        source = (parser.get('source', 'name', fallback='') or '').strip()
+        if not source:
+            logger.warning('%s does not say which source — ignoring',
+                           _fssafe(idfile))
+            return None, None
+
+        release_id = (parser.get('source', f'{source}_id', fallback='')
+                      or '').strip()
+        if not release_id:
+            logger.warning('%s names source %r but has no %s_id — ignoring',
+                           _fssafe(idfile), source, source)
+            return None, None
+
+        logger.info('%s: %s release %s (from %s)', _fssafe(dirpath),
+                    source, release_id, file_name or 'id.txt')
+        return source, release_id
 
     def walk_dir_tree(self, start_dir, id_file):
         source_dirs = []
