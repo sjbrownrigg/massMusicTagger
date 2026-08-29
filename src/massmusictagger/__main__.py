@@ -444,10 +444,27 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
         return dirs, _count_ignored(source_dir, dirs, cfg, force)
 
     # searchdiscogs=true: also include audio dirs without an ancestor id.txt.
-    # FileUtils.get_audio_dirs() handles CD1/CD2 multi-disc layouts internally
-    # and strips trailing '/' — we strip again defensively.
+    # Two stages, deliberately. scan() only reads; prepare() runs the CUE
+    # splitting and .m4a conversion it identified, and reports what it did.
+    # These used to be one function, so listing the albums rewrote them --
+    # and a dry run destroyed a single-file CUE album while reporting that
+    # it had changed nothing. It also means a conversion failure reads as a
+    # conversion failure, not as 'no audio source directories found'.
     id_dir_set = set(id_dirs)
-    all_audio = [d.rstrip('/') for d in fu.get_audio_dirs(source_dir)]
+    scanned, prep_tasks = fu.scan(source_dir)
+    if prep_tasks:
+        prepared, failed = fu.prepare(prep_tasks, dry_run=dry_run)
+        if prepared:
+            logger.info('Prepared %d source director%s', len(prepared),
+                        'y' if len(prepared) == 1 else 'ies')
+        if failed:
+            logger.error('%d source director%s could not be prepared and '
+                         'will not be tagged', len(failed),
+                         'y' if len(failed) == 1 else 'ies')
+            unprepared = {t.dirpath.rstrip('/') for t in failed}
+            scanned = [d for d in scanned
+                       if d.rstrip('/') not in unprepared]
+    all_audio = [d.rstrip('/') for d in scanned]
     orphan_audio = [
         d for d in all_audio
         if not any(

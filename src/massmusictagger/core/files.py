@@ -5,11 +5,20 @@ import shutil
 from mutagen.flac import FLAC
 from mutagen.mp4 import MP4
 import re
+from typing import NamedTuple
+
 from massmusictagger.core.cue import CUE, Track
 from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS, ignored_source_dirs
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+class PrepTask(NamedTuple):
+    """Work a source directory needs before it can be tagged."""
+    dirpath: str
+    kind: str       # 'cue' | 'm4a'
+    files: tuple
 
 
 def _actual_audio_format(path: str) -> str:
@@ -188,31 +197,32 @@ class FileUtils(object):
 
         return source_dirs
 
-    def get_audio_dirs(self, start_dir):
-        """ Returns a list of directories with audio track to be processed.
-            Any CUE files encountered will be split automatically
+    def scan(self, start_dir):
+        """Find album directories. Reads; never writes.
+
+        Returns (source_dirs, tasks), where tasks are the transformations
+        those directories need before they can be tagged -- CUE sheets to
+        split, .m4a files to convert. Running them is prepare()'s job.
+
+        These were one function. get_audio_dirs() walked the tree and split
+        and transcoded as it went, so "list the albums" rewrote the library:
+        --dry-run destroyed a single-file CUE album while reporting that it
+        had changed nothing. Separating them also means a conversion failure
+        can be reported as a conversion failure, rather than surfacing later
+        as "no audio source directories found".
         """
         parse_cue_files = self.config.getboolean('cue', 'parse_cue_files')
         done_dirs = ignored_source_dirs(self.config)
         source_dirs = []
+        tasks = []
 
         for root, dirs, files in os.walk(start_dir, topdown=True):
             dirs[:] = [d for d in dirs if d not in done_dirs]
 
             if self.convert_m4a_files:
                 m4a_files = [f for f in files if f.endswith('.m4a')]
-                if m4a_files and self.dry_run:
-                    logger.info('Would convert %d .m4a file(s) in %s',
-                                len(m4a_files), _fssafe(root))
-                elif m4a_files and self._processM4aFiles(root, m4a_files):
-                    # Conversions changed the directory contents (originals
-                    # moved to m4a_done_dir, new .flac/.mp3/.ogg files added)
-                    # — re-read so the audio-file scan below sees the result.
-                    # Filter to files only: os.listdir() also returns
-                    # subdirectory names, and m4a_done_dir defaults to '.m4a'
-                    # — which would otherwise match AUDIO_EXTENSIONS itself.
-                    files = [f for f in os.listdir(root)
-                             if os.path.isfile(os.path.join(root, f))]
+                if m4a_files:
+                    tasks.append(PrepTask(root, 'm4a', tuple(sorted(m4a_files))))
 
             done = []
             cue_files = []
@@ -239,11 +249,9 @@ class FileUtils(object):
                         disc_m4a = [f for f in os.listdir(disc_path)
                                     if f.endswith('.m4a')
                                     and os.path.isfile(os.path.join(disc_path, f))]
-                        if disc_m4a and self.dry_run:
-                            logger.info('Would convert %d .m4a file(s) in %s',
-                                        len(disc_m4a), _fssafe(disc_path))
-                        elif disc_m4a:
-                            self._processM4aFiles(disc_path, disc_m4a)
+                        if disc_m4a:
+                            tasks.append(
+                                PrepTask(disc_path, 'm4a', tuple(sorted(disc_m4a))))
                     d = Path(disc_path)
                     for file in d.iterdir():
                         if str(file).endswith('.cue'):
@@ -251,19 +259,54 @@ class FileUtils(object):
                         if str(file).endswith(AUDIO_EXTENSIONS):
                             audio_files.append(str(file))
             dirs[:] = [d for d in dirs if d not in unwalk]
-            if parse_cue_files and len(cue_files) > 0 and len(cue_files) == len(audio_files):
-                if self.dry_run:
-                    logger.info('Would split %d CUE sheet(s) in %s',
-                                len(cue_files), _fssafe(root))
-                    source_dirs.append(root + '/')
-                else:
-                    result = self._processCueFiles(root, cue_files)
-                    if result == 0:
-                        source_dirs.append(root + '/')
-            elif len(audio_files) > 0 and (self.forceUpdate or self.done_file not in files):
-                source_dirs.append(root + '/')
-                logger.debug('found %s in %s', _fssafe(file), _fssafe(root + '/'))
 
+            if parse_cue_files and cue_files and len(cue_files) == len(audio_files):
+                tasks.append(PrepTask(root, 'cue', tuple(sorted(cue_files))))
+                source_dirs.append(root + '/')
+            elif audio_files and (self.forceUpdate or self.done_file not in files):
+                source_dirs.append(root + '/')
+                logger.debug('found audio in %s', _fssafe(root + '/'))
+
+        return source_dirs, tasks
+
+    def prepare(self, tasks, dry_run=False):
+        """Run the transformations scan() identified.
+
+        Returns (prepared, failed) as lists of PrepTask. A failure is
+        reported and the other tasks still run: one album with a broken CUE
+        sheet should not stop the rest of a batch.
+        """
+        prepared, failed = [], []
+        for task in tasks:
+            what = ('%d CUE sheet(s)' % len(task.files) if task.kind == 'cue'
+                    else '%d .m4a file(s)' % len(task.files))
+            if dry_run:
+                logger.info('Would convert %s in %s', what, _fssafe(task.dirpath))
+                continue
+            try:
+                if task.kind == 'cue':
+                    ok = self._processCueFiles(task.dirpath, list(task.files)) == 0
+                else:
+                    ok = bool(self._processM4aFiles(task.dirpath, list(task.files)))
+            except Exception as exc:
+                logger.error('Failed preparing %s in %s: %s',
+                             what, _fssafe(task.dirpath), exc)
+                failed.append(task)
+                continue
+            (prepared if ok else failed).append(task)
+            if not ok:
+                logger.error('Could not prepare %s in %s', what,
+                             _fssafe(task.dirpath))
+        return prepared, failed
+
+    def get_audio_dirs(self, start_dir):
+        """scan() then prepare(), which is what this used to be in one pass.
+
+        Kept for callers that want both at once; __main__ runs the two stages
+        separately so a dry run can stop after the first.
+        """
+        source_dirs, tasks = self.scan(start_dir)
+        self.prepare(tasks, dry_run=self.dry_run)
         return source_dirs
 
     def _processCueFiles(self, dir, files):

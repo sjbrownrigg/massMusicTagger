@@ -122,3 +122,97 @@ class TheFlagReachesTheScan(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ScanReadsPrepareWrites(unittest.TestCase):
+    """Discovery and transformation are separate stages now.
+
+    They were one function: get_audio_dirs() walked the tree and split CUE
+    sheets and transcoded .m4a as it went, so "list the albums" rewrote the
+    library. Splitting them also means a conversion failure can be reported
+    as one, instead of surfacing later as "no audio source directories found".
+    """
+
+    def _album(self, tmp):
+        album = os.path.join(tmp, 'album')
+        os.makedirs(album)
+        open(os.path.join(album, 'whole.flac'), 'wb').write(b'\0' * 16)
+        open(os.path.join(album, 'whole.cue'), 'w').write('FILE "whole.flac" WAVE\n')
+        return album
+
+    def test_scan_never_writes(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            album = self._album(tmp)
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            with patch.object(fu, '_processCueFiles') as split, \
+                 patch.object(fu, '_processM4aFiles') as convert:
+                dirs, tasks = fu.scan(tmp)
+            split.assert_not_called()
+            convert.assert_not_called()
+            self.assertEqual(sorted(os.listdir(album)), ['whole.cue', 'whole.flac'])
+            self.assertTrue(any(album in d for d in dirs))
+            self.assertEqual([t.kind for t in tasks], ['cue'])
+
+    def test_prepare_runs_what_scan_found(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._album(tmp)
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+            with patch.object(fu, '_processCueFiles', return_value=0) as split:
+                prepared, failed = fu.prepare(tasks)
+            split.assert_called_once()
+            self.assertEqual(len(prepared), 1)
+            self.assertEqual(failed, [])
+
+    def test_a_failed_preparation_is_reported_not_swallowed(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._album(tmp)
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+            with patch.object(fu, '_processCueFiles', return_value=1):
+                prepared, failed = fu.prepare(tasks)
+            self.assertEqual(prepared, [])
+            self.assertEqual(len(failed), 1)
+
+    def test_one_broken_album_does_not_stop_the_batch(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ('a', 'b'):
+                d = os.path.join(tmp, name)
+                os.makedirs(d)
+                open(os.path.join(d, 'whole.flac'), 'wb').write(b'\0' * 16)
+                open(os.path.join(d, 'whole.cue'), 'w').write('FILE "x" WAVE\n')
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+            self.assertEqual(len(tasks), 2)
+            calls = {'n': 0}
+            def flaky(dirpath, files):
+                calls['n'] += 1
+                if calls['n'] == 1:
+                    raise OSError('broken cue')
+                return 0
+            with patch.object(fu, '_processCueFiles', side_effect=flaky):
+                prepared, failed = fu.prepare(tasks)
+            self.assertEqual(len(prepared), 1)
+            self.assertEqual(len(failed), 1)
+
+    def test_prepare_honours_dry_run(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._album(tmp)
+            fu = _fileutils(False, **{'cue.parse_cue_files': 'true'})
+            _, tasks = fu.scan(tmp)
+            with patch.object(fu, '_processCueFiles') as split:
+                prepared, failed = fu.prepare(tasks, dry_run=True)
+            split.assert_not_called()
+            self.assertEqual((prepared, failed), ([], []))
+
+    def test_main_runs_the_two_stages_separately(self):
+        import inspect
+        from massmusictagger import __main__ as mmt_main
+        src = inspect.getsource(mmt_main._get_source_dirs)
+        self.assertIn('fu.scan(source_dir)', src)
+        self.assertIn('fu.prepare(prep_tasks', src)
