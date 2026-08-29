@@ -175,6 +175,15 @@ _EXTENSIONS = {'jpg': '.jpg', 'jpeg': '.jpg', 'png': '.png',
 #: there were two lists, and only one of them knew about image-01.jpg.
 LOCAL_COVER_NAMES = ('front.jpg', 'cover.jpg', 'folder.jpg', 'image-01.jpg')
 
+#: The same list as stems, in the same preference order. Matching by stem
+#: rather than by full filename means front.png counts as a front cover, which
+#: it plainly is -- artwork subdirectories in this library use .png freely.
+LOCAL_COVER_STEMS = ('front', 'cover', 'folder', 'image-01')
+
+#: Image extensions a local cover may have, lowercase, '.jpeg' included
+#: because scanners write it.
+LOCAL_IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+
 
 def extension_for(att: 'Attachment', data: Optional[bytes] = None) -> str:
     """The file extension to write this attachment as.

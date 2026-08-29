@@ -714,3 +714,153 @@ class LocalCoverMatchingIgnoresCase(unittest.TestCase):
     def test_a_missing_directory_is_not_an_error(self):
         from massmusictagger.image_utils import _local_front
         self.assertEqual(_local_front('/definitely/not/here'), (None, None))
+
+
+class ArtworkSubdirectoriesAreSearched(unittest.TestCase):
+    """The best scan is often in Covers/ and nothing looked at it.
+
+    58 of 412 albums in this library keep artwork in a subdirectory, and a
+    release can carry a 300x300 folder.jpg beside a 600x600 scan. The release
+    root is still searched first.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def _img(self, relpath, w, h, fmt='JPEG'):
+        from PIL import Image
+        path = os.path.join(self.target, relpath)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Image.new('RGB', (w, h), (10, 20, 30)).save(path, fmt)
+        return path
+
+    def _found(self):
+        from massmusictagger.image_utils import _local_front
+        path, dims = _local_front(self.target)
+        return (os.path.relpath(path, self.target) if path else None), dims
+
+    def test_a_cover_in_covers_is_found(self):
+        self._img('Covers/front.jpg', 600, 600)
+        self.assertEqual(self._found(), (os.path.join('Covers', 'front.jpg'),
+                                         (600, 600)))
+
+    def test_scans_and_artwork_too(self):
+        for sub in ('scans', 'artwork', 'art', 'images', 'img'):
+            with self.subTest(sub=sub):
+                tmp = self.setUp() or self.target
+                self._img(f'{sub}/cover.jpg', 500, 500)
+                self.assertEqual(self._found()[1], (500, 500))
+
+    def test_a_bigger_cover_of_the_same_shape_wins(self):
+        """The same picture, scanned larger."""
+        self._img('folder.jpg', 300, 300)
+        self._img('Covers/front.jpg', 900, 900)
+        self.assertEqual(self._found()[0], os.path.join('Covers', 'front.jpg'))
+
+    def test_a_bigger_cover_of_a_different_shape_is_ignored(self):
+        """A sleeve spread is bigger than the front and is not the front.
+
+        Measured over this library: of the 18 subdirectory covers larger than
+        the release's own, 15 are around 2.4:1 -- front and back on one sheet
+        -- and two are 0.5. Exactly one was a genuine higher-resolution front.
+        Choosing on size alone embeds a spread 17 times out of 18.
+        """
+        self._img('folder.jpg', 600, 600)
+        self._img('Artwork/Cover.jpg', 3429, 1430)
+        self.assertEqual(self._found()[0], 'folder.jpg')
+
+    def test_a_smaller_subdirectory_cover_is_ignored(self):
+        self._img('folder.jpg', 900, 900)
+        self._img('Covers/front.jpg', 300, 300)
+        self.assertEqual(self._found()[0], 'folder.jpg')
+
+    def test_a_slightly_different_shape_is_still_the_same_picture(self):
+        """Scans are trimmed by hand; 500x500 and 1578x1442 is the real case."""
+        self._img('folder.jpg', 500, 500)
+        self._img('Covers/Front.png', 1578, 1442, 'PNG')
+        self.assertEqual(self._found()[0], os.path.join('Covers', 'Front.png'))
+
+    def test_a_png_counts_as_a_cover(self):
+        """Artwork directories use .png freely; front.png is a front cover."""
+        self._img('Covers/front.png', 700, 700, 'PNG')
+        self.assertEqual(self._found()[0], os.path.join('Covers', 'front.png'))
+
+    def test_quality_reports_are_not_artwork(self):
+        """quality/ holds dynamic range reports and spectrograms.
+
+        Whitelisting the directory names is the whole point: guessing would
+        embed a spectrogram as the front cover.
+        """
+        self._img('quality/spectrogram.png', 1200, 800, 'PNG')
+        self._img('quality/front.jpg', 1000, 1000)
+        self.assertEqual(self._found(), (None, None))
+
+    def test_a_disc_label_is_not_a_front_cover(self):
+        """These directories mostly hold cd.jpg, back.jpg, matrix.jpg."""
+        self._img('scans/cd.jpg', 1200, 1200)
+        self._img('scans/back.jpg', 1200, 1200)
+        self._img('scans/matrix.jpg', 1200, 1200)
+        self.assertEqual(self._found(), (None, None))
+
+    def test_size_never_overrules_a_name(self):
+        self._img('scans/back.jpg', 2000, 2000)
+        self._img('scans/front.jpg', 400, 400)
+        self.assertEqual(self._found()[1], (400, 400))
+
+    def test_the_subdirectory_name_is_matched_without_case(self):
+        self._img('SCANS/front.jpg', 550, 550)
+        self.assertEqual(self._found()[1], (550, 550))
+
+
+class PromotingAKeptCover(unittest.TestCase):
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def _img(self, relpath, w, h, fmt='JPEG'):
+        from PIL import Image
+        path = os.path.join(self.target, relpath)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Image.new('RGB', (w, h), (10, 20, 30)).save(path, fmt)
+        return path
+
+    def test_a_cover_in_a_subdirectory_is_copied_not_moved(self):
+        """Covers/ is carried into the release; do not leave a gap in it."""
+        from massmusictagger.image_utils import _promote_local
+        src = self._img('Covers/front.jpg', 600, 600)
+        out = _promote_local(src, self.target, 'front')
+        self.assertEqual(os.path.basename(out), 'front.jpg')
+        self.assertTrue(os.path.exists(src), 'the scan set must stay complete')
+        self.assertTrue(os.path.exists(os.path.join(self.target, 'front.jpg')))
+
+    def test_a_cover_in_the_root_is_renamed(self):
+        from massmusictagger.image_utils import _promote_local
+        src = self._img('Cover.jpg', 600, 600)
+        out = _promote_local(src, self.target, 'front')
+        self.assertEqual(os.path.basename(out), 'front.jpg')
+        self.assertFalse(os.path.exists(src), 'no duplicate under the old name')
+
+    def test_a_png_keeps_being_a_png(self):
+        """Naming came from the *remote* attachment, so a local front.png
+        became front.jpg while still holding PNG bytes."""
+        from massmusictagger.image_utils import _promote_local
+        src = self._img('Cover.png', 600, 600, 'PNG')
+        out = _promote_local(src, self.target, 'front')
+        self.assertEqual(os.path.basename(out), 'front.png')
+
+    def test_jpeg_is_spelled_jpg(self):
+        from massmusictagger.image_utils import _promote_local
+        src = self._img('Cover.jpeg', 600, 600)
+        out = _promote_local(src, self.target, 'front')
+        self.assertEqual(os.path.basename(out), 'front.jpg')
+
+    def test_already_correct_is_left_alone(self):
+        from massmusictagger.image_utils import _promote_local
+        src = self._img('front.jpg', 600, 600)
+        self.assertEqual(_promote_local(src, self.target, 'front'), src)

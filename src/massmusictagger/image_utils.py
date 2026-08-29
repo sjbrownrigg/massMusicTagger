@@ -151,8 +151,8 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                         # cover.jpg left beside a downloaded front.jpg would
                         # otherwise leave two front covers in the directory
                         # with nothing to say which one wins.
-                        local_front_path = _rename_to(
-                            local_front_path, target_dir, filename)
+                        local_front_path = _promote_local(
+                            local_front_path, target_dir, base)
                         if use_folder_jpg and local_front_path:
                             _copy_to(local_front_path,
                                      os.path.join(target_dir, 'folder.jpg'))
@@ -209,41 +209,118 @@ def _measure(path: str) -> Optional[tuple[int, int]]:
         return None
 
 
-def _local_front(target_dir: str):
-    """(path, dimensions) of the front cover already in the directory.
+#: Subdirectories that hold album artwork, in preference order. A whitelist,
+#: because the alternative is not: `quality/` in this library holds dynamic
+#: range reports and spectrograms, and `info/` holds a photograph per track.
+#: Treating either as cover art would embed a spectrogram as the front cover.
+ARTWORK_SUBDIRS = ('covers', 'artwork', 'art', 'scans', 'scan', 'images', 'img')
 
-    Matched without regard to case. The names are checked in preference
-    order, and an exact match wins over one that only differs in case, so a
-    directory holding both front.jpg and Front.jpg behaves as it always did.
 
-    Case mattered before, on a case-sensitive share: a library using
-    Cover.jpg or Front.jpg had no local cover as far as this was concerned,
-    so prefer_larger had nothing to compare against and downloaded whatever
-    the source offered -- leaving the original beside it under a name nothing
-    would look at again. 6 of 413 albums in this library are named that way.
+def _cover_in(directory: str):
+    """(path, dimensions) of a recognisable front cover in one directory.
 
-    Returns (None, None) when there is no cover, or when a file is there but
-    unreadable as an image -- a policy that cannot measure both sides must
-    not pretend it made a comparison.
+    Matched on the stem, so front.png counts, and without regard to case, so
+    Cover.jpg does. Preference order decides first: front beats cover beats
+    folder, whatever the spelling or extension.
+
+    Only a name that *says* front cover is accepted. Choosing the largest
+    image instead would be a guess, and the wrong guess is specific: these
+    directories mostly hold cd.jpg, back.jpg, matrix.jpg and booklet scans,
+    so guessing by size embeds a disc label or a back cover as the front.
     """
+    from massmusictagger.core.attachments import LOCAL_COVER_STEMS, LOCAL_IMAGE_EXTS
     try:
-        present = os.listdir(target_dir)
+        present = os.listdir(directory)
     except OSError:
         return None, None
-    by_lower = {}
-    for name in present:
-        by_lower.setdefault(name.lower(), []).append(name)
 
-    for candidate in LOCAL_COVER_NAMES:
-        matches = by_lower.get(candidate, [])
-        # Exact spelling first, then any other casing, so the choice is
-        # deterministic when a directory holds more than one.
-        for name in sorted(matches, key=lambda n: (n != candidate, n)):
-            path = os.path.join(target_dir, name)
+    candidates = {}
+    for name in present:
+        stem, ext = os.path.splitext(name)
+        if ext.lower() in LOCAL_IMAGE_EXTS:
+            candidates.setdefault(stem.lower(), []).append(name)
+
+    for stem in LOCAL_COVER_STEMS:
+        # Exact spelling first, then any other casing, so a directory holding
+        # both front.jpg and Front.jpg behaves as it always did.
+        for name in sorted(candidates.get(stem, []),
+                           key=lambda n: (os.path.splitext(n)[0] != stem, n)):
+            path = os.path.join(directory, name)
             dims = _measure(path)
             if dims:
                 return path, dims
     return None, None
+
+
+def _local_front(target_dir: str):
+    """(path, dimensions) of the front cover already with this release.
+
+    The release directory first, then the artwork subdirectories people keep
+    scans in -- Covers/, artwork/, scans/. 58 of the 412 albums in this
+    library have one, and the best image is often only in there: a release
+    can carry a 300x300 folder.jpg beside a 600x600 scan nothing looked at.
+
+    Returns (None, None) when there is no identifiable cover, or when a file
+    is there but unreadable as an image -- a policy that cannot measure both
+    sides must not pretend it made a comparison.
+    """
+    root_path, root_dims = _cover_in(target_dir)
+
+    best_path, best_dims = None, None
+    try:
+        entries = os.listdir(target_dir)
+    except OSError:
+        return root_path, root_dims
+    by_lower = {e.lower(): e for e in entries
+                if os.path.isdir(os.path.join(target_dir, e))}
+
+    for wanted in ARTWORK_SUBDIRS:
+        actual = by_lower.get(wanted)
+        if not actual:
+            continue
+        path, dims = _cover_in(os.path.join(target_dir, actual))
+        if dims and (best_dims is None
+                     or dims[0] * dims[1] > best_dims[0] * best_dims[1]):
+            best_path, best_dims = path, dims
+
+    if best_dims is None:
+        return root_path, root_dims
+    if root_dims is None:
+        logger.info('Front cover from %s', os.path.relpath(best_path, target_dir))
+        return best_path, best_dims
+
+    if best_dims[0] * best_dims[1] <= root_dims[0] * root_dims[1]:
+        return root_path, root_dims
+
+    if not _same_shape(best_dims, root_dims):
+        # Bigger, but a different picture. These directories hold wraparound
+        # sleeve scans: measured over this library, 15 of the 18 subdirectory
+        # covers larger than the release's own are around 2.4:1, and two are
+        # 0.5 -- front and back on one sheet. Exactly one was a genuine
+        # higher-resolution front. Taking the larger image on size alone
+        # would embed a sleeve spread as the front cover 17 times out of 18.
+        logger.debug('Ignoring %s: %dx%d is a different shape from the '
+                     'release cover %dx%d, so it is a spread rather than a '
+                     'front', os.path.relpath(best_path, target_dir),
+                     *best_dims, *root_dims)
+        return root_path, root_dims
+
+    logger.info('Front cover from %s (%dx%d, better than %dx%d)',
+                os.path.relpath(best_path, target_dir), *best_dims, *root_dims)
+    return best_path, best_dims
+
+
+def _same_shape(a, b, tolerance: float = 0.15) -> bool:
+    """Do these two images have close to the same aspect ratio?
+
+    The test for "the same picture, scanned bigger" rather than "a different
+    picture that happens to be bigger". A front cover reproduced at higher
+    resolution keeps its proportions; a sleeve spread does not.
+    """
+    if not a or not b or not a[1] or not b[1]:
+        return False
+    ra, rb = a[0] / a[1], b[0] / b[1]
+    return abs(ra - rb) <= tolerance * max(ra, rb)
 
 
 def _local_front_dimensions(target_dir: str) -> Optional[tuple[int, int]]:
@@ -338,20 +415,48 @@ def _discard(path: Optional[str]) -> None:
         pass
 
 
-def _rename_to(path: Optional[str], target_dir: str, filename: str):
-    """Move a kept local image to its canonical name. Returns the new path."""
+def _promote_local(path: Optional[str], target_dir: str, base: str):
+    """Put a kept local cover in the release root under the canonical name.
+
+    Returns its new path, or the original when nothing could be done -- a
+    slightly awkwardly named cover that exists beats a tidy one that does not.
+
+    Two details this gets right that a plain rename did not:
+
+    * The file keeps **its own** extension. Naming was taken from the remote
+      attachment, so a local front.png became front.jpg while still being PNG
+      bytes -- the same misnaming that _correct_extension exists to prevent.
+
+    * A cover found in Covers/ or scans/ is **copied** out, not moved. Those
+      directories are carried into the tagged release by copy_other_files,
+      and quietly removing a file from someone's scan set to promote it would
+      leave the set incomplete.
+    """
     if not path:
         return path
-    dest = os.path.join(target_dir, filename)
+
+    ext = os.path.splitext(path)[1].lower()
+    if ext == '.jpeg':
+        ext = '.jpg'                       # same format, one spelling
+    dest = os.path.join(target_dir, base + ext)
     if os.path.abspath(path) == os.path.abspath(dest):
         return path
+
+    in_subdir = (os.path.dirname(os.path.abspath(path))
+                 != os.path.abspath(target_dir))
     try:
-        os.replace(path, dest)
-        logger.info('Renamed local %s → %s',
-                    os.path.basename(path), filename)
+        if in_subdir:
+            import shutil
+            shutil.copyfile(path, dest)
+            logger.info('Using %s as the front cover',
+                        os.path.relpath(path, target_dir))
+        else:
+            os.replace(path, dest)
+            logger.info('Renamed local %s \u2192 %s',
+                        os.path.basename(path), os.path.basename(dest))
         return dest
     except OSError as exc:
-        logger.warning('Could not rename %s to %s: %s', path, filename, exc)
+        logger.warning('Could not promote %s to %s: %s', path, dest, exc)
         return path
 
 
