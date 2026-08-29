@@ -28,6 +28,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _default_user_agent() -> str:
+    """How massMusicTagger introduces itself to Discogs.
+
+    Absorbing discogstagger3's schema brought its user agent along with it, so
+    massMusicTagger presented itself to Discogs as discogstagger/4.0 -- another
+    program, at a version it does not have. Discogs registers applications by
+    name and issues one personal token at a time across them, so a client that
+    misidentifies itself is not a cosmetic problem.
+
+    Built from __version__ rather than written out, because the copy that was
+    written out went stale: the live configuration still said 1.0 two major
+    versions later.
+    """
+    from massmusictagger import __version__
+    return (f'massMusicTagger/{__version__} '
+            f'+https://github.com/sjbrownrigg/massMusicTagger')
+
+
+#: Recomputed per release, so it can never be compared against a literal.
+COMPUTED = frozenset({('common', 'user_agent')})
+
+
 class ConfigError(Exception):
     """Raised when a configuration is missing something it cannot run without."""
 
@@ -76,7 +98,7 @@ DEPRECATION_NOTES = {
 DEFAULTS = {
 
     # ── [common] ──────────────────────────────────────────────────────
-    ('common', 'user_agent'): 'discogstagger/4.0 +https://github.com/sjbrownrigg/discogstagger',
+    ('common', 'user_agent'): _default_user_agent(),
     ('common', 'source_dir'): '',
     ('common', 'dest_dir'): '',
     ('common', 'watch_poll_interval'): '30',

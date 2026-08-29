@@ -46,7 +46,7 @@
 common:
 # ─────────────────────────────────────────────────────────────────────────────
 
-  user_agent: "massMusicTagger/1.0 +https://github.com/sjbrownrigg/massMusicTagger"
+  user_agent: "massMusicTagger/2.0.0 +https://github.com/sjbrownrigg/massMusicTagger"
   formats_file: ""
   source_dir: ""
   dest_dir: ""
