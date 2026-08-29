@@ -104,7 +104,9 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                     os.path.basename(local_front_path), *local_front_dims)
 
     basename_counter: dict[str, int] = {}
-    superseded = False   # has the pre-existing local cover been replaced yet
+    superseded = False      # has the pre-existing local cover been dealt with
+    folder_written = False  # folder.jpg takes the first front cover only
+    front_settled = False   # image_policy decides the front cover once
 
     for att in sorted(album.attachments, key=attachment_sort_key):
         uri = att.url
@@ -122,8 +124,14 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
         if download_only_cover and not is_front:
             continue
 
-        # Apply image_policy for the front cover
-        if is_front and image_policy != 'always' and local_front_dims:
+        # image_policy governs *the* front cover -- the first one. A source
+        # that returns several fronts sends the rest as extras, and they are
+        # simply written. Applying the policy to each of them compared every
+        # one against the same local cover, including after that cover had
+        # been superseded and deleted: the release then lost both the local
+        # cover and one of the downloads.
+        if is_front and image_policy != 'always' and local_front_dims \
+                and not front_settled:
             if image_policy == 'prefer_existing':
                 logger.info('Skipping front cover download (prefer_existing policy)')
                 continue
@@ -154,13 +162,19 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
                         # with nothing to say which one wins.
                         local_front_path = _promote_local(
                             local_front_path, target_dir, base)
-                        if use_folder_jpg and local_front_path:
+                        # It is output now, not a leftover: a later front
+                        # slot must not treat it as the cover to supersede.
+                        superseded = True
+                        front_settled = True
+                        if use_folder_jpg and local_front_path and not folder_written:
                             _copy_to(local_front_path,
                                      os.path.join(target_dir, 'folder.jpg'))
+                            folder_written = True
                         continue
                     logger.info('%s front cover %dx%d beats the local %dx%d',
                                 att.provenance or 'Remote', *dims,
                                 *local_front_dims)
+                    front_settled = True
 
         dest = os.path.join(target_dir, filename)
         try:
@@ -199,9 +213,12 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
             _discard(local_front_path)
             superseded = True
 
-        # Also write folder.jpg for the front cover (media-player compatibility)
-        if is_front and use_folder_jpg:
+        # folder.jpg is what most players read, and there is one of it. It
+        # takes the *first* front cover: a release with two fronts used to
+        # end up with folder.jpg copied from whichever came last.
+        if is_front and use_folder_jpg and not folder_written:
             _copy_to(dest, os.path.join(target_dir, 'folder.jpg'))
+            folder_written = True
 
 
 def _measure(path: str) -> Optional[tuple[int, int]]:

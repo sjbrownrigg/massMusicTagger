@@ -935,3 +935,46 @@ class TwoFrontsFromOneSource(unittest.TestCase):
         a = open(os.path.join(self.target, 'folder.jpg'), 'rb').read()
         b = open(os.path.join(self.target, 'front.jpg'), 'rb').read()
         self.assertEqual(a, b)
+
+    def test_a_kept_local_cover_survives_a_later_front(self):
+        """The case from The Waterboys' Modern Blues.
+
+        Cover Art Archive returned two fronts. The first was smaller than the
+        local scan so the local was kept and promoted to front.png; the second
+        was larger and downloaded as front-01.jpg -- and the supersede step
+        then deleted front.png, because it still counted as the cover to
+        replace. The release lost the cover it had just chosen.
+        """
+        from massmusictagger.image_utils import download_typed_images
+        from PIL import Image
+        Image.new('RGB', (1500, 1400), (3, 3, 3)).save(
+            os.path.join(self.target, 'cover.jpg'))
+
+        cfg = _make_cfg(**{'artwork.download_only_cover': 'false',
+                           'artwork.image_policy': 'prefer_larger',
+                           'artwork.use_folder_jpg': 'true'})
+        album = _make_album([
+            {'uri': 'https://caa/a-small.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+            {'uri': 'https://caa/b-big.jpg', 'caa_types': ['Front'], 'type': 'primary'},
+        ])
+        album.target_dir = self.target
+        # Sorted by url, so 'a-' is the first front slot and 'b-' the extra.
+        sizes = {'https://caa/a-small.jpg': (400, 400),
+                 'https://caa/b-big.jpg': (5000, 1400)}
+
+        def fetch(dest, uri):
+            Image.new('RGB', sizes[uri], (9, 9, 9)).save(dest)
+
+        conn = MagicMock()
+        conn.fetch_image = MagicMock(side_effect=fetch)
+        download_typed_images(album, conn, cfg)
+
+        written = sorted(n for n in os.listdir(self.target) if not n.startswith('.'))
+        self.assertIn('front.jpg', written, 'the kept local cover must survive')
+        self.assertIn('front-01.jpg', written)
+        from massmusictagger.image_utils import _measure
+        self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
+                         (1500, 1400))
+        self.assertEqual(_measure(os.path.join(self.target, 'folder.jpg')),
+                         (1500, 1400),
+                         'folder.jpg takes the first front, not the last')
