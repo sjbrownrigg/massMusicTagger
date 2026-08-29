@@ -2,6 +2,78 @@
 
 ---
 
+## Version 3.2.0 (2026-08-29)
+
+Everything here was found by re-tagging a real 413-album library and looking
+at what came out.
+
+### Settings that silently did nothing
+
+Three settings decide how a release is named, and all three were reached
+through a config key naming a `conf/` path that only resolves from a source
+checkout. All three failed the same way: quietly, with the feature off.
+
+- **`format_codes`** — a release on Digital Media was filed as
+  `Digital Media` rather than `DM`, because a missing file returned an empty
+  rule table and every abbreviation switched off.
+- **`char_substitutions`** — already warned, but still applied nothing, which
+  is what left `char_profile: windows` inert across a whole library.
+- **`source_hints_file`** — the same shape.
+
+They now behave identically: found by name in the configuration directory
+like `formats.ini`, a packaged table as the default so it keeps improving
+with upgrades, a named-but-missing file warns and falls back rather than
+switching off, and a user table is **merged over** the packaged one so
+overriding a single abbreviation does not discard the rest. The path keys are
+deprecated — still honoured, and honoured first, since an explicit setting is
+a request.
+
+`conf/` now holds only the samples `--new-config` writes from and those
+packaged tables. `logger_default.conf` is deleted; nothing had read it since
+`logging.config_file` was removed.
+
+### A warning that fired on 97% of albums
+
+The bad-match warning fired whenever the album artist equalled the first
+track's artist — which on a single-artist album is true by definition. It
+fired on 371 of 379 albums. It now fires only on compilations, where an album
+artist equal to the track artist genuinely does mean the various-artists
+credit was missed.
+
+### Artwork
+
+- **Local covers are matched without regard to case.** `LOCAL_COVER_NAMES` is
+  lowercase and the lookup used the exact spelling, so on a case-sensitive
+  share `Front.jpg` was invisible and `prefer_larger` had nothing to compare.
+- **Artwork subdirectories are searched** — `Covers/`, `scans/`, `artwork/`
+  and friends, where 58 of 412 albums keep their best scan. Within one, only
+  a name that says front cover is accepted: these directories mostly hold
+  `cd.jpg`, `back.jpg` and booklet scans, and `quality/` holds spectrograms.
+- **A subdirectory cover must be the same *shape*** to win, not merely
+  larger. Of the 18 that are larger, 15 are around 2.4:1 — front and back
+  scanned on one sheet — so choosing on size alone embeds a sleeve spread as
+  the front cover 17 times out of 18.
+- **A second front cover no longer deletes the first.** Cover Art Archive
+  returns two for some releases; the supersede step removed the earlier
+  download, leaving `front-01.jpg` and no `front.jpg`.
+- **`image_policy` decides the front cover once.** It was applied to every
+  front slot, comparing each against a local cover that a previous slot had
+  already superseded and deleted.
+- A kept local cover keeps **its own** extension, and one promoted out of
+  `Covers/` is copied rather than moved, so the scan set stays complete.
+
+### CUE handling
+
+- **A single-file album with two cue sheets is now split.** A ripper often
+  leaves `album.cue` beside `album.flac.cue`, or `album FLAC.CUE` beside
+  `album WAV.CUE`; counted separately they outnumber the audio, and the test
+  for a single-file rip is that the counts match — so the album reached the
+  tagger as one untagged track and matched nothing.
+- A dry run says why it cannot match a CUE album, rather than reporting a
+  failure that reads as a prediction about the real run.
+
+---
+
 ## Version 3.1.0 (2026-08-29)
 
 ### Security
