@@ -48,7 +48,7 @@ class DiscogsSearchContract(unittest.TestCase):
         for section in ('details', 'batch'):
             if not cfg.has_section(section):
                 cfg.add_section(section)
-        cfg.set('details', 'source_hints_file', self.hints)
+        cfg.set('source', 'source_hints_file', self.hints)
         with patch.object(DiscogsSearch, '__init__', lambda self, c: None):
             s = DiscogsSearch(cfg)
         s.config = cfg

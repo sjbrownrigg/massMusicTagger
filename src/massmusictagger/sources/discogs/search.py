@@ -162,10 +162,13 @@ class DiscogsSearch(DiscogsConnector):
         """Fall back: derive artist/album/track info from directory and file names."""
         logger.info('Fetching metadata from file & directory naming')
         searchParams = self.search_params
-        try:
-            base_dir = self.config.get('details', 'source_dir') or ''
-        except Exception:
-            base_dir = self.config.get('common', 'source_dir') or ''
+        # source_dir lives in [common]. Reading it from [details] returned
+        # None rather than raising -- TaggerConfig.get swallows a missing
+        # section -- so base_dir was always '', the except never fired, and
+        # re.sub('', '', ...) left the full path in place. The search then
+        # matched against "/incoming/Artist/..." instead of the release
+        # directory, including any year it found in the path.
+        base_dir = self.config.get('common', 'source_dir') or ''
         if re.search(r'(?i)(vinyl)', source_dir):
             searchParams['media'] = 'vinyl'
         release_dir = re.sub(base_dir, '', source_dir)

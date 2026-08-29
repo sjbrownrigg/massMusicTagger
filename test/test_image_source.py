@@ -181,7 +181,7 @@ class TestApplyImageSource(unittest.TestCase):
     def test_auto_returns_original_connector(self):
         conn = MagicMock()
         p = self._make_processor()
-        cfg = _make_cfg(**{'details.image_source': 'auto'})
+        cfg = _make_cfg(**{'artwork.image_source': 'auto'})
         album = self._make_album()
         result = p._apply_image_source(album, conn, '/fake/dir', cfg)
         self.assertIs(result, conn)
@@ -197,7 +197,7 @@ class TestApplyImageSource(unittest.TestCase):
     def test_discogs_returns_discogs_connector(self):
         discogs_conn = MagicMock()
         p = self._make_processor(discogs_conn=discogs_conn)
-        cfg = _make_cfg(**{'details.image_source': 'discogs'})
+        cfg = _make_cfg(**{'artwork.image_source': 'discogs'})
         album = self._make_album(source='musicbrainz')
         result = p._apply_image_source(album, MagicMock(), '/fake/dir', cfg)
         self.assertIs(result, discogs_conn)
@@ -210,7 +210,7 @@ class TestApplyImageSource(unittest.TestCase):
                        'width': None, 'height': None}]
         mb_conn.fetch_image_list.return_value = caa_images
         p = self._make_processor(mb_conn=mb_conn)
-        cfg = _make_cfg(**{'details.image_source': 'musicbrainz'})
+        cfg = _make_cfg(**{'artwork.image_source': 'musicbrainz'})
         album = self._make_album(source='musicbrainz')
         album.id = _MBID
         result = p._apply_image_source(album, MagicMock(), '/fake/dir', cfg)
@@ -222,7 +222,7 @@ class TestApplyImageSource(unittest.TestCase):
         """No MB connector available → fall back to original connector."""
         original_conn = MagicMock()
         p = self._make_processor(mb_conn=None)
-        cfg = _make_cfg(**{'details.image_source': 'musicbrainz'})
+        cfg = _make_cfg(**{'artwork.image_source': 'musicbrainz'})
         album = self._make_album(source='discogs')
         result = p._apply_image_source(album, original_conn, '/fake/dir', cfg)
         self.assertIs(result, original_conn)
@@ -232,7 +232,7 @@ class TestApplyImageSource(unittest.TestCase):
         mb_conn = MagicMock()
         mb_conn.fetch_image_list.return_value = []
         p = self._make_processor(mb_conn=mb_conn)
-        cfg = _make_cfg(**{'details.image_source': 'musicbrainz'})
+        cfg = _make_cfg(**{'artwork.image_source': 'musicbrainz'})
         from massmusictagger.core.attachments import from_discogs
         original_images = [from_discogs(
             {'uri': 'http://discogs.com/img.jpg', 'type': 'primary'})]
@@ -253,7 +253,7 @@ class TestApplyImageSource(unittest.TestCase):
         mb_conn.fetch_image_list.return_value = caa_images
 
         p = self._make_processor(mb_conn=mb_conn)
-        cfg = _make_cfg(**{'details.image_source': 'musicbrainz'})
+        cfg = _make_cfg(**{'artwork.image_source': 'musicbrainz'})
         album = self._make_album(source='discogs', barcode='5099749939523')
 
         with patch('massmusictagger.processor.musicbrainzngs') as mock_mb:

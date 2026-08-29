@@ -55,6 +55,20 @@ common:
 
 # ─────────────────────────────────────────────────────────────────────────────
 source:
+
+  # Path to the source-format hints file (relative to CWD / massMusicTagger root).
+  # Keyword lists matched case-insensitively against the source folder basename
+  # to infer digital vs vinyl origin.  Applied to both Discogs and MusicBrainz:
+  #   Discogs  — rejects candidates whose medium type conflicts (e.g. vinyl LP
+  #              for a "24 Bit" folder); also suppresses year so remaster
+  #              releases on Discogs can surface beyond the original year.
+  #   MB       — logs a WARNING when matched release format conflicts.
+  # Leave empty to disable.
+  # Leave empty to use the copy shipped inside the package. A path here
+  # resolves beside config.yaml -- "conf/source_hints.yaml" pointed at a
+  # directory that only exists in a source checkout, so the feature was
+  # silently off for every installed copy.
+  source_hints_file: ""
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # 'priority' is an ordered list of sources to try for each album.
@@ -81,9 +95,6 @@ source:
 
   # The following keys are kept for backward compatibility with discogstagger3.
   # 'name' is still accepted: it maps to a single-element priority list.
-  discogs: discogs_id
-  amg:     amg_id
-  local:   discogs_id
   name:    discogs    # legacy — overridden by 'priority' when both present
 
 
@@ -123,28 +134,33 @@ batch:
   audit_log: ""
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-details:
+naming:
 # ─────────────────────────────────────────────────────────────────────────────
 
-  keep_original: true
-  embed_coverart: true
-  image_policy: prefer_larger
   char_profile: linux
   char_substitutions: ""
   format_codes: ""
   path_sep_replacement: ""
   control_replacement: ""
-  keep_tags: freedb_id
   case_dir:     lower
   case_disc:    lower
   case_song:    lower
   case_va_song: lower
   case_nfo:     lower
   case_m3u:     lower
-  use_folder_jpg: true
   use_anv: true
   join_artists: ""
+  variousartists: Various
+
+# ─────────────────────────────────────────────────────────────────────────────
+artwork:
+# ─────────────────────────────────────────────────────────────────────────────
+
+  embed_coverart: true
+  image_policy: prefer_larger
+  use_folder_jpg: true
 
   # Preferred source for cover art, independent of the metadata source.
   #
@@ -158,7 +174,15 @@ details:
   #   • Often higher resolution (no size cap like Discogs)
   #   • Community-curated; approved flag filters out poor submissions
   image_source: auto
-  split_discs: false
+  download_only_cover: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+archiving:
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+  keep_original: true
   copy_other_files: false
   done_file: dt.done
 
@@ -176,22 +200,6 @@ details:
   # %year%, %catno%, %format_code%, %edition%, …) plus:
   #   %current_folder% — original source directory basename (unchanged)
   source_move_template: "%source%/%albumartist%/%current_folder%"
-
-  # Path to the source-format hints file (relative to CWD / massMusicTagger root).
-  # Keyword lists matched case-insensitively against the source folder basename
-  # to infer digital vs vinyl origin.  Applied to both Discogs and MusicBrainz:
-  #   Discogs  — rejects candidates whose medium type conflicts (e.g. vinyl LP
-  #              for a "24 Bit" folder); also suppresses year so remaster
-  #              releases on Discogs can surface beyond the original year.
-  #   MB       — logs a WARNING when matched release format conflicts.
-  # Leave empty to disable.
-  # Leave empty to use the copy shipped inside the package. A path here
-  # resolves beside config.yaml -- "conf/source_hints.yaml" pointed at a
-  # directory that only exists in a source checkout, so the feature was
-  # silently off for every installed copy.
-  source_hints_file: ""
-  variousartists: Various
-  download_only_cover: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 cue:
@@ -265,9 +273,9 @@ conversion:
 
 # ─────────────────────────────────────────────────────────────────────────────
 tags:
+  keep_tags: freedb_id
 # ─────────────────────────────────────────────────────────────────────────────
 
-  encoder: ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -295,7 +303,6 @@ logging:
 # ─────────────────────────────────────────────────────────────────────────────
 
   level: 20
-  config_file: ""
 
   # Path to a persistent log file.  Leave empty to log to the terminal only.
   # The directory is created automatically if it does not exist.

@@ -87,6 +87,7 @@ REQUIRED = frozenset()
 #
 # common.formats_file: formats.ini is found beside config.yaml. See roots.LAYOUT.
 DEPRECATED = frozenset({
+    ('naming', 'use_lower_filenames'),
     ('common', 'formats_file'),
     ('file-formatting', 'image'),
 })
@@ -97,6 +98,10 @@ DEPRECATED = frozenset({
 #: common.formats_file warns from TaggerConfig.resource() when it is actually
 #: used to resolve a path, which is more specific than anything sayable here.
 DEPRECATION_NOTES = {
+    ('naming', 'use_lower_filenames'):
+        'it sets all six case keys at once. Use case_dir, case_song, '
+        'case_disc, case_va_song, case_nfo and case_m3u instead, which can '
+        'differ from each other.',
     ('common', 'formats_file'):
         'formats.ini is found beside config.yaml in the configuration '
         'directory, so nothing needs to declare where it is. The value is '
@@ -111,6 +116,60 @@ DEPRECATION_NOTES = {
 }
 
 
+
+#: Settings that moved section in 3.0.0. The value is NOT carried over -- a
+#: config still using the old name has that setting switched off -- but naming
+#: the new home turns "Unknown config key details.char_profile" into something
+#: a person can act on. [details] had become a 28-key catch-all covering
+#: filename casing, artwork policy, archiving and tag handling, which was the
+#: single biggest reason the configuration read as confusing.
+MOVED = {
+    ('details', 'case_dir'): 'naming',
+    ('details', 'case_disc'): 'naming',
+    ('details', 'case_m3u'): 'naming',
+    ('details', 'case_nfo'): 'naming',
+    ('details', 'case_song'): 'naming',
+    ('details', 'case_va_song'): 'naming',
+    ('details', 'char_profile'): 'naming',
+    ('details', 'char_substitutions'): 'naming',
+    ('details', 'control_replacement'): 'naming',
+    ('details', 'copy_other_files'): 'archiving',
+    ('details', 'done_file'): 'archiving',
+    ('details', 'download_only_cover'): 'artwork',
+    ('details', 'embed_coverart'): 'artwork',
+    ('details', 'format_codes'): 'naming',
+    ('details', 'image_policy'): 'artwork',
+    ('details', 'image_source'): 'artwork',
+    ('details', 'join_artists'): 'naming',
+    ('details', 'keep_original'): 'archiving',
+    ('details', 'keep_tags'): 'tags',
+    ('details', 'path_sep_replacement'): 'naming',
+    ('details', 'source_action'): 'archiving',
+    ('details', 'source_archive_dir'): 'archiving',
+    ('details', 'source_hints_file'): 'source',
+    ('details', 'source_move_template'): 'archiving',
+    ('details', 'use_anv'): 'naming',
+    ('details', 'use_folder_jpg'): 'artwork',
+    ('details', 'variousartists'): 'naming',
+}
+
+#: Settings removed in 3.0.0 because nothing read them. Each loaded without
+#: complaint and did nothing, which is worse than not existing.
+REMOVED = {
+    ('details', 'split_discs'):  'nothing read it; multi-disc layouts are '
+                                 'detected from the directory tree',
+    ('tags',    'encoder'):      'nothing read it; the encoder is chosen per '
+                                 'target format in [conversion]',
+    ('logging', 'config_file'):  'nothing read it; logging is configured by '
+                                 'logging.level and logging.log_file',
+    ('source',  'amg'):          'AllMusic is not a source; an id.txt names '
+                                 'its source directly now',
+    ('source',  'discogs'):      'the source-to-tag-field mapping is gone; '
+                                 'an id.txt reads <source>_id directly',
+    ('source',  'local'):        'the source-to-tag-field mapping is gone; '
+                                 'an id.txt reads <source>_id directly',
+}
+
 # Every known key, with the default applied when the user omits it.
 DEFAULTS = {
 
@@ -120,30 +179,28 @@ DEFAULTS = {
     ('common', 'dest_dir'): '',
     ('common', 'watch_poll_interval'): '30',
 
-    # ── [details] ─────────────────────────────────────────────────────
-    ('details', 'keep_original'): 'True',
-    ('details', 'embed_coverart'): 'True',
-    ('details', 'image_policy'): 'prefer_larger',
-    ('details', 'char_profile'): 'linux',
-    ('details', 'char_substitutions'): '',
-    ('details', 'format_codes'): '',
-    ('details', 'path_sep_replacement'): '',
-    ('details', 'control_replacement'): '',
-    ('details', 'keep_tags'): 'freedb_id',
-    ('details', 'case_dir'): 'lower',
-    ('details', 'case_disc'): 'lower',
-    ('details', 'case_song'): 'lower',
-    ('details', 'case_va_song'): 'lower',
-    ('details', 'case_nfo'): 'lower',
-    ('details', 'case_m3u'): 'lower',
-    ('details', 'use_folder_jpg'): 'True',
-    ('details', 'use_anv'): 'True',
-    ('details', 'join_artists'): '',
-    ('details', 'split_discs'): 'False',
-    ('details', 'copy_other_files'): 'False',
-    ('details', 'done_file'): 'dt.done',
-    ('details', 'variousartists'): 'Various',
-    ('details', 'download_only_cover'): 'True',
+    ('archiving', 'keep_original'): 'True',
+    ('artwork', 'embed_coverart'): 'True',
+    ('artwork', 'image_policy'): 'prefer_larger',
+    ('naming', 'char_profile'): 'linux',
+    ('naming', 'char_substitutions'): '',
+    ('naming', 'format_codes'): '',
+    ('naming', 'path_sep_replacement'): '',
+    ('naming', 'control_replacement'): '',
+    ('tags', 'keep_tags'): 'freedb_id',
+    ('naming', 'case_dir'): 'lower',
+    ('naming', 'case_disc'): 'lower',
+    ('naming', 'case_song'): 'lower',
+    ('naming', 'case_va_song'): 'lower',
+    ('naming', 'case_nfo'): 'lower',
+    ('naming', 'case_m3u'): 'lower',
+    ('artwork', 'use_folder_jpg'): 'True',
+    ('naming', 'use_anv'): 'True',
+    ('naming', 'join_artists'): '',
+    ('archiving', 'copy_other_files'): 'False',
+    ('archiving', 'done_file'): 'dt.done',
+    ('naming', 'variousartists'): 'Various',
+    ('artwork', 'download_only_cover'): 'True',
 
     # ── [batch] ───────────────────────────────────────────────────────
     ('batch', 'id_file'): 'id.txt',
@@ -167,7 +224,6 @@ DEFAULTS = {
     ('conversion', 'ogg_quality'): '5',
 
     # ── [tags] ────────────────────────────────────────────────────────
-    ('tags', 'encoder'): '',
 
     # ── [replaygain] ──────────────────────────────────────────────────
     ('replaygain', 'add_tags'): 'True',
@@ -177,9 +233,6 @@ DEFAULTS = {
     ('cache', 'directory'): '',
 
     # ── [source] ──────────────────────────────────────────────────────
-    ('source', 'discogs'): 'discogs_id',
-    ('source', 'amg'): 'amg_id',
-    ('source', 'local'): 'discogs_id',
     ('source', 'name'): 'discogs',
 
     # ── [discogs] ─────────────────────────────────────────────────────
@@ -190,7 +243,6 @@ DEFAULTS = {
 
     # ── [logging] ─────────────────────────────────────────────────────
     ('logging', 'level'): '20',
-    ('logging', 'config_file'): '',
     ('logging', 'log_file'): '',
 
     # ── massMusicTagger's own settings ────────────────────────────────
@@ -203,11 +255,11 @@ DEFAULTS = {
     # already applying, so behaviour is unchanged.
     ('batch', 'audit_log'): '',
     ('batch', 'workers'): '1',
-    ('details', 'image_source'): 'auto',
-    ('details', 'source_action'): 'done_file',
-    ('details', 'source_archive_dir'): '',
-    ('details', 'source_hints_file'): '',
-    ('details', 'source_move_template'): '%source%/%albumartist%/%current_folder%',
+    ('artwork', 'image_source'): 'auto',
+    ('archiving', 'source_action'): 'done_file',
+    ('archiving', 'source_archive_dir'): '',
+    ('source', 'source_hints_file'): '',
+    ('archiving', 'source_move_template'): '%source%/%albumartist%/%current_folder%',
     ('musicbrainz', 'acoustid_api_key'): '',
     ('musicbrainz', 'acoustid_submitter_key'): '',
     ('musicbrainz', 'acoustid_early'): 'False',
@@ -226,9 +278,9 @@ DEFAULTS = {
 # second class of key.
 MMT_KEYS = tuple(sorted(k for k in DEFAULTS if k in {
     ('batch', 'audit_log'), ('batch', 'workers'),
-    ('details', 'image_source'), ('details', 'source_action'),
-    ('details', 'source_archive_dir'), ('details', 'source_hints_file'),
-    ('details', 'source_move_template'), ('logging', 'log_file'),
+    ('artwork', 'image_source'), ('archiving', 'source_action'),
+    ('archiving', 'source_archive_dir'), ('source', 'source_hints_file'),
+    ('archiving', 'source_move_template'), ('logging', 'log_file'),
     ('musicbrainz', 'acoustid_api_key'), ('musicbrainz', 'acoustid_early'),
     ('musicbrainz', 'acoustid_submitter_key'),
     ('musicbrainz', 'caa_request_delay'), ('musicbrainz', 'cache_directory'),
@@ -236,30 +288,6 @@ MMT_KEYS = tuple(sorted(k for k in DEFAULTS if k in {
 }))
 
 
-_EXTRA_KNOWN = set(MMT_KEYS)
-
-
-def register_freeform_sections(sections):
-    """Declare additional sections whose keys are not checked individually.
-
-    For sections holding free-form or structural content rather than known
-    settings -- massMusicTagger's deprecated ``extra_configs`` is a list of
-    file paths, so its "keys" are paths and checking them as setting names
-    reports every one as a typo.
-    """
-    global FREEFORM_SECTIONS
-    FREEFORM_SECTIONS = FREEFORM_SECTIONS | frozenset(str(s) for s in sections)
-
-
-def register_known_keys(keys):
-    """Declare additional (section, key) pairs as valid.
-
-    Call once at import time from the embedding package. Unknown-key checking
-    then covers the combined set, so genuine typos in an embedder's own
-    settings are still caught.
-    """
-    for section, key in keys:
-        _EXTRA_KNOWN.add((str(section), str(key)))
 
 
 KNOWN_SECTIONS = (frozenset(s for s, _ in DEFAULTS)
@@ -328,18 +356,34 @@ def validate(config, source=None):
             logger.warning('%s.%s is deprecated%s: %s',
                            section, key, where, note)
 
-    known = set(DEFAULTS) | set(REQUIRED) | set(DEPRECATED) | _EXTRA_KNOWN
-    known_sections = KNOWN_SECTIONS | frozenset(s for s, _ in _EXTRA_KNOWN)
+    known = set(DEFAULTS) | set(REQUIRED) | set(DEPRECATED)
+    known_sections = KNOWN_SECTIONS
     for section in config.sections():
         if section in FREEFORM_SECTIONS:
             continue
         if section not in known_sections:
-            logger.warning(
-                "Unknown config section [%s]%s -- ignored. Check for a typo.",
-                section, where)
-            continue
+            # A section every one of whose keys moved -- [details] in 3.0.0 --
+            # is not a typo, and saying so helps nobody. Fall through so each
+            # key gets told where it went.
+            retired = {sec for sec, _ in MOVED} | {sec for sec, _ in REMOVED}
+            if section not in retired:
+                logger.warning(
+                    "Unknown config section [%s]%s -- ignored. Check for a "
+                    "typo.", section, where)
+                continue
         for key, _ in config.items(section):
             if (section, key) not in known:
-                logger.warning(
-                    "Unknown config key %s.%s%s -- ignored. Check for a typo.",
-                    section, key, where)
+                if (section, key) in MOVED:
+                    logger.warning(
+                        "%s.%s moved to [%s] in 3.0.0%s -- the setting is "
+                        "NOT being applied. Move it to %s.%s.",
+                        section, key, MOVED[(section, key)], where,
+                        MOVED[(section, key)], key)
+                elif (section, key) in REMOVED:
+                    logger.warning(
+                        "%s.%s was removed in 3.0.0%s -- %s. Delete it.",
+                        section, key, where, REMOVED[(section, key)])
+                else:
+                    logger.warning(
+                        "Unknown config key %s.%s%s -- ignored. Check for a "
+                        "typo.", section, key, where)

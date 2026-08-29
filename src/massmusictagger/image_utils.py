@@ -80,9 +80,9 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
     the target directory.
 
     Respects config settings:
-      details.use_folder_jpg      — also write folder.jpg for the front image
-      details.download_only_cover — skip non-front images
-      details.image_policy        — always | prefer_existing | prefer_larger
+      artwork.use_folder_jpg      — also write folder.jpg for the front image
+      artwork.download_only_cover — skip non-front images
+      artwork.image_policy        — always | prefer_existing | prefer_larger
     """
     if not album.attachments or not album.target_dir:
         return
@@ -90,12 +90,12 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
     target_dir = album.target_dir
     os.makedirs(target_dir, exist_ok=True)
 
-    use_folder_jpg = (cfg.getboolean('details', 'use_folder_jpg')
-                      if cfg.has_option('details', 'use_folder_jpg') else True)
-    download_only_cover = (cfg.getboolean('details', 'download_only_cover')
-                           if cfg.has_option('details', 'download_only_cover') else True)
-    image_policy = (cfg.get('details', 'image_policy')
-                    if cfg.has_option('details', 'image_policy') else 'always')
+    use_folder_jpg = (cfg.getboolean('artwork', 'use_folder_jpg')
+                      if cfg.has_option('artwork', 'use_folder_jpg') else True)
+    download_only_cover = (cfg.getboolean('artwork', 'download_only_cover')
+                           if cfg.has_option('artwork', 'download_only_cover') else True)
+    image_policy = (cfg.get('artwork', 'image_policy')
+                    if cfg.has_option('artwork', 'image_policy') else 'always')
 
     # Local front cover — used for image_policy decisions
     local_front_path, local_front_dims = _local_front(target_dir)
@@ -357,9 +357,9 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
     Only images that were successfully downloaded (have a 'local_filename'
     key set by download_typed_images()) are embedded.
     """
-    if not cfg.has_option('details', 'embed_coverart'):
+    if not cfg.has_option('artwork', 'embed_coverart'):
         return
-    if not cfg.getboolean('details', 'embed_coverart'):
+    if not cfg.getboolean('artwork', 'embed_coverart'):
         return
     if not album.target_dir:
         return

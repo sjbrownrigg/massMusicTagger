@@ -156,7 +156,7 @@ def _cleanup_empty_parents(path: str, root: str) -> None:
 
 def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
     """Apply source_action (done_file / remove / move) after a successful tag."""
-    action = (cfg.get('details', 'source_action') or 'done_file').lower()
+    action = (cfg.get('archiving', 'source_action') or 'done_file').lower()
     source_root = os.path.expanduser(cfg.get('common', 'source_dir') or '')
 
     if action == 'remove':
@@ -170,13 +170,13 @@ def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
     if action == 'move':
         _verify_target_or_raise(result.target_dir)
         archive_root = os.path.expanduser(
-            cfg.get('details', 'source_archive_dir') or '')
+            cfg.get('archiving', 'source_archive_dir') or '')
         if not archive_root:
             logger.warning(
                 'source_action=move but source_archive_dir is not set '
                 '— falling back to done_file')
         else:
-            template = (cfg.get('details', 'source_move_template')
+            template = (cfg.get('archiving', 'source_move_template')
                         or '%source%/%albumartist%/%current_folder%')
             rel = _expand_move_template(template, tu, result.sourcedir)
             dest = os.path.join(archive_root, rel)
@@ -298,7 +298,7 @@ class MassProcessor:
             # MB settings, personal format strings) loaded at startup.
             cfg = self.cfg
 
-            done_file = cfg.get('details', 'done_file') or 'dt.done'
+            done_file = cfg.get('archiving', 'done_file') or 'dt.done'
             done_path = os.path.join(sourcedir, done_file)
             if os.path.exists(done_path) and not self.force:
                 logger.info('Skipping %s (done file exists)', sourcedir)
@@ -423,8 +423,8 @@ class MassProcessor:
                     download_typed_images(album, connector, cfg)
 
                 # Embed cover art
-                embed_coverart = (cfg.getboolean('details', 'embed_coverart')
-                                  if cfg.has_option('details', 'embed_coverart') else True)
+                embed_coverart = (cfg.getboolean('artwork', 'embed_coverart')
+                                  if cfg.has_option('artwork', 'embed_coverart') else True)
                 if embed_coverart:
                     from massmusictagger.image_utils import embed_typed_images
                     embed_typed_images(album, cfg)
@@ -550,8 +550,8 @@ class MassProcessor:
         image_source: discogs
             Use Discogs images even when metadata came from MusicBrainz.
         """
-        image_source = (cfg.get('details', 'image_source')
-                        if cfg.has_option('details', 'image_source') else 'auto')
+        image_source = (cfg.get('artwork', 'image_source')
+                        if cfg.has_option('artwork', 'image_source') else 'auto')
 
         if image_source == 'auto' or not image_source:
             return connector

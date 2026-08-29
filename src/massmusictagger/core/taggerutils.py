@@ -160,9 +160,9 @@ class TagHandler(object):
         self.album = album
         self.config = tagger_config
 
-        self.keep_tags = self.config.get("details", "keep_tags")
+        self.keep_tags = self.config.get("tags", "keep_tags")
         self.user_agent = self.config.get("common", "user_agent")
-        self.variousartists = self.config.get("details", "variousartists")
+        self.variousartists = self.config.get("naming", "variousartists")
         self._suppressed = tagger_config.suppressed_tags
         if self._suppressed:
             logger.info('Suppressed tags (not written to metadata): %s',
@@ -246,8 +246,13 @@ class TagHandler(object):
         if _source == 'musicbrainz':
             _set('musicbrainz_releaseid', str(self.album.id))
         elif _source != 'existing_tags':
-            if self.config.id_tag_name not in sup:
-                setattr(metadata, self.config.id_tag_name, self.album.id)
+            # discogs and local share the Discogs numbering, so both write
+            # discogs_id. This went through a source.<name> -> tag-field
+            # mapping in the config, whose only other user was id.txt; that
+            # reads <name>_id directly now, so the indirection is gone.
+            id_tag = 'discogs_id'
+            if id_tag not in sup:
+                setattr(metadata, id_tag, self.album.id)
 
         _set('discogs_release_url', self.album.url)
 
@@ -345,7 +350,7 @@ class FileHandler(object):
     def create_done_file(self):
         # could be, that the directory does not exist anymore ;-)
         if os.path.exists(self.album.sourcedir):
-            done_file = os.path.join(self.album.sourcedir, self.config.get("details", "done_file"))
+            done_file = os.path.join(self.album.sourcedir, self.config.get("archiving", "done_file"))
             from pathlib import Path; Path(done_file).touch()
 
     def create_album_dir(self):
@@ -395,7 +400,7 @@ class FileHandler(object):
             remove source directory, if configured as such (see config option
             details:keep_original)
         """
-        keep_original = self.config.getboolean("details", "keep_original")
+        keep_original = self.config.getboolean("archiving", "keep_original")
         source_dir = self.album.sourcedir
 
         logger.debug("keep_original: %s", keep_original)
@@ -406,7 +411,7 @@ class FileHandler(object):
 
     def copy_other_files(self):
         # copy "other files" on request
-        copy_other_files = self.config.getboolean("details", "copy_other_files")
+        copy_other_files = self.config.getboolean("archiving", "copy_other_files")
 
         if copy_other_files:
             logger.info("copying files from source directory")
@@ -423,7 +428,7 @@ class FileHandler(object):
                 # tagged output.  Previously extf was just cue_done_dir (a string),
                 # so f not in extf was a substring check that accidentally worked.
                 # Now use an explicit set for clarity and to add done_file.
-                _done_file = self.config.get('details', 'done_file')
+                _done_file = self.config.get('archiving', 'done_file')
                 _skip = ignored_source_dirs(self.config) | {_done_file}
                 copy_files[:] = [f for f in copy_files if f not in _skip]
 
@@ -436,7 +441,7 @@ class FileHandler(object):
             for disc in self.album.discs:
                 copy_files = disc.copy_files
 
-                _done_file = self.config.get('details', 'done_file')
+                _done_file = self.config.get('archiving', 'done_file')
                 _skip = ignored_source_dirs(self.config) | {_done_file}
                 copy_files[:] = [f for f in copy_files if f not in _skip]
 
@@ -540,16 +545,16 @@ class TaggerUtils(object):
         self.disc_folder_name = self.config.get("file-formatting", "discs")
 
         # Per-format case settings: 'lower', 'upper', or 'preserve'
-        self.case_dir     = self.config.get('details', 'case_dir')     or 'lower'
-        self.case_disc    = self.config.get('details', 'case_disc')    or 'lower'
-        self.case_song    = self.config.get('details', 'case_song')    or 'lower'
-        self.case_va_song = self.config.get('details', 'case_va_song') or 'lower'
-        self.case_nfo     = self.config.get('details', 'case_nfo')     or 'lower'
-        self.case_m3u     = self.config.get('details', 'case_m3u')     or 'lower'
+        self.case_dir     = self.config.get('naming', 'case_dir')     or 'lower'
+        self.case_disc    = self.config.get('naming', 'case_disc')    or 'lower'
+        self.case_song    = self.config.get('naming', 'case_song')    or 'lower'
+        self.case_va_song = self.config.get('naming', 'case_va_song') or 'lower'
+        self.case_nfo     = self.config.get('naming', 'case_nfo')     or 'lower'
+        self.case_m3u     = self.config.get('naming', 'case_m3u')     or 'lower'
 
         # Deprecated alias — override all six when present
         try:
-            legacy = self.config.getboolean('details', 'use_lower_filenames')
+            legacy = self.config.getboolean('naming', 'use_lower_filenames')
             _override = 'lower' if legacy else 'preserve'
             logger.warning(
                 "Config: 'use_lower_filenames' is deprecated — use the "
@@ -561,18 +566,18 @@ class TaggerUtils(object):
             pass
 
 #        self.first_image_name = "folder.jpg"
-        self.copy_other_files = self.config.getboolean("details", "copy_other_files")
+        self.copy_other_files = self.config.getboolean("archiving", "copy_other_files")
 
         # Build the combined substitution map: YAML profile + INI [character_exceptions]
         self.char_exceptions = build_map(tagger_config)
 
         # What to replace filesystem-invalid characters with (user-configurable)
         try:
-            self._path_sep_replacement = self.config.get('details', 'path_sep_replacement') or ''
+            self._path_sep_replacement = self.config.get('naming', 'path_sep_replacement') or ''
         except Exception:
             self._path_sep_replacement = ''
         try:
-            self._control_replacement = self.config.get('details', 'control_replacement') or ''
+            self._control_replacement = self.config.get('naming', 'control_replacement') or ''
         except Exception:
             self._control_replacement = ''
 
@@ -606,7 +611,7 @@ class TaggerUtils(object):
         #
         # albumartists / artists tags always store individual names as arrays,
         # regardless of what is set here.
-        _join_sep = self.config.get("details", "join_artists")
+        _join_sep = self.config.get("naming", "join_artists")
         if not self.album._artist_display and len(self.album.artists) > 1 and _join_sep:
             self.album._artist_display = f' {_join_sep} '.join(self.album.artists)
             logger.debug("albumartist: applied join_artists separator %r → %r",
@@ -626,8 +631,8 @@ class TaggerUtils(object):
         # in which case the version bundled in the package is used.
         try:
             _fc_path = tagger_config.resolve_path(
-                tagger_config.get('details', 'format_codes'),
-                'details.format_codes')
+                tagger_config.get('naming', 'format_codes'),
+                'naming.format_codes')
         except Exception:
             _fc_path = None
         _format_codes = load_format_codes(_fc_path)

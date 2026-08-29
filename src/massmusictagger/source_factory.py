@@ -45,7 +45,7 @@ def make_discogs_mapper(cfg: 'TaggerConfig', connector=None, **kwargs) -> 'Sourc
     A connector is optional but worth passing: a reissue frequently carries no
     year of its own, and the master it belongs to almost always does.
     """
-    use_anv = cfg.getboolean('details', 'use_anv') if cfg.has_option('details', 'use_anv') else True
+    use_anv = cfg.getboolean('naming', 'use_anv') if cfg.has_option('naming', 'use_anv') else True
 
     class _DiscogsMapper:
         def map(self, raw_release):

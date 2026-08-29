@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 def _load_source_hints(cfg) -> dict:
     """Return source_hints dict from the configured YAML file, or {}.
 
-    Tries details.source_hints_file first (shared by all sources), then
+    Tries source.source_hints_file first (shared by all sources), then
     musicbrainz.source_hints_file for backward compatibility.
     """
     path = ''
-    for section, key in (('details', 'source_hints_file'),
+    for section, key in (('source', 'source_hints_file'),
                           ('musicbrainz', 'source_hints_file')):
         try:
             p = (cfg.get(section, key) or '').strip()
@@ -37,7 +37,7 @@ def _load_source_hints(cfg) -> dict:
     if path:
         # An override named by the config resolves beside that config file.
         try:
-            path = cfg.resolve_path(path, 'details.source_hints_file') or path
+            path = cfg.resolve_path(path, 'source.source_hints_file') or path
         except Exception:
             path = os.path.expanduser(path)
     else:

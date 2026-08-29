@@ -23,9 +23,9 @@ def _make_cfg(action='done_file', archive_dir='', template='', source_dir=''):
     cfg = MagicMock()
     def _get(section, key):
         return {
-            ('details', 'source_action'):       action,
-            ('details', 'source_archive_dir'):  archive_dir,
-            ('details', 'source_move_template'): template,
+            ('archiving', 'source_action'):       action,
+            ('archiving', 'source_archive_dir'):  archive_dir,
+            ('archiving', 'source_move_template'): template,
             ('common', 'source_dir'):           source_dir,
         }.get((section, key), '')
     cfg.get.side_effect = _get

@@ -82,8 +82,31 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _setup_logging(verbose: bool, log_file: str | None = None) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
+def _parse_level(value, default=logging.INFO) -> int:
+    """Accept a level name or a number, as the logging module itself does."""
+    if value is None or value == '':
+        return default
+    text = str(value).strip()
+    if text.isdigit():
+        return int(text)
+    resolved = logging.getLevelName(text.upper())
+    if isinstance(resolved, int):
+        return resolved
+    logger.warning('logging.level %r is not a level name or number — '
+                   'using INFO', value)
+    return default
+
+
+def _setup_logging(verbose: bool, log_file: str | None = None,
+                   configured_level: str | None = None) -> None:
+    """Console and file logging.
+
+    logging.level was in the schema and nothing read it, so setting it did
+    nothing at all. It matters for a daemon: the container runs mmt -w with
+    no tty and no way to pass -v, so the config file is the only place the
+    level can come from. -v still wins, being the more immediate instruction.
+    """
+    level = logging.DEBUG if verbose else _parse_level(configured_level)
     full_fmt = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     datefmt  = '%Y-%m-%d %H:%M:%S'
 
@@ -445,7 +468,7 @@ def _count_ignored(source_dir: str, source_dirs: list[str], cfg, force: bool) ->
     """
     if force:
         return 0
-    done_file = cfg.get('details', 'done_file') or 'dt.done'
+    done_file = cfg.get('archiving', 'done_file') or 'dt.done'
     src_set = {os.path.normpath(d) for d in source_dirs}
     n = 0
     for root, dirs, files in os.walk(source_dir, topdown=True):
@@ -483,7 +506,7 @@ def _undo(dir_path: str, cfg) -> None:
     import shutil
     print(f'Removing tagged directory: {target}')
     shutil.rmtree(target)
-    done_file = os.path.join(dir_path, cfg.get('details', 'done_file') or 'dt.done')
+    done_file = os.path.join(dir_path, cfg.get('archiving', 'done_file') or 'dt.done')
     if os.path.exists(done_file):
         os.remove(done_file)
         print(f'Removed done file: {done_file}')
@@ -566,7 +589,9 @@ def _main(argv: list[str] | None = None) -> None:
     # Set up logging before validation so validation errors go through the logger.
     _log_file = (cfg.get('logging', 'log_file')
                  if cfg.has_option('logging', 'log_file') else None) or None
-    _setup_logging(opts.verbose, log_file=_log_file)
+    _level = (cfg.get('logging', 'level')
+              if cfg.has_option('logging', 'level') else None)
+    _setup_logging(opts.verbose, log_file=_log_file, configured_level=_level)
 
     # Validate all required settings at startup — collect every problem so the
     # user sees them all at once rather than one per run.

@@ -192,11 +192,6 @@ class TaggerConfig(RawConfigParser):
 
     # ------------------------------------------------------------------
 
-    @property
-    def id_tag_name(self):
-        source_name = self.get("source", "name")
-        return self.get("source", source_name)
-
     def get(self, section, name, **kw):
         try:
             config_value = RawConfigParser.get(self, section, name.lower(), raw=True)

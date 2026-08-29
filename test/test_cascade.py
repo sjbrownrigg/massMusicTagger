@@ -385,9 +385,9 @@ class TestFolderDescriptorHints(unittest.TestCase):
 class TestLoadSourceHints(unittest.TestCase):
     """_load_source_hints() reads keyword lists from YAML, returns {} on error.
 
-    _load_source_hints() checks details.source_hints_file first (the canonical
+    _load_source_hints() checks source.source_hints_file first (the canonical
     location), then musicbrainz.source_hints_file as a backward-compat fallback.
-    Tests must clear details.source_hints_file to avoid the default value in
+    Tests must clear source.source_hints_file to avoid the default value in
     config.yaml from shadowing the test-controlled path.
     """
 
@@ -404,7 +404,7 @@ class TestLoadSourceHints(unittest.TestCase):
         cfg = TaggerConfig(MMT_CONFIG)
         if not cfg.has_section('details'):
             cfg.add_section('details')
-        cfg.set('details', 'source_hints_file', hints_path)
+        cfg.set('source', 'source_hints_file', hints_path)
         if cfg.has_section('musicbrainz') and cfg.has_option('musicbrainz', 'source_hints_file'):
             cfg.set('musicbrainz', 'source_hints_file', '')
         return cfg
@@ -457,14 +457,14 @@ class TestLoadSourceHints(unittest.TestCase):
             'source_hints.yaml is missing from the installed package')
 
     def test_musicbrainz_fallback_used_when_details_empty(self):
-        """musicbrainz.source_hints_file is used when details.source_hints_file is empty."""
+        """musicbrainz.source_hints_file is used when source.source_hints_file is empty."""
         import yaml
         from massmusictagger.cascade import _load_source_hints
         from massmusictagger.core.tagger_config import TaggerConfig
         cfg = TaggerConfig(MMT_CONFIG)
         if not cfg.has_section('details'):
             cfg.add_section('details')
-        cfg.set('details', 'source_hints_file', '')
+        cfg.set('source', 'source_hints_file', '')
         hints_file = os.path.join(self.tmpdir, 'mb_hints.yaml')
         with open(hints_file, 'w') as f:
             yaml.dump({'source_hints': {'digital': ['WEB']}}, f)

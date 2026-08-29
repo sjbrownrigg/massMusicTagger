@@ -83,8 +83,8 @@ def test_build_map_honours_the_profile_from_config():
     from massmusictagger.core.tagger_config import TaggerConfig
     from massmusictagger import roots
     cfg = TaggerConfig(os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml'))
-    cfg.set('details', 'char_profile', 'windows')
-    cfg.set('details', 'char_substitutions', '')
+    cfg.set('naming', 'char_profile', 'windows')
+    cfg.set('naming', 'char_substitutions', '')
     m = build_map(cfg)
     assert m, 'build_map should pick up the windows profile'
     assert apply_substitutions("<<Start The Show>>", m) == "((Start The Show))"

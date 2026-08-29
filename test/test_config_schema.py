@@ -169,3 +169,91 @@ def test_placeholders_show_an_example_not_an_empty_string():
         assert config_schema.DEFAULTS.get(key) == '', (
             f'{key} is a placeholder, so its schema default must be empty -- '
             'a credential must never have a working-looking default')
+
+
+# ── logging.level does something ─────────────────────────────────────────────
+
+def test_logging_level_accepts_a_name_or_a_number():
+    """It was in the schema and nothing read it.
+
+    A daemon container runs `mmt -w` with no tty, so the config file is the
+    only place the level can come from; setting it did nothing at all.
+    """
+    import logging
+    from massmusictagger.__main__ import _parse_level
+    assert _parse_level('DEBUG') == logging.DEBUG
+    assert _parse_level('debug') == logging.DEBUG
+    assert _parse_level('10') == 10
+    assert _parse_level('WARNING') == logging.WARNING
+
+
+def test_an_unset_level_is_info():
+    import logging
+    from massmusictagger.__main__ import _parse_level
+    assert _parse_level(None) == logging.INFO
+    assert _parse_level('') == logging.INFO
+
+
+def test_a_nonsense_level_warns_and_falls_back(caplog):
+    import logging
+    from massmusictagger.__main__ import _parse_level
+    with caplog.at_level('WARNING'):
+        assert _parse_level('chatty') == logging.INFO
+    assert 'chatty' in caplog.text
+
+
+def test_verbose_still_wins_over_the_config():
+    """-v is the more immediate instruction."""
+    import inspect, logging
+    from massmusictagger.__main__ import _setup_logging
+    src = inspect.getsource(_setup_logging)
+    assert 'logging.DEBUG if verbose else' in src
+
+
+# ── the 3.0.0 section move ───────────────────────────────────────────────────
+
+def test_details_is_gone():
+    """[details] was a 28-key catch-all: casing, artwork, archiving, tags."""
+    sections = {s for s, _ in config_schema.DEFAULTS}
+    assert 'details' not in sections
+
+
+def test_every_moved_key_names_a_section_that_exists():
+    sections = {s for s, _ in config_schema.DEFAULTS}
+    for (old_section, key), new_section in config_schema.MOVED.items():
+        assert new_section in sections, f'{key} moved to a section that is gone'
+        assert (new_section, key) in config_schema.DEFAULTS, (
+            f'{old_section}.{key} says it moved to {new_section}, '
+            'but that key is not there')
+
+
+def test_a_moved_key_is_named_not_just_rejected(caplog):
+    """"Unknown config key details.char_profile" is not actionable."""
+    from massmusictagger.core.tagger_config import TaggerConfig
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmp:
+        cf = os.path.join(tmp, 'config.yaml')
+        with open(cf, 'w', encoding='utf-8') as fh:
+            fh.write('details:\n  char_profile: windows\n')
+        with caplog.at_level('WARNING'):
+            TaggerConfig(cf)
+    assert 'moved to [naming]' in caplog.text
+    assert 'NOT being applied' in caplog.text
+
+
+def test_a_removed_key_says_why(caplog):
+    from massmusictagger.core.tagger_config import TaggerConfig
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmp:
+        cf = os.path.join(tmp, 'config.yaml')
+        with open(cf, 'w', encoding='utf-8') as fh:
+            fh.write('tags:\n  encoder: lame\n')
+        with caplog.at_level('WARNING'):
+            TaggerConfig(cf)
+    assert 'removed in 3.0.0' in caplog.text
+    assert 'nothing read it' in caplog.text
+
+
+def test_no_removed_key_is_still_in_the_schema():
+    for key in config_schema.REMOVED:
+        assert key not in config_schema.DEFAULTS, f'{key} is both removed and live'

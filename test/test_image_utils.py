@@ -267,7 +267,7 @@ class TestDownloadTypedImages(unittest.TestCase):
     def test_front_downloaded_as_front_jpg(self):
         images = [{'uri': 'https://caa/front.jpg', 'type': 'primary',
                    'caa_types': ['Front'], 'width': None, 'height': None}]
-        self._run(images, {'details.download_only_cover': 'false'})
+        self._run(images, {'artwork.download_only_cover': 'false'})
         self.assertIn('front.jpg', self._on_disk())
 
     def test_back_downloaded_as_back_jpg(self):
@@ -277,7 +277,7 @@ class TestDownloadTypedImages(unittest.TestCase):
             {'uri': 'https://caa/back.jpg', 'caa_types': ['Back'],
              'type': 'secondary', 'width': None, 'height': None},
         ]
-        self._run(images, {'details.download_only_cover': 'false'})
+        self._run(images, {'artwork.download_only_cover': 'false'})
         self.assertIn('back.jpg', self._on_disk())
 
     def test_multiple_booklets_numbered(self):
@@ -287,7 +287,7 @@ class TestDownloadTypedImages(unittest.TestCase):
             {'uri': 'https://caa/b2.jpg', 'caa_types': ['Booklet'],
              'type': 'secondary', 'width': None, 'height': None},
         ]
-        self._run(images, {'details.download_only_cover': 'false'})
+        self._run(images, {'artwork.download_only_cover': 'false'})
         written = self._on_disk()
         self.assertIn('booklet.jpg', written)
         self.assertIn('booklet-01.jpg', written)
@@ -299,7 +299,7 @@ class TestDownloadTypedImages(unittest.TestCase):
             {'uri': 'https://caa/back.jpg', 'caa_types': ['Back'],
              'type': 'secondary', 'width': None, 'height': None},
         ]
-        self._run(images, {'details.download_only_cover': 'true'})
+        self._run(images, {'artwork.download_only_cover': 'true'})
         written = self._on_disk()
         self.assertIn('front.jpg', written)
         self.assertNotIn('back.jpg', written)
@@ -309,8 +309,8 @@ class TestDownloadTypedImages(unittest.TestCase):
     def test_folder_jpg_written_for_front(self):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        self._run(images, {'details.use_folder_jpg': 'true',
-                           'details.download_only_cover': 'false'})
+        self._run(images, {'artwork.use_folder_jpg': 'true',
+                           'artwork.download_only_cover': 'false'})
         written = self._on_disk()
         self.assertIn('folder.jpg', written)
         self.assertEqual(
@@ -321,8 +321,8 @@ class TestDownloadTypedImages(unittest.TestCase):
         """It used to fetch the same URL twice, once per filename."""
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        _, conn = self._run(images, {'details.use_folder_jpg': 'true',
-                                     'details.download_only_cover': 'false'})
+        _, conn = self._run(images, {'artwork.use_folder_jpg': 'true',
+                                     'artwork.download_only_cover': 'false'})
         self.assertEqual(conn.fetch_image.call_count, 1)
 
     # ── image_policy ─────────────────────────────────────────────────────────
@@ -331,7 +331,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         self._local('cover.jpg', 1200, 1200)
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        _, conn = self._run(images, {'details.image_policy': 'prefer_existing'})
+        _, conn = self._run(images, {'artwork.image_policy': 'prefer_existing'})
         conn.fetch_image.assert_not_called()
 
     def test_prefer_larger_measures_a_source_that_states_no_dimensions(self):
@@ -346,7 +346,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
         conn = self._connector(size=(600, 600))
-        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+        self._run(images, {'artwork.image_policy': 'prefer_larger'}, conn)
 
         from massmusictagger.image_utils import _measure
         self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
@@ -358,7 +358,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
         conn = self._connector(size=(1000, 1000))
-        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+        self._run(images, {'artwork.image_policy': 'prefer_larger'}, conn)
 
         from massmusictagger.image_utils import _measure
         self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
@@ -370,8 +370,8 @@ class TestDownloadTypedImages(unittest.TestCase):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
         conn = self._connector(size=(1000, 1000))
-        self._run(images, {'details.image_policy': 'prefer_larger',
-                           'details.use_folder_jpg': 'false'}, conn)
+        self._run(images, {'artwork.image_policy': 'prefer_larger',
+                           'artwork.use_folder_jpg': 'false'}, conn)
         self.assertEqual(conn.fetch_image.call_count, 1)
 
     # ── extension follows the bytes ──────────────────────────────────────────
@@ -397,8 +397,8 @@ class TestDownloadTypedImages(unittest.TestCase):
         payload = self._png(600, 600)
         conn.fetch_image = MagicMock(
             side_effect=lambda dest, uri: open(dest, 'wb').write(payload))
-        self._run(images, {'details.download_only_cover': 'false',
-                           'details.use_folder_jpg': 'false'}, conn)
+        self._run(images, {'artwork.download_only_cover': 'false',
+                           'artwork.use_folder_jpg': 'false'}, conn)
         written = self._on_disk()
         self.assertIn('front.png', written)
         self.assertNotIn('front.jpg', written)
@@ -406,8 +406,8 @@ class TestDownloadTypedImages(unittest.TestCase):
     def test_a_jpeg_keeps_its_extension(self):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        self._run(images, {'details.download_only_cover': 'false',
-                           'details.use_folder_jpg': 'false'})
+        self._run(images, {'artwork.download_only_cover': 'false',
+                           'artwork.use_folder_jpg': 'false'})
         self.assertIn('front.jpg', self._on_disk())
 
     def test_a_corrected_image_is_still_embedded(self):
@@ -419,8 +419,8 @@ class TestDownloadTypedImages(unittest.TestCase):
         payload = self._png(600, 600)
         conn.fetch_image = MagicMock(
             side_effect=lambda dest, uri: open(dest, 'wb').write(payload))
-        self._run(images, {'details.download_only_cover': 'false',
-                           'details.use_folder_jpg': 'false'}, conn)
+        self._run(images, {'artwork.download_only_cover': 'false',
+                           'artwork.use_folder_jpg': 'false'}, conn)
         found = _find_written(self.target, 'front')
         self.assertIsNotNone(found)
         self.assertTrue(found.endswith('front.png'))
@@ -437,8 +437,8 @@ class TestDownloadTypedImages(unittest.TestCase):
         self._local('cover.jpg', 1400, 1400)
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        self._run(images, {'details.image_policy': 'prefer_larger',
-                           'details.use_folder_jpg': 'true'},
+        self._run(images, {'artwork.image_policy': 'prefer_larger',
+                           'artwork.use_folder_jpg': 'true'},
                   self._connector(size=(600, 600)))
         written = self._on_disk()
         self.assertIn('front.jpg', written)
@@ -453,7 +453,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         self._local('cover.jpg', 300, 300)
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        self._run(images, {'details.image_policy': 'prefer_larger'},
+        self._run(images, {'artwork.image_policy': 'prefer_larger'},
                   self._connector(size=(1000, 1000)))
         written = self._on_disk()
         self.assertIn('front.jpg', written)
@@ -465,7 +465,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         images = from_discogs_list([
             {'uri': 'https://img.discogs/a.jpg', 'type': 'primary',
              'width': 600, 'height': 600}])
-        self._run(images, {'details.download_only_cover': 'false'})
+        self._run(images, {'artwork.download_only_cover': 'false'})
         self.assertIn('cover.jpg', self._on_disk())
 
     # ── failure ──────────────────────────────────────────────────────────────
@@ -475,7 +475,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
         conn = self._connector(fail=('https://caa/front.jpg',))
-        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+        self._run(images, {'artwork.image_policy': 'prefer_larger'}, conn)
 
         from massmusictagger.image_utils import _measure
         self.assertEqual(_measure(os.path.join(self.target, 'cover.jpg')),
@@ -502,7 +502,7 @@ class TestDownloadTypedImages(unittest.TestCase):
             return real(dest, uri)
 
         conn.fetch_image = MagicMock(side_effect=hostile)
-        self._run(images, {'details.image_policy': 'prefer_larger'}, conn)
+        self._run(images, {'artwork.image_policy': 'prefer_larger'}, conn)
 
         from massmusictagger.image_utils import _measure
         self.assertEqual(_measure(os.path.join(self.target, 'front.jpg')),
@@ -513,7 +513,7 @@ class TestDownloadTypedImages(unittest.TestCase):
         self._local('cover.jpg', 1400, 1400)
         images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
                    'type': 'primary', 'width': None, 'height': None}]
-        self._run(images, {'details.image_policy': 'prefer_larger'},
+        self._run(images, {'artwork.image_policy': 'prefer_larger'},
                   self._connector(size=(600, 600)))
         leftovers = [n for n in os.listdir(self.target)
                      if n.startswith('.') or n.endswith('.part')]
@@ -527,7 +527,7 @@ class TestEmbedTypedImages(unittest.TestCase):
     def _run(self, images):
         from massmusictagger.image_utils import embed_typed_images
         from mediafile import ImageType
-        cfg = _make_cfg(**{'details.embed_coverart': 'true'})
+        cfg = _make_cfg(**{'artwork.embed_coverart': 'true'})
         album = _make_album(images)
 
         saved_images = {}
@@ -576,7 +576,7 @@ class TestEmbedTypedImages(unittest.TestCase):
         download having failed, leaving nothing to embed.
         """
         from massmusictagger.image_utils import embed_typed_images
-        cfg = _make_cfg(**{'details.embed_coverart': 'true'})
+        cfg = _make_cfg(**{'artwork.embed_coverart': 'true'})
         album = _make_album([{'caa_types': ['Front'], 'uri': 'https://caa/x.jpg',
                               'type': 'primary'}])
         saved = {}
@@ -612,7 +612,7 @@ class TestEmbedTypedImages(unittest.TestCase):
         from massmusictagger.image_utils import embed_typed_images, MAX_EMBEDDED_IMAGE_SIZE
         from mediafile import ImageType
 
-        cfg = _make_cfg(**{'details.embed_coverart': 'true'})
+        cfg = _make_cfg(**{'artwork.embed_coverart': 'true'})
         images = [
             {'caa_types': ['Front'],   'local_filename': 'front.jpg',   'uri': '', 'type': 'primary'},
             {'caa_types': ['Booklet'], 'local_filename': 'booklet.jpg', 'uri': '', 'type': 'secondary'},

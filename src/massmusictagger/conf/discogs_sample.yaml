@@ -23,12 +23,7 @@ discogs:
   consumer_key: ""
   consumer_secret: ""
 
-source:
-  discogs: discogs_id
-  amg:     amg_id
-  local:   discogs_id
-
-# ── Discogs cache (managed by discogstagger3) ─────────────────────────────────
+# ── Discogs cache ─────────────────────────────────────────────────────────────
 # Cache directory is set via the top-level 'cache.directory' key (see config.yaml).
 # Layout under that directory:
 #   releases/   — full release JSON

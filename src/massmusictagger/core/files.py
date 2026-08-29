@@ -82,7 +82,7 @@ class FileUtils(object):
         self.flac_compression_level = self.config.get('conversion', 'flac_compression_level')
         self.mp3_quality = self.config.get('conversion', 'mp3_quality')
         self.ogg_quality = self.config.get('conversion', 'ogg_quality')
-        self.done_file = self.config.get("details", "done_file")
+        self.done_file = self.config.get("archiving", "done_file")
         self.forceUpdate = options.forceUpdate
         #: A dry run must not touch the source. get_audio_dirs sounds like a
         #: scan but also splits CUE sheets and converts m4a, so without this
