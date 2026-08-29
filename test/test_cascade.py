@@ -385,7 +385,13 @@ class TestLoadSourceHints(unittest.TestCase):
         with open(hints_file, 'w') as f:
             yaml.dump({'source_hints': {'digital': ['WEB'], 'vinyl': ['Vinyl Rip']}}, f)
         result = _load_source_hints(self._make_cfg(hints_file))
-        self.assertEqual(result, {'digital': ['WEB'], 'vinyl': ['Vinyl Rip']})
+        # A user's file adds to the packaged hints rather than replacing them:
+        # a copy taken into a config directory otherwise freezes the token
+        # list at whatever shipped that day, which is how a folder named
+        # "[FLAC] [24B-44.1kHz]" came to produce no format hint at all.
+        self.assertIn('WEB', result['digital'])
+        self.assertIn('Vinyl Rip', result['vinyl'])
+        self.assertIn('24B-', result['digital'], 'packaged tokens must survive')
 
     def test_missing_file_returns_empty(self):
         from massmusictagger.cascade import _load_source_hints
@@ -441,8 +447,69 @@ class TestLoadSourceHints(unittest.TestCase):
             cfg.add_section('musicbrainz')
         cfg.set('musicbrainz', 'source_hints_file', hints_file)
         result = _load_source_hints(cfg)
-        self.assertEqual(result, {'digital': ['WEB']})
+        self.assertIn('WEB', result['digital'])
+        self.assertIn('24B-', result['digital'], 'packaged tokens must survive')
 
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestSourceHintsMergeOverPackaged(unittest.TestCase):
+    """A user's source_hints.yaml adds to the packaged one, not replaces it.
+
+    A copy taken into a config directory otherwise freezes the token list at
+    whatever shipped that day. That is what happened: the packaged digital
+    list had "24 Bit", "24bit" and "24-Bit" but nothing matching the
+    abbreviation this library actually uses, so a folder named
+    "Anja Huwe - Codes (2024) [FLAC] [24B-44.1kHz]" produced no format hint
+    at all, and a 24-bit download was free to match a CD pressing.
+    """
+
+    def _hints(self, body):
+        import tempfile, os
+        from unittest.mock import MagicMock
+        from massmusictagger.cascade import _load_source_hints
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, 'hints.yaml')
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(body)
+        cfg = MagicMock()
+        cfg.resource.return_value = None
+        cfg.get.side_effect = lambda s, k: path if k == 'source_hints_file' else None
+        cfg.resolve_path.side_effect = lambda p, key=None: p
+        cfg.source_conffile = path
+        return _load_source_hints(cfg)
+
+    def test_a_users_additions_are_kept(self):
+        h = self._hints("source_hints:\n  digital:\n    - MYRIP\n")
+        self.assertIn('MYRIP', h['digital'])
+
+    def test_the_packaged_tokens_survive(self):
+        h = self._hints("source_hints:\n  digital:\n    - MYRIP\n")
+        self.assertIn('24B-', h['digital'])
+        self.assertIn('WEB', h['digital'])
+
+    def test_untouched_categories_survive(self):
+        h = self._hints("source_hints:\n  digital:\n    - MYRIP\n")
+        self.assertIn('vinyl', h)
+        self.assertIn('descriptor_boost', h)
+
+    def test_the_abbreviated_bit_depth_is_recognised(self):
+        from massmusictagger.cascade import _folder_format_hint
+        h = self._hints("source_hints:\n  digital:\n    - MYRIP\n")
+        self.assertEqual(
+            _folder_format_hint('/x/Anja Huwe - Codes (2024) [FLAC] [24B-44.1kHz]', h),
+            'digital')
+
+    def test_a_bare_24b_is_not_a_bit_depth(self):
+        """"Symphony No 24b" is not a hi-res rip."""
+        from massmusictagger.cascade import _folder_format_hint
+        h = self._hints("source_hints:\n  digital:\n    - MYRIP\n")
+        self.assertEqual(_folder_format_hint('/x/Beethoven Symphony No 24b', h), '')
+
+    def test_sixteen_bit_is_not_a_digital_hint(self):
+        from massmusictagger.cascade import _folder_format_hint
+        h = self._hints("source_hints:\n  digital:\n    - MYRIP\n")
+        self.assertEqual(
+            _folder_format_hint('/x/Crash (1995) [FLAC] [16B-44.1kHz]', h), '')

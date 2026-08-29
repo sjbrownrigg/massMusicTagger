@@ -20,6 +20,13 @@ source_hints:
     - "24 Bit"
     - "24bit"
     - "24-Bit"
+    # Rippers commonly abbreviate the bit depth, e.g.
+    #   Artist - Album (2024) [FLAC] [24B-44.1kHz]
+    # Written with the surrounding punctuation so a folder that merely
+    # contains "24b" -- a volume or catalogue number -- does not match.
+    - "24B-"
+    - "[24B"
+    - "24B]"
     - "WEB"
     - "Hi-Res"
     - "Hi Res"

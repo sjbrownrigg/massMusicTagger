@@ -32,6 +32,43 @@ def _discovered(cfg, what):
     return found.strip() if isinstance(found, str) else ''
 
 
+def _merged_over_packaged(user: dict, path: str) -> dict:
+    """A user's hints add to the packaged ones rather than replacing them.
+
+    A copy taken into a config directory otherwise freezes the token list at
+    whatever shipped that day. That is what happened here: the packaged list
+    gained no "24B-" spelling and the copy could not either, so a folder named
+    "[FLAC] [24B-44.1kHz]" produced no format hint at all and a 24-bit
+    download was free to match a CD pressing.
+
+    Lists are unioned in order -- packaged first, then anything new -- so a
+    user's additions are visible as additions.
+    """
+    from massmusictagger import roots
+    packaged_path = os.path.join(roots.BUNDLED_CONF, 'source_hints.yaml')
+    if os.path.abspath(path) == os.path.abspath(packaged_path):
+        return user
+    try:
+        import yaml as _yaml
+        with open(packaged_path, encoding='utf-8') as f:
+            packaged = (_yaml.safe_load(f) or {}).get('source_hints', {})
+    except Exception:
+        return user
+
+    merged = dict(packaged)
+    for key, value in (user or {}).items():
+        if isinstance(value, list) and isinstance(merged.get(key), list):
+            seen, combined = set(), []
+            for item in list(merged[key]) + list(value):
+                if item not in seen:
+                    seen.add(item)
+                    combined.append(item)
+            merged[key] = combined
+        else:
+            merged[key] = value
+    return merged
+
+
 def _load_source_hints(cfg) -> dict:
     """Return the source_hints mapping, from the config directory or the package.
 
@@ -74,7 +111,7 @@ def _load_source_hints(cfg) -> dict:
         import yaml as _yaml
         with open(path, encoding='utf-8') as f:
             data = _yaml.safe_load(f) or {}
-        return data.get('source_hints', {})
+        return _merged_over_packaged(data.get('source_hints', {}), path)
     except FileNotFoundError:
         if configured:
             # Asked for by name and not there. Debug-level was how
