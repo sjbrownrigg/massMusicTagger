@@ -87,10 +87,11 @@ DEPRECATED = frozenset({
 #: used to resolve a path, which is more specific than anything sayable here.
 DEPRECATION_NOTES = {
     ('file-formatting', 'image'):
-        'artwork is named by a fixed convention now -- front/back/medium/'
-        'booklet for typed images, cover for untyped album art, and '
-        'image-01, image-02 for the rest. Remove the setting; it has no '
-        'effect.',
+        'artwork is named by a fixed convention now -- the Cover Art '
+        'Archive vocabulary (front, back, booklet, liner, medium, tray, '
+        'spine, obi, sticker, poster, ...) for typed images, cover for '
+        'untyped album art, and image-01, image-02 for anything the source '
+        'did not type. Remove the setting; it has no effect.',
 }
 
 
