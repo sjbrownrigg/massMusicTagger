@@ -20,12 +20,21 @@ from massmusictagger.config_schema import ConfigError
 from massmusictagger.sources.discogs import connector as conn_mod
 
 
-def _connector(identity):
+def _connector(identity, token='tok'):
     """A DiscogsConnector with just enough state to verify its token."""
     c = conn_mod.DiscogsConnector.__new__(conn_mod.DiscogsConnector)
     c.discogs_client = MagicMock()
     c.discogs_client.identity = identity
+    c._user_token = token
     return c
+
+
+def setUpModule():
+    conn_mod._VERIFIED_TOKENS.clear()
+
+
+def tearDownModule():
+    conn_mod._VERIFIED_TOKENS.clear()
 
 
 class _HTTPError(Exception):
@@ -35,6 +44,13 @@ class _HTTPError(Exception):
 
 
 class TokenVerification(unittest.TestCase):
+
+    def setUp(self):
+        # _VERIFIED_TOKENS is process-global by design -- one token, one
+        # question, across every connector a run builds. That makes it shared
+        # state between tests, so each starts from empty.
+        conn_mod._VERIFIED_TOKENS.clear()
+        self.addCleanup(conn_mod._VERIFIED_TOKENS.clear)
 
     def test_a_rejected_token_is_fatal(self):
         def identity():
@@ -126,3 +142,32 @@ class ConfigErrorsReachTheUser(unittest.TestCase):
         with patch.object(mmt_main, '_main', side_effect=RuntimeError('boom')):
             with self.assertRaises(RuntimeError):
                 mmt_main.main([])
+
+
+class VerificationIsNotRepeated(unittest.TestCase):
+    """A run builds more than one connector; one token needs one question."""
+
+    def setUp(self):
+        conn_mod._VERIFIED_TOKENS.clear()
+        self.addCleanup(conn_mod._VERIFIED_TOKENS.clear)
+
+    def test_the_same_token_is_verified_once_per_process(self):
+        identity = MagicMock(return_value=MagicMock(username='ghostdanser'))
+        for _ in range(3):
+            _connector(identity, token='same')._verify_token()
+        identity.assert_called_once()
+
+    def test_a_different_token_is_verified_again(self):
+        identity = MagicMock(return_value=MagicMock(username='ghostdanser'))
+        _connector(identity, token='one')._verify_token()
+        _connector(identity, token='two')._verify_token()
+        self.assertEqual(identity.call_count, 2)
+
+    def test_a_rejected_token_is_never_cached(self):
+        """Caching a failure would turn one bad answer into a stuck run."""
+        def bad():
+            raise _HTTPError('401', 401)
+        for _ in range(2):
+            with self.assertRaises(ConfigError):
+                _connector(bad, token='dead')._verify_token()
+        self.assertNotIn('dead', conn_mod._VERIFIED_TOKENS)

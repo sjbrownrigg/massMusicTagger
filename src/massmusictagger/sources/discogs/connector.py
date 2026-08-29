@@ -19,6 +19,12 @@ from massmusictagger.config_schema import ConfigError
 logger = logging.getLogger(__name__)
 
 
+#: Tokens already checked in this process. A run builds more than one
+#: connector -- currently one for search and one for fetching -- and each was
+#: spending an API call to ask Discogs the same question about the same token.
+_VERIFIED_TOKENS = set()
+
+
 def _is_auth_failure(exc) -> bool:
     """Is this exception Discogs refusing the credential, rather than a network
     problem? Checked by status code where there is one, because the client
@@ -94,6 +100,9 @@ class DiscogsConnector(object):
         A rejected token is fatal and says which file to fix. A network
         failure is not: an offline run against a warm cache is legitimate.
         """
+        if self._user_token in _VERIFIED_TOKENS:
+            return
+
         try:
             identity = self.discogs_client.identity()
         except Exception as exc:
@@ -112,6 +121,7 @@ class DiscogsConnector(object):
                            '— continuing; cached data will still be used', exc)
             return
 
+        _VERIFIED_TOKENS.add(self._user_token)
         username = getattr(identity, 'username', None)
         logger.info('Authenticated with Discogs as %s',
                     username or 'an unnamed account')
