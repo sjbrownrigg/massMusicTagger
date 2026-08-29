@@ -84,6 +84,10 @@ class FileUtils(object):
         self.ogg_quality = self.config.get('conversion', 'ogg_quality')
         self.done_file = self.config.get("details", "done_file")
         self.forceUpdate = options.forceUpdate
+        #: A dry run must not touch the source. get_audio_dirs sounds like a
+        #: scan but also splits CUE sheets and converts m4a, so without this
+        #: --dry-run rewrote the directory it was only meant to report on.
+        self.dry_run = getattr(options, 'dry_run', False)
 
     def read_id_file(self, dir, file_name, options):
         # read tags from batch file if available
@@ -122,7 +126,10 @@ class FileUtils(object):
 
             if self.convert_m4a_files:
                 m4a_files = [f for f in files if f.endswith('.m4a')]
-                if m4a_files and self._processM4aFiles(root, m4a_files):
+                if m4a_files and self.dry_run:
+                    logger.info('Would convert %d .m4a file(s) in %s',
+                                len(m4a_files), _fssafe(root))
+                elif m4a_files and self._processM4aFiles(root, m4a_files):
                     # Conversions changed the directory contents (originals
                     # moved to m4a_done_dir, new .flac/.mp3/.ogg files added)
                     # — re-read so the audio-file scan below sees the result.
@@ -157,7 +164,10 @@ class FileUtils(object):
                         disc_m4a = [f for f in os.listdir(disc_path)
                                     if f.endswith('.m4a')
                                     and os.path.isfile(os.path.join(disc_path, f))]
-                        if disc_m4a:
+                        if disc_m4a and self.dry_run:
+                            logger.info('Would convert %d .m4a file(s) in %s',
+                                        len(disc_m4a), _fssafe(disc_path))
+                        elif disc_m4a:
                             self._processM4aFiles(disc_path, disc_m4a)
                     d = Path(disc_path)
                     for file in d.iterdir():
@@ -167,9 +177,14 @@ class FileUtils(object):
                             audio_files.append(str(file))
             dirs[:] = [d for d in dirs if d not in unwalk]
             if parse_cue_files and len(cue_files) > 0 and len(cue_files) == len(audio_files):
-                result = self._processCueFiles(root, cue_files)
-                if result == 0:
+                if self.dry_run:
+                    logger.info('Would split %d CUE sheet(s) in %s',
+                                len(cue_files), _fssafe(root))
                     source_dirs.append(root + '/')
+                else:
+                    result = self._processCueFiles(root, cue_files)
+                    if result == 0:
+                        source_dirs.append(root + '/')
             elif len(audio_files) > 0 and (self.forceUpdate or self.done_file not in files):
                 source_dirs.append(root + '/')
                 logger.debug('found %s in %s', _fssafe(file), _fssafe(root + '/'))

@@ -354,7 +354,8 @@ def _bundled_sample(name: str = 'config_sample.yaml') -> str:
     return os.path.join(roots.BUNDLED_CONF, name)
 
 
-def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tuple[list[str], int]:
+def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
+                     dry_run: bool = False) -> tuple[list[str], int]:
     """Return (dirs_to_process, n_ignored).
 
     dirs_to_process — flat list of audio directories to tag.
@@ -382,6 +383,7 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tup
     from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
     from massmusictagger.core.files import FileUtils
 
+    _dry_run = dry_run
     id_file = cfg.get('batch', 'id_file') if cfg.has_option('batch', 'id_file') else 'id.txt'
     searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                      if cfg.has_option('batch', 'searchdiscogs') else False)
@@ -389,6 +391,7 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False) -> tup
     class _FakeOptions:
         forceUpdate = force   # when --force, walk past existing .done markers
         releaseid = None
+        dry_run = _dry_run    # scanning must not convert or split on a dry run
 
     fu = FileUtils(cfg, _FakeOptions())
 
@@ -611,7 +614,8 @@ def _main(argv: list[str] | None = None) -> None:
     if opts.watch:
         _watch_mode(opts, cfg, processor)
     else:
-        source_dirs, n_ignored = _get_source_dirs(cfg, opts.sourcedir, force=opts.force)
+        source_dirs, n_ignored = _get_source_dirs(cfg, opts.sourcedir, force=opts.force,
+                                                 dry_run=opts.dry_run)
         if not source_dirs:
             if n_ignored:
                 logger.info('All %d album(s) already tagged — nothing to do', n_ignored)
