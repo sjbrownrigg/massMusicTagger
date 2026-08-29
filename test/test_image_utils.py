@@ -649,3 +649,68 @@ class TestEmbedTypedImages(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class LocalCoverMatchingIgnoresCase(unittest.TestCase):
+    """A share can be case-sensitive; an album's artwork is named by a human.
+
+    LOCAL_COVER_NAMES is lowercase, and the lookup used os.path.exists on the
+    exact spelling. On a case-sensitive mount a library using Cover.jpg or
+    Front.jpg therefore had no local cover as far as image_policy was
+    concerned: prefer_larger had nothing to compare, downloaded regardless,
+    and left the original beside it under a name nothing would read again.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def _write(self, name, w, h):
+        from PIL import Image
+        import io
+        buf = io.BytesIO()
+        Image.new('RGB', (w, h), (10, 20, 30)).save(buf, 'JPEG')
+        with open(os.path.join(self.target, name), 'wb') as f:
+            f.write(buf.getvalue())
+
+    def _found(self):
+        from massmusictagger.image_utils import _local_front
+        path, dims = _local_front(self.target)
+        return (os.path.basename(path) if path else None), dims
+
+    def test_a_capitalised_cover_is_found(self):
+        self._write('Cover.jpg', 900, 900)
+        self.assertEqual(self._found(), ('Cover.jpg', (900, 900)))
+
+    def test_a_capitalised_front_is_found(self):
+        self._write('Front.jpg', 800, 800)
+        self.assertEqual(self._found(), ('Front.jpg', (800, 800)))
+
+    def test_shouty_names_are_found_too(self):
+        self._write('FOLDER.JPG', 700, 700)
+        self.assertEqual(self._found(), ('FOLDER.JPG', (700, 700)))
+
+    def test_preference_order_still_beats_casing(self):
+        """front.jpg outranks folder.jpg however either is spelled."""
+        self._write('Front.jpg', 500, 500)
+        self._write('folder.jpg', 900, 900)
+        self.assertEqual(self._found()[0], 'Front.jpg')
+
+    def test_an_exact_match_wins_over_a_differently_cased_one(self):
+        self._write('front.jpg', 400, 400)
+        self._write('Front.JPG', 900, 900)
+        self.assertEqual(self._found()[0], 'front.jpg')
+
+    def test_an_unreadable_file_does_not_count_as_a_cover(self):
+        with open(os.path.join(self.target, 'Cover.jpg'), 'wb') as f:
+            f.write(b'not an image')
+        self.assertEqual(self._found(), (None, None))
+
+    def test_nothing_there_is_still_nothing(self):
+        self.assertEqual(self._found(), (None, None))
+
+    def test_a_missing_directory_is_not_an_error(self):
+        from massmusictagger.image_utils import _local_front
+        self.assertEqual(_local_front('/definitely/not/here'), (None, None))

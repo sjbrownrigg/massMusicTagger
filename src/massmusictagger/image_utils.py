@@ -212,13 +212,34 @@ def _measure(path: str) -> Optional[tuple[int, int]]:
 def _local_front(target_dir: str):
     """(path, dimensions) of the front cover already in the directory.
 
-    Returns (None, None) when there is not one, or when a file is there but
-    unreadable as an image -- a policy that cannot measure both sides must not
-    pretend it made a comparison.
+    Matched without regard to case. The names are checked in preference
+    order, and an exact match wins over one that only differs in case, so a
+    directory holding both front.jpg and Front.jpg behaves as it always did.
+
+    Case mattered before, on a case-sensitive share: a library using
+    Cover.jpg or Front.jpg had no local cover as far as this was concerned,
+    so prefer_larger had nothing to compare against and downloaded whatever
+    the source offered -- leaving the original beside it under a name nothing
+    would look at again. 6 of 413 albums in this library are named that way.
+
+    Returns (None, None) when there is no cover, or when a file is there but
+    unreadable as an image -- a policy that cannot measure both sides must
+    not pretend it made a comparison.
     """
+    try:
+        present = os.listdir(target_dir)
+    except OSError:
+        return None, None
+    by_lower = {}
+    for name in present:
+        by_lower.setdefault(name.lower(), []).append(name)
+
     for candidate in LOCAL_COVER_NAMES:
-        path = os.path.join(target_dir, candidate)
-        if os.path.exists(path):
+        matches = by_lower.get(candidate, [])
+        # Exact spelling first, then any other casing, so the choice is
+        # deterministic when a directory holds more than one.
+        for name in sorted(matches, key=lambda n: (n != candidate, n)):
+            path = os.path.join(target_dir, name)
             dims = _measure(path)
             if dims:
                 return path, dims
