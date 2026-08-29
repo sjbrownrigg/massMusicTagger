@@ -1,0 +1,60 @@
+# One format string per line. These pin the dialect: whatever the evaluator
+# is, it must render every one of these identically.
+#
+# Values are already substituted, the way _value_from_tag_format does it,
+# so these are exactly what parseString() receives.
+$upper('abc')
+$lower('ABC')
+$num('7','3')
+$num('','2')
+$substr('abcdefgh','2','5')
+$substr('abcdefgh','','-3')
+$strchr('hello','l')
+$contains('Hello World','World')
+$contains('Hello World','world')
+$icontains('Hello World','world')
+$strcmp('a','a')
+$strcmp('a','b')
+$stricmp('A','a')
+$valid('x')
+$valid('')
+$neg($valid(''))
+$any($valid(''),$valid('x'))
+$all($valid('x'),$valid('y'))
+$all($valid('x'),$valid(''))
+$if1($valid('x'),'yes','no')
+$if1($valid(''),'yes','no')
+$if1($valid('x'),'yes')
+$if2('','fallback')
+$if2('given','fallback')
+$if3('','','third')
+$ifeq('a','a','same','diff')
+$ifeq('a','b','same','diff')
+$ieq('A','a','same','diff')
+$ifequal(2,2,'eq','ne')
+$ifgreater(3,2,'gt','le')
+$ifgreater(2,3,'gt','le')
+$switch('2','1','one','2','two','other')
+$switch('9','1','one','2','two','other')
+$iswitch('BOOTLEG','bootleg','B','promo','P','')
+$wrap('x','[',']')
+$wrap('','[',']')
+$wrap('x',' (')
+$inarray('["Box Set", "Limited Edition"]','Box Set')
+$inarray('["Box Set"]','Numbered')
+$flatten('["A","B","C"]','0','')
+$flatten('["A","B","C"]',':2',' / ')
+$flatten('["A","B","C"]',':',' + ')
+# nesting, which is the whole point
+$if1($neg($strcmp('Artist','Artist')),'Artist - ')
+$if1($neg($strcmp('Artist','Other')),'Artist - ')
+$ifgreater('2',1,$ieq('vinyl','vinyl','Disk','CD'),'')
+$if1($strcmp('','',),'','')
+# python's + operator, which eval() made available
+$ieq('vinyl','vinyl','Disk','CD')+' '+$num('2','1')
+# escaped parens
+$wrap('x',' \(','\)')
+# text around and between calls
+prefix $upper('a') middle $lower('B') suffix
+# an unknown function
+$nosuchfunction('a')

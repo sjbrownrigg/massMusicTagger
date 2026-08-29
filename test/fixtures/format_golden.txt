@@ -1,0 +1,98 @@
+
+=== CD Album ===
+  dir                     →  Test Artist/[2020] Test Album (TEST-001) [CD --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  CD
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== CD Single ===
+  dir                     →  Test Artist/[2023] Test Single (TEST-S01) [CDS --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  CDS
+  %__type_abbr__%         →  S
+  discs                   →  
+
+=== Double CD Album ===
+  dir                     →  Test Artist/[2019] Test Double Album (TEST-DCD) [DCD --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  DCD
+  %__type_abbr__%         →  
+  discs                   →  CD 1
+
+=== LP Album (Vinyl) ===
+  dir                     →  Test Artist/[2021] Test LP (TEST-LP) [Vinyl --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  Vinyl
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== 12-inch Single (Vinyl) ===
+  dir                     →  Test Artist/[2023] Test Single (TEST-12S) [Vinyl --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  Vinyl
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== 12-inch Maxi-Single (Vinyl) ===
+  dir                     →  Test Artist/[2022] Test Maxi (TEST-12M) [VinylM --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  VinylM
+  %__type_abbr__%         →  M
+  discs                   →  
+
+=== 12-inch EP (Vinyl) ===
+  dir                     →  Test Artist/[2022] Test EP (TEST-12EP) [VinylEP --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  VinylEP
+  %__type_abbr__%         →  EP
+  discs                   →  
+
+=== 7-inch Single (Vinyl) ===
+  dir                     →  Test Artist/[2020] Test 7-inch (TEST-7S) [Vinyl --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  Vinyl
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== 7-inch EP (Vinyl) ===
+  dir                     →  Test Artist/[2020] Test 7-inch EP (TEST-7EP) [VinylEP --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  VinylEP
+  %__type_abbr__%         →  EP
+  discs                   →  
+
+=== Digital Album (FLAC) ===
+  dir                     →  Test Artist/[2021] Test Digital Album [1xFile -lossless-]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  1xFile
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== Digital Single ===
+  dir                     →  Test Artist/[2023] Test Digital Single [1xFileS --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  1xFileS
+  %__type_abbr__%         →  S
+  discs                   →  
+
+=== Digital Compilation ===
+  dir                     →  Various Artists/[2021] Test Compilation [1xFile --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  1xFile
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== MusicBrainz 12-inch Vinyl ===
+  dir                     →  Test Artist/[2021] Test MB LP [Vinyl --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  Vinyl
+  %__type_abbr__%         →  
+  discs                   →  
+
+=== Limited CD (Bootleg) ===
+  dir                     →  Test Artist/[2018] Test Bootleg (BOOT-001) [LCDB --]
+  song                    →  01 Track 1.flac
+  %__format_desc__%       →  LCDB
+  %__type_abbr__%         →  
+  discs                   →  

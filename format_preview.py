@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview discogstagger3 format string evaluation against fixture cases.
+"""Preview massMusicTagger format string evaluation against fixture cases.
 
 Usage:
     python format_preview.py [--fixtures conf/preview_cases.yaml] [--watch]
@@ -12,47 +12,36 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent
-DT3_ROOT = REPO_ROOT.parent / 'discogstagger3'
-if str(DT3_ROOT) not in sys.path:
-    sys.path.insert(0, str(DT3_ROOT))
+SRC = REPO_ROOT / 'src'
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
 
 import yaml
-from discogstagger.album import Album, Disc, Track
-from discogstagger.tagger_config import TaggerConfig
-from discogstagger.taggerutils import TaggerUtils
+from massmusictagger.core.album import Album, Disc, Track
+from massmusictagger.core.tagger_config import TaggerConfig
+from massmusictagger.core.taggerutils import TaggerUtils
 
 
 def _load_config(conf_dir: str) -> TaggerConfig:
-    """Load config the same way MMT does: base → personal overlay → extra_configs.
+    """Load the packaged reference config, then any formats.ini beside it.
 
-    The personal config (config_personal.yaml) is loaded on top of the base
-    config.yaml, then any files listed in extra_configs (including
-    formats_personal.ini) are loaded in order.
+    This used to reconstruct discogstagger3's base + personal + extra_configs
+    layering. There is one configuration directory now, and the sample that
+    ships inside the package is the right thing to preview against: it is
+    what a new user gets, so a format string that only works against a
+    personal config is worth noticing here.
+
+    Pass --config to preview your own instead.
     """
-    cfg = TaggerConfig(os.path.join(conf_dir, 'config.yaml'))
-
-    personal = os.path.normpath(os.path.join(conf_dir, 'config_personal.yaml'))
-    if os.path.exists(personal):
-        cfg._load_yaml(personal)
-        try:
-            with open(personal, encoding='utf-8') as f:
-                raw = yaml.safe_load(f) or {}
-        except Exception:
-            raw = {}
-        # extra_configs entries are relative to the project root (parent of conf/).
-        # This mirrors the CWD-first resolution logic in MMT's _load_extra_configs.
-        project_root = os.path.dirname(os.path.abspath(conf_dir))
-        for entry in (raw.get('extra_configs') or []):
-            path = os.path.expanduser(str(entry).strip())
-            if not os.path.isabs(path):
-                path = os.path.join(project_root, path)
-            path = os.path.normpath(path)
-            if os.path.exists(path):
-                ext = os.path.splitext(path)[1].lower()
-                if ext in ('.yaml', '.yml'):
-                    cfg._load_yaml(path)
-                else:
-                    cfg.read(path)
+    from massmusictagger import roots
+    if conf_dir:
+        cfg_path = os.path.join(conf_dir, 'config.yaml')
+        if not os.path.exists(cfg_path):
+            raise SystemExit(f'No config.yaml in {conf_dir}')
+    else:
+        cfg_path = os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml')
+    cfg = TaggerConfig(cfg_path)
+    cfg.source_conffile = cfg_path
     return cfg
 
 
@@ -140,8 +129,7 @@ def _watch_loop(fixtures_path: str, conf_dir: str, interval: float) -> None:
         fixtures_path,
         os.path.join(conf_dir, 'formats.ini'),
         os.path.join(conf_dir, 'formats_personal.ini'),
-        os.path.join(conf_dir, 'config.yaml'),
-        os.path.join(conf_dir, 'config_personal.yaml'),
+        os.path.join(conf_dir, 'config.yaml') if conf_dir else '',
     ]
     print(f'Watching {len(watch_files)} files. Ctrl-C to stop.\n')
 
@@ -170,14 +158,15 @@ def _watch_loop(fixtures_path: str, conf_dir: str, interval: float) -> None:
 def main():
     default_fixtures = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                     'conf', 'preview_cases.yaml')
-    default_conf = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'conf')
+    default_conf = ''   # '' means the reference config inside the package
 
     p = argparse.ArgumentParser(
-        description='Preview discogstagger3 format string evaluation')
+        description='Preview massMusicTagger format string evaluation')
     p.add_argument('--fixtures', '-f', default=default_fixtures,
                    help='YAML fixture file (default: conf/preview_cases.yaml)')
     p.add_argument('--conf', '-c', default=default_conf,
-                   help='conf/ directory (default: massMusicTagger/conf/)')
+                   help='a configuration directory to preview against '
+                        '(default: the reference config inside the package)')
     p.add_argument('--watch', '-w', action='store_true',
                    help='Re-run when any watched file changes')
     p.add_argument('--interval', type=float, default=0.5,
