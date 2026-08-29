@@ -200,12 +200,16 @@ class MassProcessor:
                  dry_run: bool = False,
                  review: bool = False,
                  force: bool = False,
+                 release_id: Optional[str] = None,
                  audit_log_path: Optional[str] = None):
         self.cfg = cfg
         self.workers = workers
         self.dry_run = dry_run
         self.review = review
         self.force = force
+        #: --releaseid. Skips search entirely for the one directory being
+        #: processed, which is why __main__ refuses it for a multi-album run.
+        self.release_id = release_id
         self.audit_log_path = audit_log_path
 
         # Build connectors and searchers once per session (they hold caches).
@@ -290,6 +294,7 @@ class MassProcessor:
                 discogs_search=self._discogs_search,
                 mb_connector=self._mb_conn,
                 mb_search=self._mb_search,
+                release_id_override=self.release_id,
             )
 
             if match is None:

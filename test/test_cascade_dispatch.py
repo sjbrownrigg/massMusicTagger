@@ -108,3 +108,44 @@ class Dispatch(unittest.TestCase):
                                    discogs_local_connector=lc)
         self.assertEqual(seen['discogs'], (dc, lc),
                          'both connectors reach the resolver via the context')
+
+
+class ReleaseIdOverrideIsWired(unittest.TestCase):
+    """--releaseid was accepted, documented in --help, and thrown away.
+
+    cascade.search_and_map takes release_id_override and implements it fully:
+    it fetches the release directly, validates the track count against the
+    directory and warns on a mismatch. MassProcessor simply never passed it,
+    so `-r 249504` against a Blue Eyed Christ folder searched anyway and
+    tagged what the search found.
+    """
+
+    def test_the_processor_accepts_a_release_id(self):
+        import inspect
+        from massmusictagger.processor import MassProcessor
+        sig = inspect.signature(MassProcessor.__init__)
+        self.assertIn('release_id', sig.parameters)
+
+    def test_it_reaches_search_and_map(self):
+        """The wiring, asserted at the call site rather than by running it."""
+        import inspect
+        from massmusictagger import processor as proc
+        src = inspect.getsource(proc)
+        call = src[src.index('search_and_map('):]
+        call = call[:call.index(')')]
+        self.assertIn('release_id_override=self.release_id', call)
+
+    def test_main_passes_the_flag_to_the_processor(self):
+        import inspect
+        from massmusictagger import __main__ as mmt_main
+        src = inspect.getsource(mmt_main)
+        call = src[src.index('MassProcessor('):]
+        call = call[:call.index('\n    )')]
+        self.assertIn('release_id=opts.releaseid', call)
+
+    def test_a_release_id_with_many_directories_is_refused(self):
+        """One release ID cannot describe a tree of albums."""
+        import inspect
+        from massmusictagger import __main__ as mmt_main
+        src = inspect.getsource(mmt_main)
+        self.assertIn('opts.releaseid and len(source_dirs) > 1', src)

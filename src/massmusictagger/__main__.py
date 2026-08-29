@@ -605,6 +605,7 @@ def _main(argv: list[str] | None = None) -> None:
         review=opts.review,
         audit_log_path=audit_log,
         force=opts.force,
+        release_id=opts.releaseid,
     )
 
     if opts.watch:
@@ -617,6 +618,20 @@ def _main(argv: list[str] | None = None) -> None:
             else:
                 logger.warning('No audio source directories found')
             return
+
+        # --releaseid names one release, so it can only mean one album.
+        # Applied to a tree it would tag every album found as that release.
+        if opts.releaseid and len(source_dirs) > 1:
+            print(
+                f'--releaseid names a single release, but {len(source_dirs)} '
+                f'album directories were found under\n'
+                f'  {opts.sourcedir}\n'
+                f'\n'
+                f'  Point it at one album directory, or drop --releaseid to '
+                f'search for each.',
+                file=sys.stderr)
+            sys.exit(2)
+
         from massmusictagger.cascade import _get_priority
         _priority = _get_priority(cfg)
         _ignored_note = f', {n_ignored} previously tagged' if n_ignored else ''
