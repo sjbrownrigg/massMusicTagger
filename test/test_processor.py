@@ -388,3 +388,63 @@ class TestPostProcessSourceCleanup:
         assert not (root / 'The Fair Sex').exists()
         assert root.exists()
         assert (archive / 'discogs/The Fair Sex/Thin Walls' / 'track.flac').exists()
+
+
+
+# ── the archive path gets the same character profile as the destination ──────
+#
+# char_profile applies to the destination directory but was never applied to
+# source_move_template, despite a docstring saying it was. An artist called
+# ":wumpscut:" was filed under "-wumpscut-" in sorted and ":wumpscut:" in
+# archive -- the same artist under two names, and a path a Windows-hosted
+# share would refuse outright.
+
+def _windows_tu(albumartist=':wumpscut:'):
+    from massmusictagger.core.taggerutils import TaggerUtils
+    from massmusictagger.core.tagger_config import TaggerConfig
+    from massmusictagger.core.naming.charmap import build_map
+    from massmusictagger import roots
+
+    cfg = TaggerConfig(os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml'))
+    cfg.set('naming', 'char_profile', 'windows')
+
+    tu = TaggerUtils.__new__(TaggerUtils)
+    tu.config = cfg
+    tu.char_exceptions = build_map(cfg)
+    tu._path_sep_replacement = '-'
+    tu._control_replacement = ''
+    tu._value_from_tag_format = lambda t, *a, **k: (
+        t, {'source': 'discogs', 'albumartist': albumartist})
+    return tu
+
+
+def _expand(template, albumartist=':wumpscut:'):
+    return _expand_move_template(template, _windows_tu(albumartist),
+                                 '/src/An Album')
+
+
+def test_archive_path_replaces_an_illegal_character():
+    out = _expand('%source%/%albumartist%/%current_folder%')
+    assert '-wumpscut-' in out
+    assert ':wumpscut:' not in out
+
+
+def test_archive_path_keeps_its_separators():
+    """get_clean_filename replaces a path separator, so it goes per part."""
+    out = _expand('%source%/%albumartist%/%current_folder%')
+    parts = out.split(os.sep)
+    assert parts[:2] == ['discogs', '-wumpscut-']
+    assert parts[-1] == 'An Album'
+
+
+def test_archive_path_leaves_an_ordinary_name_alone():
+    out = _expand('%source%/%albumartist%/%current_folder%',
+                  albumartist='Depeche Mode')
+    assert out == os.path.join('discogs', 'Depeche Mode', 'An Album')
+
+
+def test_archive_and_destination_agree_on_the_name():
+    """The point: one artist, one directory name, in both trees."""
+    tu = _windows_tu()
+    assert _expand('%albumartist%').split(os.sep)[0] == \
+        tu.get_clean_filename(':wumpscut:')

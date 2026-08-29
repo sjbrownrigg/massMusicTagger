@@ -104,11 +104,17 @@ class ProcessingResult:
 
 
 def _expand_move_template(template: str, tu, sourcedir: str) -> str:
-    """Expand source_move_template using the full dt3 format variable set.
+    """Expand source_move_template into a relative archive path.
 
-    %current_folder% is pre-substituted before handing the string to
-    tu._value_from_tag_format(), which handles all other tokens (%source%,
-    %albumartist%, %album%, %year%, …) with char_profile sanitisation.
+    Each path component is sanitised with the same char_profile the
+    destination uses -- component by component, because get_clean_filename
+    replaces a path separator rather than preserving it, and the template
+    contains real separators between %source%, %albumartist% and the rest.
+
+    It was not sanitised at all, despite a docstring here saying it was. The
+    destination went to -wumpscut- under char_profile: windows, and the
+    archive to :wumpscut: beside it -- the same artist under two names, and a
+    path a Windows-hosted share would refuse outright.
     """
     folder = os.path.basename(sourcedir.rstrip('/\\'))
     t = template.replace('%current_folder%', folder)
@@ -118,7 +124,21 @@ def _expand_move_template(template: str, tu, sourcedir: str) -> str:
     # %variables%, so it goes through the evaluator like any other.
     from massmusictagger.core.naming.stringformatting import StringFormatting
     fmt, values = tu._value_from_tag_format(t)
-    return StringFormatting().render(fmt, values)
+    expanded = StringFormatting().render(fmt, values)
+
+    parts = [p for p in expanded.replace('\\', '/').split('/') if p]
+    cleaned = []
+    for part in parts:
+        try:
+            safe = tu.get_clean_filename(part)
+        except Exception as exc:
+            logger.debug('Could not sanitise %r: %s', part, exc)
+            safe = part
+        # Only a string is an answer. A stand-in TaggerUtils answers an
+        # unrecognised call with another stand-in, which os.path.join will
+        # happily turn into a directory named after it.
+        cleaned.append(safe if isinstance(safe, str) and safe else part)
+    return os.path.join(*cleaned) if cleaned else expanded
 
 
 def _verify_target_or_raise(target_dir: Optional[str]) -> None:
