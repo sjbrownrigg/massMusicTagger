@@ -119,11 +119,19 @@ BUNDLED_TEMPLATES = os.path.join(PACKAGE_ROOT, "templates")
 #   config.yaml    the entry point -- their settings
 #   formats.ini    their file and directory naming
 #
-# That is the whole list. Mako templates and the rule tables
-# (format_codes.yaml, char_substitutions.yaml) belong to discogstagger3, ship
-# inside the package, and are not copied into a user's config directory --
-# so they keep improving with each upgrade instead of freezing at whatever
-# version happened to be installed the day the config was created.
+# The rule tables -- format_codes.yaml, char_substitutions.yaml,
+# source_hints.yaml -- are found here too when present. They are not written
+# by --new-config: the packaged table is the default, so it keeps improving
+# with each upgrade instead of freezing at whatever version was installed the
+# day the config was made. Drop a file here to override, and what it contains
+# is merged over the packaged one, so changing a single line neither discards
+# the rest of the table nor opts out of later additions to it.
+#
+# They live here rather than only inside the package because they decide how a
+# release is *named* -- whether it is filed as DM or Digital Media -- and a
+# rule that decides that should be somewhere its owner can read it.
+#
+# Mako templates belong to the package and are not user files.
 #
 # formats.ini is optional: absent means the bundled format strings are used.
 #
@@ -139,6 +147,8 @@ LAYOUT = {
     # over the bundled one, so overriding a single abbreviation does not
     # discard the rest of the table.
     "format_codes": "format_codes.yaml",
+    "char_substitutions": "char_substitutions.yaml",
+    "source_hints": "source_hints.yaml",
 }
 
 

@@ -39,6 +39,21 @@ _DEFAULT_YAML = os.path.join(roots.BUNDLED_CONF, 'char_substitutions.yaml')
 _CONTROL_RE = re.compile(r'[\x00-\x1f\x7f]')
 
 
+def _discovered(cfg, what):
+    """The path *what* resolves to in the config directory, or ''.
+
+    Only ever a string. cfg.resource() is asked on objects that stand in for a
+    configuration in tests, where an unrecognised attribute answers with
+    another stand-in -- truthy, and not a path. Type-checking the answer
+    is the difference between finding no file and trying to open a mock.
+    """
+    try:
+        found = cfg.resource(what)
+    except Exception:
+        return ''
+    return found.strip() if isinstance(found, str) else ''
+
+
 def load_substitutions(yaml_path: str | None, profile: str) -> dict:
     """Load a substitution map from a YAML profile file.
 
@@ -76,13 +91,16 @@ def load_substitutions(yaml_path: str | None, profile: str) -> dict:
             data = yaml.safe_load(f)
     except FileNotFoundError:
         if configured:
+            # Fall back rather than switch off. Returning nothing here is what
+            # made char_profile: windows silently inert: the configured path
+            # pointed at a layout that no longer existed, so no substitution
+            # was applied and NTFS-illegal characters went into filenames.
             logger.warning(
-                'char_substitutions is set to %s, which does not exist — no '
-                'character substitutions will be applied and char_profile '
-                '"%s" will have no effect. Leave the setting empty to use the '
-                'packaged table.', path, profile)
-        else:
-            logger.debug('Char substitutions file not found: %s', path)
+                'char_substitutions names %s, which does not exist — using '
+                'the packaged table so char_profile "%s" still applies.',
+                path, profile)
+            return load_substitutions(None, profile)
+        logger.debug('Char substitutions file not found: %s', path)
         return {}
     except Exception as e:
         logger.warning('Failed to load char substitutions from %s: %s', path, e)
@@ -115,12 +133,18 @@ def build_map(tagger_config, yaml_path: str | None = None) -> dict:
     except Exception:
         profile = 'linux'
 
-    try:
-        resolved_yaml = yaml_path or tagger_config.resolve_path(
-            tagger_config.get('naming', 'char_substitutions'),
-            'naming.char_substitutions')
-    except Exception:
-        resolved_yaml = None
+    # char_substitutions.yaml beside config.yaml is found by name; the
+    # naming.char_substitutions key is the deprecated way of saying where.
+    resolved_yaml = yaml_path
+    if not resolved_yaml:
+        try:
+            resolved_yaml = tagger_config.resolve_path(
+                tagger_config.get('naming', 'char_substitutions'),
+                'naming.char_substitutions')
+        except Exception:
+            resolved_yaml = None
+    if not resolved_yaml:
+        resolved_yaml = _discovered(tagger_config, 'char_substitutions') or None
 
     combined = load_substitutions(resolved_yaml, profile)
 

@@ -17,12 +17,32 @@ import os
 logger = logging.getLogger(__name__)
 
 
-def _load_source_hints(cfg) -> dict:
-    """Return source_hints dict from the configured YAML file, or {}.
+def _discovered(cfg, what):
+    """The path *what* resolves to in the config directory, or ''.
 
-    Tries source.source_hints_file first (shared by all sources), then
-    musicbrainz.source_hints_file for backward compatibility.
+    Only ever a string. cfg.resource() is asked on objects that stand in for a
+    configuration in tests, where an unrecognised attribute answers with
+    another stand-in -- truthy, and not a path. Type-checking the answer
+    is the difference between finding no file and trying to open a mock.
     """
+    try:
+        found = cfg.resource(what)
+    except Exception:
+        return ''
+    return found.strip() if isinstance(found, str) else ''
+
+
+def _load_source_hints(cfg) -> dict:
+    """Return the source_hints mapping, from the config directory or the package.
+
+    source_hints.yaml beside config.yaml is found by name, like formats.ini.
+    The source_hints_file key is the older way of saying where it is, kept
+    working because configs in the wild set it.
+    """
+    path = ''
+    # An explicitly configured path is a request and wins; discovery is the
+    # convention for when nothing was asked for. Deprecated means the key
+    # still works and warns, not that it is ignored.
     path = ''
     for section, key in (('source', 'source_hints_file'),
                           ('musicbrainz', 'source_hints_file')):
@@ -34,6 +54,8 @@ def _load_source_hints(cfg) -> dict:
         except Exception:
             pass
     configured = bool(path)
+    if not path:
+        path = _discovered(cfg, 'source_hints')
     if path:
         # An override named by the config resolves beside that config file.
         try:

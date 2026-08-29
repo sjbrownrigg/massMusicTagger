@@ -89,6 +89,8 @@ REQUIRED = frozenset()
 DEPRECATED = frozenset({
     ('naming', 'use_lower_filenames'),
     ('naming', 'format_codes'),
+    ('naming', 'char_substitutions'),
+    ('source', 'source_hints_file'),
     ('common', 'formats_file'),
     ('file-formatting', 'image'),
 })
@@ -99,6 +101,14 @@ DEPRECATED = frozenset({
 #: common.formats_file warns from TaggerConfig.resource() when it is actually
 #: used to resolve a path, which is more specific than anything sayable here.
 DEPRECATION_NOTES = {
+    ('naming', 'char_substitutions'):
+        'char_substitutions.yaml is found beside config.yaml, so nothing '
+        'needs to declare where it is. The key still works and warns; a path '
+        'that does not resolve now falls back to the packaged table instead '
+        'of applying no substitutions at all.',
+    ('source', 'source_hints_file'):
+        'source_hints.yaml is found beside config.yaml, so nothing needs to '
+        'declare where it is. The key still works and warns.',
     ('naming', 'format_codes'):
         'format_codes.yaml is found beside config.yaml, so nothing needs to '
         'declare where it is, and what it finds is merged over the bundled '
@@ -190,7 +200,6 @@ DEFAULTS = {
     ('artwork', 'embed_coverart'): 'True',
     ('artwork', 'image_policy'): 'prefer_larger',
     ('naming', 'char_profile'): 'linux',
-    ('naming', 'char_substitutions'): '',
     ('naming', 'path_sep_replacement'): '',
     ('naming', 'control_replacement'): '',
     ('tags', 'keep_tags'): 'freedb_id',
@@ -264,7 +273,6 @@ DEFAULTS = {
     ('artwork', 'image_source'): 'auto',
     ('archiving', 'source_action'): 'done_file',
     ('archiving', 'source_archive_dir'): '',
-    ('source', 'source_hints_file'): '',
     ('archiving', 'source_move_template'): '%source%/%albumartist%/%current_folder%',
     ('musicbrainz', 'acoustid_api_key'): '',
     ('musicbrainz', 'acoustid_submitter_key'): '',

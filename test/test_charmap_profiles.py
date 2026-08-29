@@ -58,17 +58,29 @@ def test_linux_profile_preserves_titles():
         assert apply_substitutions(title, subs) == title
 
 
-def test_missing_configured_file_warns_rather_than_silently_doing_nothing(caplog):
-    """The exact production failure: a configured path that is not there.
+def test_missing_configured_file_warns_and_falls_back(caplog):
+    """It used to warn and then apply no substitutions at all.
 
-    It used to log at debug and return {}, so char_profile had no effect and
-    nothing said so at INFO.
+    That is what left char_profile: windows inert across a whole library: the
+    configured path pointed at a layout that no longer existed, so nothing was
+    substituted and NTFS-illegal characters went into filenames. Naming a file
+    that is not there is a mistake worth hearing about, but the packaged table
+    is a better answer than switching the feature off.
     """
+    from massmusictagger.core.naming.charmap import load_substitutions
     with caplog.at_level('WARNING'):
-        subs = load_substitutions('/nowhere/char_substitutions.yaml', 'windows')
-    assert subs == {}
-    assert 'no effect' in caplog.text or 'does not exist' in caplog.text
+        subs = load_substitutions('/definitely/not/here.yaml', 'windows')
+    assert 'does not exist' in caplog.text
+    assert subs, 'the packaged table should still apply'
+    assert subs.get('?') == '', 'the windows profile should be in force'
 
+
+def test_no_configured_file_is_quiet(caplog):
+    from massmusictagger.core.naming.charmap import load_substitutions
+    with caplog.at_level('WARNING'):
+        subs = load_substitutions(None, 'windows')
+    assert 'does not exist' not in caplog.text
+    assert subs
 
 def test_default_path_does_not_warn(caplog):
     """No configured path is normal, not a problem worth warning about."""

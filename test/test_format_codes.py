@@ -138,3 +138,58 @@ class AnEmptyDeprecatedKeyIsQuiet(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class EveryRuleTableBehavesTheSameWay(unittest.TestCase):
+    """format_codes, char_substitutions and source_hints are one pattern.
+
+    All three decide how a release is named, all three used to be reached
+    through a config key naming a conf/ path, and all three failed the same
+    way when that path did not resolve -- quietly, with the feature off.
+    """
+
+    TABLES = ('format_codes', 'char_substitutions', 'source_hints')
+
+    def test_all_are_discoverable_in_the_config_directory(self):
+        from massmusictagger import roots
+        for name in self.TABLES:
+            with self.subTest(name=name):
+                self.assertIn(name, roots.LAYOUT)
+
+    def test_all_ship_a_packaged_default(self):
+        from massmusictagger import roots
+        for name in self.TABLES:
+            with self.subTest(name=name):
+                self.assertTrue(
+                    os.path.exists(os.path.join(roots.BUNDLED_CONF,
+                                                roots.LAYOUT[name])))
+
+    def test_the_path_keys_are_all_deprecated(self):
+        from massmusictagger import config_schema
+        for key in (('naming', 'format_codes'),
+                    ('naming', 'char_substitutions'),
+                    ('source', 'source_hints_file')):
+            with self.subTest(key=key):
+                self.assertIn(key, config_schema.DEPRECATED)
+                self.assertIn(key, config_schema.DEPRECATION_NOTES)
+
+    def test_none_of_them_is_both_deprecated_and_defaulted(self):
+        from massmusictagger import config_schema
+        self.assertEqual(
+            sorted(set(config_schema.DEFAULTS) & set(config_schema.DEPRECATED)),
+            [])
+
+    def test_conf_holds_only_samples_and_rule_tables(self):
+        """Nothing else belongs in the package's conf/.
+
+        logger_default.conf sat there unreferenced after logging.config_file
+        was removed -- a file nothing read, in the directory people look at to
+        find out what the defaults are.
+        """
+        from massmusictagger import roots
+        allowed = set(roots.LAYOUT.values()) | {
+            'config_sample.yaml', 'formats_sample.ini',
+            'discogs_sample.yaml', 'musicbrainz_sample.yaml'}
+        present = {f for f in os.listdir(roots.BUNDLED_CONF)
+                   if not f.startswith('.')}
+        self.assertEqual(present - allowed, set())

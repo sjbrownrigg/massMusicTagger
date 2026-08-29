@@ -519,6 +519,20 @@ class FileHandler(object):
                 logger.debug('ReplayGain completed for %d file(s)', len(file_paths))
 
 
+def _discovered(cfg, what):
+    """The path *what* resolves to in the config directory, or ''.
+
+    Only ever a string. cfg.resource() is asked on objects that stand in for a
+    configuration in tests, where an unrecognised attribute answers with
+    another stand-in -- truthy, and not a path. Type-checking the answer
+    is the difference between finding no file and trying to open a mock.
+    """
+    try:
+        found = cfg.resource(what)
+    except Exception:
+        return ''
+    return found.strip() if isinstance(found, str) else ''
+
 class TaggerUtils(object):
     """ Accepts a destination directory name and discogs release id.
         TaggerUtils returns a the corresponding metadata information, in which
@@ -631,18 +645,14 @@ class TaggerUtils(object):
         # in which case the version bundled in the package is used.
         # format_codes.yaml beside config.yaml is found by name; the
         # naming.format_codes key is the deprecated way of saying where it is.
-        _fc_path = None
         try:
-            _fc_path = tagger_config.resource('format_codes')
+            _fc_path = tagger_config.resolve_path(
+                tagger_config.get('naming', 'format_codes'),
+                'naming.format_codes')
         except Exception:
-            pass
+            _fc_path = None
         if not _fc_path:
-            try:
-                _fc_path = tagger_config.resolve_path(
-                    tagger_config.get('naming', 'format_codes'),
-                    'naming.format_codes')
-            except Exception:
-                _fc_path = None
+            _fc_path = _discovered(tagger_config, 'format_codes') or None
         _format_codes = load_format_codes(_fc_path)
         _raw_descs = list(self.album.format_description or [])
         self._vinyl_size = extract_vinyl_size(_raw_descs)

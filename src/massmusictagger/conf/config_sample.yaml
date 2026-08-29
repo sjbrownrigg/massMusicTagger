@@ -68,7 +68,8 @@ source:
   # resolves beside config.yaml -- "conf/source_hints.yaml" pointed at a
   # directory that only exists in a source checkout, so the feature was
   # silently off for every installed copy.
-  source_hints_file: ""
+  # Deprecated: drop a source_hints.yaml beside this file instead.
+  # source_hints_file: ""
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # 'priority' is an ordered list of sources to try for each album.
@@ -140,7 +141,8 @@ naming:
 # ─────────────────────────────────────────────────────────────────────────────
 
   char_profile: linux
-  char_substitutions: ""
+  # Deprecated: drop a char_substitutions.yaml beside this file instead.
+  # char_substitutions: ""
   # Deprecated: drop a format_codes.yaml beside this file instead. What it
   # contains is merged over the table bundled with the package, so
   # overriding one abbreviation keeps the rest -- and keeps gaining
