@@ -332,6 +332,57 @@ class TestDownloadTypedImages(unittest.TestCase):
                            'details.use_folder_jpg': 'false'}, conn)
         self.assertEqual(conn.fetch_image.call_count, 1)
 
+    # ── extension follows the bytes ──────────────────────────────────────────
+
+    def _png(self, w, h):
+        from PIL import Image
+        import io
+        buf = io.BytesIO()
+        Image.new('RGB', (w, h), (90, 90, 90)).save(buf, 'PNG')
+        return buf.getvalue()
+
+    def test_a_png_served_from_a_jpg_url_is_saved_as_png(self):
+        """The extension was chosen from the URL, before any bytes existed.
+
+        extension_for can read the format from the first bytes and its
+        docstring says why -- a PNG named .jpg is not read by every player --
+        but the pipeline only ever called it with the URL, so that branch
+        never ran.
+        """
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        conn = MagicMock()
+        payload = self._png(600, 600)
+        conn.fetch_image = MagicMock(
+            side_effect=lambda dest, uri: open(dest, 'wb').write(payload))
+        self._run(images, {'details.download_only_cover': 'false',
+                           'details.use_folder_jpg': 'false'}, conn)
+        written = self._on_disk()
+        self.assertIn('front.png', written)
+        self.assertNotIn('front.jpg', written)
+
+    def test_a_jpeg_keeps_its_extension(self):
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        self._run(images, {'details.download_only_cover': 'false',
+                           'details.use_folder_jpg': 'false'})
+        self.assertIn('front.jpg', self._on_disk())
+
+    def test_a_corrected_image_is_still_embedded(self):
+        """Embedding looks the file up by basename, so it must find front.png."""
+        from massmusictagger.image_utils import _find_written
+        images = [{'uri': 'https://caa/front.jpg', 'caa_types': ['Front'],
+                   'type': 'primary', 'width': None, 'height': None}]
+        conn = MagicMock()
+        payload = self._png(600, 600)
+        conn.fetch_image = MagicMock(
+            side_effect=lambda dest, uri: open(dest, 'wb').write(payload))
+        self._run(images, {'details.download_only_cover': 'false',
+                           'details.use_folder_jpg': 'false'}, conn)
+        found = _find_written(self.target, 'front')
+        self.assertIsNotNone(found)
+        self.assertTrue(found.endswith('front.png'))
+
     # ── one front cover, one name ────────────────────────────────────────────
 
     def test_a_kept_local_cover_takes_the_canonical_name(self):

@@ -254,6 +254,12 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
             _discard(fetched)
             continue
 
+        # The extension came from the URL, before there were any bytes to
+        # look at. Now there are: a CAA URL that ends .jpg can still serve a
+        # PNG, and a PNG named .jpg is not read by every player. Correcting it
+        # here keeps the promise extension_for's own docstring makes.
+        dest = _correct_extension(dest, att)
+
         # A downloaded front cover supersedes a local one under a different
         # name, so the directory is never left holding two of them.
         if is_front and local_front_path and \
@@ -345,6 +351,35 @@ def _measured(path: str, uri: str):
     if not dims:
         logger.warning('Downloaded %s but could not read its dimensions', uri)
     return dims
+
+
+def _correct_extension(dest: str, att) -> str:
+    """Rename a downloaded image whose bytes disagree with its extension.
+
+    Returns the path the file now has -- unchanged when it was already right,
+    or when the rename fails, since a slightly misnamed image that exists
+    beats a correctly named one that does not.
+    """
+    try:
+        with open(dest, 'rb') as f:
+            head = f.read(16)
+    except OSError:
+        return dest
+
+    base, ext = os.path.splitext(dest)
+    actual = extension_for(att, head)
+    if actual == ext:
+        return dest
+
+    corrected = base + actual
+    try:
+        os.replace(dest, corrected)
+    except OSError as exc:
+        logger.warning('Could not rename %s to %s: %s', dest, corrected, exc)
+        return dest
+    logger.info('%s is really %s — saved as %s', os.path.basename(dest),
+                actual.lstrip('.').upper(), os.path.basename(corrected))
+    return corrected
 
 
 def _discard(path: Optional[str]) -> None:
