@@ -257,14 +257,11 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
                 from_explicit=True,
             )
 
-        # ── 2. Explicit id.txt Discogs ID ──────────────────────────────────
-        # Support both bare numeric format (new) and "discogs_id=N" key=value
-        # format produced by old discogstagger3 id.txt files.
-        relid = _read_id_txt(sourcedir, cfg) or _read_id_txt(sourcedir, cfg, key='discogs_id')
-        if relid:
-            return _fetch_discogs_with_validation(
-                relid, connector, sourcedir, local_count, from_explicit=True,
-            )
+        # id.txt used to be read here, by a parser that only ever looked
+        # for discogs_id -- so a file naming musicbrainz was silently
+        # ignored. The processor reads it once per directory now, routes
+        # it to the source it names, and passes it in as
+        # release_id_override above.
 
         # ── 3. Existing discogs_id tag (falls through on stale match) ──────
         relid = _read_existing_discogs_id_tag(sourcedir)
@@ -745,39 +742,3 @@ def _map_existing_tags(sourcedir: str, cfg: 'TaggerConfig'):
 
 # ── id.txt reader ─────────────────────────────────────────────────────────────
 
-def _read_id_txt(sourcedir: str, cfg, key: str = None) -> Optional[str]:
-    """Read a release ID from the id.txt file in sourcedir.
-
-    Without a key: return the first bare non-comment line (Discogs ID).
-    With a key: return the value of 'key=value' from the file.
-    """
-    id_file = cfg.get('batch', 'id_file') if cfg.has_option('batch', 'id_file') else 'id.txt'
-    path = os.path.join(sourcedir, id_file)
-    if not os.path.exists(path):
-        return None
-    with open(path, 'r', encoding='utf-8') as fh:
-        content = fh.read().strip()
-    if not content:
-        return None
-    if key:
-        for line in content.splitlines():
-            if '=' in line:
-                k, _, v = line.partition('=')
-                if k.strip().lower() == key.lower():
-                    return v.strip() or None
-        return None
-    for line in content.splitlines():
-        line = line.strip()
-        # Skip blank lines, comments, and INI section headers like "[source]"
-        # (old discogstagger3 wrote id.txt as a ConfigParser file)
-        if not line or line.startswith('#') or line.startswith('['):
-            continue
-        if '=' not in line:
-            if not key:
-                return line   # bare Discogs ID (numeric)
-        else:
-            if key:
-                k, _, v = line.partition('=')
-                if k.strip().lower() == key.lower():
-                    return v.strip() or None
-    return None

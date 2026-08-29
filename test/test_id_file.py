@@ -73,8 +73,22 @@ class ReadIdFile(unittest.TestCase):
         _write(self.d, "[other]\nname = discogs\n")
         self.assertEqual(_fu().read_id_file(self.d), (None, None))
 
-    def test_a_file_naming_no_source_is_ignored(self):
+    def test_a_section_without_a_name_infers_the_source_from_the_key(self):
+        """discogs_id says discogs; nothing else needs to."""
         _write(self.d, "[source]\ndiscogs_id = 123\n")
+        self.assertEqual(_fu().read_id_file(self.d), ('discogs', '123'))
+
+    def test_the_bare_number_format_means_discogs(self):
+        """What id.txt meant when discogstagger3 was the only reader."""
+        _write(self.d, "14726546\n")
+        self.assertEqual(_fu().read_id_file(self.d), ('discogs', '14726546'))
+
+    def test_key_equals_value_without_a_section_works(self):
+        _write(self.d, "# pinned by hand\nmusicbrainz_id = abc-def\n")
+        self.assertEqual(_fu().read_id_file(self.d), ('musicbrainz', 'abc-def'))
+
+    def test_an_unknown_source_is_refused(self):
+        _write(self.d, "[source]\nname = allmusic\nallmusic_id = 9\n")
         self.assertEqual(_fu().read_id_file(self.d), (None, None))
 
     def test_a_source_with_no_matching_id_is_ignored(self):
@@ -82,6 +96,11 @@ class ReadIdFile(unittest.TestCase):
         self.assertEqual(_fu().read_id_file(self.d), (None, None))
 
     def test_unparseable_content_is_not_fatal(self):
+        """A bare ID must look like one.
+
+        Without that, the first line of any stray text file named id.txt
+        became a release number and the run went off to fetch it.
+        """
         _write(self.d, "this is not an ini file at all\n= = =\n")
         self.assertEqual(_fu().read_id_file(self.d), (None, None))
 
@@ -159,3 +178,40 @@ class OverrideRouting(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ExistingTagsAreAnImplicitIdFile(unittest.TestCase):
+    """A discogs_id or musicbrainz_releaseid already in the files is reused.
+
+    That is the same idea as id.txt -- an identifier travelling with the
+    release -- and it was already implemented. The difference is deliberate
+    and worth keeping: an explicit ID (--releaseid, id.txt) proceeds on a
+    track-count mismatch because a person chose it, while an embedded tag
+    falls through to search, because it may be stale after a reissue or a
+    correction upstream.
+    """
+
+    def test_discogs_reads_the_embedded_id_before_searching(self):
+        import inspect
+        from massmusictagger import cascade
+        src = inspect.getsource(cascade._try_discogs)
+        assert src.index('_read_existing_discogs_id_tag') < src.index('searcher is not None')
+
+    def test_an_embedded_discogs_id_is_not_treated_as_explicit(self):
+        """from_explicit=False is what lets a stale tag fall through."""
+        import inspect
+        from massmusictagger import cascade
+        src = inspect.getsource(cascade._try_discogs)
+        after = src[src.index('_read_existing_discogs_id_tag'):]
+        assert 'from_explicit=False' in after[:600]
+
+    def test_musicbrainz_has_the_same_tier(self):
+        from massmusictagger.sources.musicbrainz.search import MBSearch
+        assert hasattr(MBSearch, '_read_existing_releaseid_tag')
+
+    def test_an_explicit_id_is_treated_as_explicit(self):
+        import inspect
+        from massmusictagger import cascade
+        src = inspect.getsource(cascade._try_discogs)
+        head = src[:src.index('_read_existing_discogs_id_tag')]
+        assert 'from_explicit=True' in head

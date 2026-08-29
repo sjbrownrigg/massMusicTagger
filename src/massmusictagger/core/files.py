@@ -89,56 +89,90 @@ class FileUtils(object):
         #: --dry-run rewrote the directory it was only meant to report on.
         self.dry_run = getattr(options, 'dry_run', False)
 
+    #: Sources an id.txt may name. A bare ID means discogs, which is what
+    #: id.txt meant when discogstagger3 was the only thing reading it.
+    ID_SOURCES = ('discogs', 'musicbrainz', 'local')
+
     def read_id_file(self, dirpath, file_name=None):
         """Return (source, release_id) declared by an id.txt, or (None, None).
 
-        The format is discogstagger3's, unchanged, so an existing tree of
-        id.txt files keeps working:
+        Every shape this file has ever taken is accepted, because they are all
+        out there in people's libraries:
 
-            [source]
+            [source]                    discogs_id = 14726546     14726546
             name = discogs
             discogs_id = 14726546
 
-        The ID key is read as ``<name>_id`` directly. discogstagger3 went
-        through a configured name-to-key mapping in the main config
-        (source.discogs = discogs_id), which meant a file could only name a
-        source the config had a mapping for -- and the mapping's only other
-        job was choosing a tag field. Reading it directly lets an id.txt name
-        musicbrainz without anything being declared first.
+        The first is discogstagger3's. The second is the same thing without
+        the section header. The third is a bare ID, which means Discogs --
+        what id.txt meant when discogstagger3 was the only reader.
 
-        Parsed with its own parser. The old implementation called
-        self.config.read(idfile), merging each album's id.txt into the shared
-        run configuration, so values leaked from one directory into the next.
+        A named source is read as <name>_id. discogstagger3 went through a
+        source.<name> mapping in the main config, so a file could only name a
+        source the config had a mapping for, and that mapping's only other job
+        was choosing a tag field. Reading it directly lets an id.txt name
+        musicbrainz without anything being declared first -- which the reader
+        in cascade.py never could: it looked for discogs_id and nothing else.
+
+        Parsed without touching the run configuration. The old implementation
+        called self.config.read(idfile), merging each album's id.txt into the
+        shared config, so values leaked from one directory into the next.
         """
-        from configparser import RawConfigParser, Error as _CPError
-
         idfile = os.path.join(dirpath, file_name or 'id.txt')
         if not os.path.exists(idfile):
             return None, None
 
-        parser = RawConfigParser()
         try:
-            parser.read(idfile, encoding='utf-8')
-        except (_CPError, UnicodeDecodeError) as exc:
+            with open(idfile, encoding='utf-8') as fh:
+                lines = fh.read().splitlines()
+        except OSError as exc:
             logger.warning('Ignoring unreadable %s: %s', _fssafe(idfile), exc)
             return None, None
 
-        if not parser.has_section('source'):
-            logger.warning('%s has no [source] section — ignoring',
-                           _fssafe(idfile))
-            return None, None
+        named, pairs, bare = None, {}, None
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith(';'):
+                continue
+            if line.startswith('['):
+                continue                       # [source] and friends
+            if '=' in line:
+                key, _, val = line.partition('=')
+                key, val = key.strip().lower(), val.strip()
+                if key == 'name':
+                    named = val.lower()
+                elif key.endswith('_id'):
+                    pairs[key] = val
+            elif bare is None and line.isdigit():
+                # A bare ID must look like one. Without this, the first line
+                # of any stray text file called id.txt became a release
+                # number and the run went off to fetch it.
+                bare = line
 
-        source = (parser.get('source', 'name', fallback='') or '').strip()
-        if not source:
-            logger.warning('%s does not say which source — ignoring',
-                           _fssafe(idfile))
-            return None, None
+        source, release_id = None, None
+        if named:
+            source = named
+            release_id = pairs.get(f'{named}_id')
+            if not release_id:
+                logger.warning('%s names source %r but has no %s_id — ignoring',
+                               _fssafe(idfile), named, named)
+                return None, None
+        else:
+            for candidate in self.ID_SOURCES:
+                if pairs.get(f'{candidate}_id'):
+                    source, release_id = candidate, pairs[f'{candidate}_id']
+                    break
+            if not release_id and bare:
+                source, release_id = 'discogs', bare
 
-        release_id = (parser.get('source', f'{source}_id', fallback='')
-                      or '').strip()
         if not release_id:
-            logger.warning('%s names source %r but has no %s_id — ignoring',
-                           _fssafe(idfile), source, source)
+            logger.warning('%s declares no release ID — ignoring',
+                           _fssafe(idfile))
+            return None, None
+        if source not in self.ID_SOURCES:
+            logger.warning('%s names source %r, which is not one of %s — '
+                           'ignoring', _fssafe(idfile), source,
+                           ', '.join(self.ID_SOURCES))
             return None, None
 
         logger.info('%s: %s release %s (from %s)', _fssafe(dirpath),

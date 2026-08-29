@@ -149,50 +149,19 @@ class TestCleanFallbackTitle(unittest.TestCase):
 
 
 class TestIdTxtReader(unittest.TestCase):
-    """_read_id_txt() returns the right value for various id.txt formats."""
+    """Moved to test_id_file.py.
 
-    def setUp(self):
-        import tempfile
-        self.tmpdir = tempfile.mkdtemp()
+    cascade had its own id.txt parser alongside FileUtils.read_id_file.
+    It only ever looked for discogs_id, so a file naming musicbrainz was
+    silently ignored. One reader now handles every format, and the
+    processor routes the result to the source the file names.
+    """
 
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
+    def test_the_duplicate_parser_is_gone(self):
+        import massmusictagger.cascade as c
+        self.assertFalse(hasattr(c, '_read_id_txt'),
+                         'there should be one id.txt reader')
 
-    def _write_id(self, content):
-        path = os.path.join(self.tmpdir, 'id.txt')
-        with open(path, 'w') as fh:
-            fh.write(content)
-
-    def _make_cfg(self):
-        from massmusictagger.core.tagger_config import TaggerConfig
-        return TaggerConfig(MMT_CONFIG)
-
-    def _read(self, key=None):
-        from massmusictagger.cascade import _read_id_txt
-        return _read_id_txt(self.tmpdir, self._make_cfg(), key=key)
-
-    def test_plain_id(self):
-        self._write_id('12345678\n')
-        self.assertEqual(self._read(), '12345678')
-
-    def test_mbid_key(self):
-        self._write_id('12345678\nmbid=550e8400-e29b-41d4-a716-446655440000\n')
-        self.assertEqual(self._read(key='mbid'), '550e8400-e29b-41d4-a716-446655440000')
-
-    def test_missing_key_returns_none(self):
-        self._write_id('12345678\n')
-        self.assertIsNone(self._read(key='mbid'))
-
-    def test_comment_lines_ignored(self):
-        self._write_id('# Discogs release\n12345678\n')
-        self.assertEqual(self._read(), '12345678')
-
-    def test_no_file_returns_none(self):
-        self.assertIsNone(self._read())
-
-
-# ── Source format hints ────────────────────────────────────────────────────────
 
 class TestFolderFormatHint(unittest.TestCase):
     """_folder_format_hint() classifies a folder by keyword matching.
@@ -302,8 +271,8 @@ class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
         folder = os.path.join(self.tmpdir, 'Sounds Of The Universe')
         os.makedirs(folder)
 
-        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
-             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
+        with patch('massmusictagger.cascade._read_existing_discogs_id_tag',
+                   return_value=None), \
              patch('massmusictagger.cascade._local_audio_count', return_value=11):
             result = _try_discogs(folder, cfg, connector, searcher)
 
@@ -332,8 +301,8 @@ class TestDiscogsPostSearchSubtrackMerge(unittest.TestCase):
         folder = os.path.join(self.tmpdir, 'Sounds Of The Universe Partial')
         os.makedirs(folder)
 
-        with patch('massmusictagger.cascade._read_id_txt', return_value=None), \
-             patch('massmusictagger.cascade._read_existing_discogs_id_tag', return_value=None), \
+        with patch('massmusictagger.cascade._read_existing_discogs_id_tag',
+                   return_value=None), \
              patch('massmusictagger.cascade._local_audio_count', return_value=12):
             result = _try_discogs(folder, cfg, connector, searcher)
 
