@@ -14,8 +14,22 @@ import discogs_client as discogs
 from massmusictagger.core.cache import ReleaseCache, ImageCache, MasterVersionsCache, SearchCache
 
 from massmusictagger import roots
+from massmusictagger.config_schema import ConfigError
 
 logger = logging.getLogger(__name__)
+
+
+def _is_auth_failure(exc) -> bool:
+    """Is this exception Discogs refusing the credential, rather than a network
+    problem? Checked by status code where there is one, because the client
+    raises the same HTTPError type for 401 and for 503."""
+    for attr in ('status_code', 'code'):
+        code = getattr(exc, attr, None)
+        if code in (401, 403):
+            return True
+    if isinstance(exc, discogs.exceptions.AuthorizationError):
+        return True
+    return '401' in str(exc) or 'Invalid consumer token' in str(exc)
 
 
 class DiscogsConnector(object):
@@ -59,13 +73,48 @@ class DiscogsConnector(object):
             self.discogs_client = discogs.Client(self.user_agent, user_token=user_token)
             self._user_token = user_token
             self.discogs_auth = True
-            logger.info('Authenticated via personal access token')
+            self._verify_token()
         elif skip_auth != "True":
             self.discogs_client = discogs.Client(self.user_agent)
             self._init_oauth()
         else:
             self.discogs_client = discogs.Client(self.user_agent)
             logger.warning('Authentication disabled — image downloads will not work')
+
+    def _verify_token(self):
+        """A token that is present is not a token that works.
+
+        Discogs issues one personal access token at a time per account, so
+        generating one for a second registered application silently
+        invalidates the first. This used to log "Authenticated via personal
+        access token" on the strength of the string being non-empty, and the
+        only symptom of a dead token was that lookups quietly stopped finding
+        anything -- which, with the disk cache warm, an entire run could hide.
+
+        A rejected token is fatal and says which file to fix. A network
+        failure is not: an offline run against a warm cache is legitimate.
+        """
+        try:
+            identity = self.discogs_client.identity()
+        except Exception as exc:
+            if _is_auth_failure(exc):
+                raise ConfigError(
+                    'Discogs rejected the personal access token.\n'
+                    '  Discogs issues one token at a time per account, so '
+                    'generating a token for another\n'
+                    '  application invalidates the previous one. Generate a '
+                    'new token at\n'
+                    '  https://www.discogs.com/settings/developers and set '
+                    'DISCOGS_USER_TOKEN\n'
+                    '  (or discogs.user_token in the configuration '
+                    'directory).') from exc
+            logger.warning('Could not reach Discogs to verify the token (%s) '
+                           '— continuing; cached data will still be used', exc)
+            return
+
+        username = getattr(identity, 'username', None)
+        logger.info('Authenticated with Discogs as %s',
+                    username or 'an unnamed account')
 
     def _init_oauth(self):
         """Set up OAuth 1.0a using consumer key/secret from config or environment."""
