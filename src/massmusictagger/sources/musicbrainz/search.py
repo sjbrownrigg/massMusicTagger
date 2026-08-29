@@ -36,6 +36,18 @@ logger = logging.getLogger(__name__)
 
 # Text-search acceptance thresholds
 _MIN_TITLE_SCORE = 70
+
+# A candidate whose credited artist bears no resemblance to ours is not a
+# worse match, it is a different record. Ranking alone could not express that:
+# the rank is a lexicographic (title, artist, date) tuple, so a perfect title
+# beat any artist score at all, and "Pariah" by Anja Huwe was tagged as
+# "Pariah" by Red Dons -- same title, same two tracks, fourteen years apart.
+#
+# 60 separates the two cases cleanly. Measured: that mismatch scores 35, while
+# every legitimate variation scores 62 or more -- "Anja Huwe" against a
+# collaboration credit 62, "Various" against "Various Artists" 64, "X-Fusion"
+# against "X Fusion" 75, ":wumpscut:" against "wumpscut" 89.
+_MIN_ARTIST_SCORE = 60
 _TRACK_TOLERANCE = 2
 
 # Multi-track AcoustID: minimum proportion of tracks that must match a release
@@ -261,6 +273,12 @@ class MBSearch:
                 fuzz.token_sort_ratio(artist.lower(), candidate_artist.lower())
                 if artist and candidate_artist else 0
             )
+            if (artist and candidate_artist
+                    and artist_score < _MIN_ARTIST_SCORE):
+                logger.info('  MB tier 3: rejecting %r by %r — artist '
+                            'similarity %d%% below %d%%', candidate_title,
+                            candidate_artist, artist_score, _MIN_ARTIST_SCORE)
+                continue
             has_date = 1 if rel.get('date', '') else 0
             rank = (title_score, artist_score, has_date)
             if rank > best_rank:
