@@ -162,5 +162,63 @@ class TagHintTest(unittest.TestCase):
         self.assertIn("getattr(metadata, 'catalognum', None)", src)
 
 
+class SearchCacheVersionTest(unittest.TestCase):
+    """A cached decision must not outlive the rules that produced it.
+
+    Spirit matched a single-disc release because a cached entry named one
+    release, it was accepted, and the search stopped there -- the correct
+    pressing was never compared. Cold, the same album compared 40 releases.
+    The fix existed; the cache hid it.
+    """
+
+    def _cache(self, tmp):
+        from massmusictagger.core.cache import SearchCache
+        return SearchCache(tmp)
+
+    def test_version_is_part_of_the_key(self):
+        import tempfile, shutil
+        from massmusictagger.core.cache import SearchCache
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+
+        c = SearchCache(tmp)
+        first = c._path('Depeche Mode|Spirit|2017', 'fields_year')
+
+        original = SearchCache.SEARCH_LOGIC_VERSION
+        try:
+            SearchCache.SEARCH_LOGIC_VERSION = original + 1
+            bumped = SearchCache(tmp)._path('Depeche Mode|Spirit|2017', 'fields_year')
+        finally:
+            SearchCache.SEARCH_LOGIC_VERSION = original
+
+        self.assertNotEqual(first, bumped,
+                            'bumping the version must retire stored decisions')
+
+    def test_a_stored_decision_is_not_read_back_after_a_bump(self):
+        import tempfile, shutil
+        from massmusictagger.core.cache import SearchCache
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+
+        SearchCache(tmp).put('q', 'fields', [{'id': 1, 'is_master': False}])
+        self.assertIsNotNone(SearchCache(tmp).get('q', 'fields'))
+
+        original = SearchCache.SEARCH_LOGIC_VERSION
+        try:
+            SearchCache.SEARCH_LOGIC_VERSION = original + 1
+            self.assertIsNone(SearchCache(tmp).get('q', 'fields'))
+        finally:
+            SearchCache.SEARCH_LOGIC_VERSION = original
+
+    def test_same_version_still_round_trips(self):
+        import tempfile, shutil
+        from massmusictagger.core.cache import SearchCache
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        results = [{'id': 10013737, 'is_master': False}]
+        SearchCache(tmp).put('q', 'fields', results)
+        self.assertEqual(SearchCache(tmp).get('q', 'fields'), results)
+
+
 if __name__ == '__main__':
     unittest.main()

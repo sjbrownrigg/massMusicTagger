@@ -135,14 +135,39 @@ class SearchCache:
 
     Files are stored as <cache_dir>/searches/<sha256>.json and contain the
     list of result IDs and their types returned by the API.
+
+    What is stored is a *decision* -- which releases were worth comparing --
+    not a verbatim API response. So when the matching rules change, every
+    stored answer is stale, and replaying it hides the new behaviour behind
+    the old one.
+
+    That is not hypothetical. Depeche Mode's Spirit had a cached entry naming
+    a single release: it was accepted, the search stopped at the first
+    candidate, and the correct Japanese pressing was never compared. Against
+    a cold cache the same album compared 40 releases, found 14 candidates and
+    matched on catalog number. The fix was already in place and the cache
+    concealed it.
+
+    SEARCH_LOGIC_VERSION is part of the key, so bumping it retires every
+    stored decision at once without anyone having to find and delete the
+    cache. MusicBrainz's connector has carried the same guard since its own
+    matching rules changed.
+
+    Bump it whenever a change alters which releases are collected, compared
+    or preferred.
     """
+
+    #: 1 -- original.
+    #: 2 -- catalog hints taken from the catalognum tag and from
+    #:      space-separated numbers, changing which candidate wins.
+    SEARCH_LOGIC_VERSION = 2
 
     def __init__(self, cache_dir: str):
         self._dir = Path(cache_dir) / 'searches'
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, query: str, type_: str) -> Path:
-        key = f'{type_}:{query}'
+        key = f'v{self.SEARCH_LOGIC_VERSION}:{type_}:{query}'
         digest = hashlib.sha256(key.encode()).hexdigest()
         return self._dir / f'{digest}.json'
 

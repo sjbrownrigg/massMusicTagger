@@ -2,6 +2,27 @@
 
 ---
 
+## Version 3.6.1 (2026-08-30)
+
+### Fixed
+
+**Cached search decisions outlived the rules that produced them.** The Discogs
+search cache stores which releases were worth comparing — a decision, not a
+verbatim API response — and had no version stamp, so entries written before a
+matching change were replayed forever.
+
+Depeche Mode's *Spirit* showed the cost. A cached entry named a single
+release; it was accepted, the search stopped at the first candidate, and the
+correct Japanese pressing was never compared at all. Against a cold cache the
+same album compared **40 releases**, found 14 candidates, and matched on
+catalog number. The 3.6.0 fix was already in place and the cache concealed it.
+
+`SearchCache.SEARCH_LOGIC_VERSION` is now part of the key, so bumping it
+retires every stored decision at once. MusicBrainz's connector has carried the
+same guard since its own rules changed; Discogs never had it.
+
+---
+
 ## Version 3.6.0 (2026-08-30)
 
 ### Fixed
