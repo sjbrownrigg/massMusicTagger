@@ -242,52 +242,48 @@ ordering above.
 
 ---
 
-## Matching flattens the album, so a wrong-layout release can win
+## Disc layout is not compared when ranking candidates
 
-**Observed.** Three Depeche Mode deluxe sets failed, all identically:
+**Corrected entry.** An earlier version of this claimed a wrong-layout
+release winning was the common cause of three failed Depeche Mode deluxe
+sets. That was asserted from a truncated, interleaved batch log before the
+albums were examined individually, and it was wrong for two of the three.
+What follows is what was actually established by running them.
 
-```
-WARN Found audio directory CD 2 but Discogs only lists 1 disc(s) — skipping
-ERR  Failed to process ... raise TaggerError(
-```
+The three shared a *symptom* — the extra disc directory skipped at
+`taggerutils.py:1130`, then `taggerutils.py:1231` raising on the per-disc
+count — but not a cause:
 
-| album | local layout |
+| album | what was really wrong |
 |---|---|
-| Spirit (SICP 30937~8) | CD 1: 12, CD 2 Jungle Spirit Mixes: 5 |
-| Delta Machine (Deluxe) | CD 1: 13, CD 2: 4 |
-| Sounds Of The Universe (Deluxe) | CD 1: 14, CD 2: 11, CD 3: 14 |
+| Delta Machine | Not layout. The release the matcher chose (4399837) already had the correct 2-disc 13 + 4 shape. Re-run, it tagged cleanly. The original failure is unexplained. |
+| Spirit | Genuinely layout: it matched a release with all 17 tracks on one disc against a local 12 + 5. But the reason it saw only that release was a stale cached decision, fixed in 3.6.1. |
+| Sounds Of The Universe | Not a tagger fault at all. The rip holds two files numbered 13 — the same track at two compression levels — so no release can match it. |
 
-**They are not being ignored — a different release is winning.** The search
-compares only the *flat total*:
+**What the fixes actually were.** 3.6.0 took catalog hints from the
+`catalognum` tag and stopped losing space-separated numbers; 3.6.1 versioned
+the Discogs search cache so decisions made under older rules retire. Together
+those got Delta Machine and Spirit matched and tagged correctly, both landing
+on releases whose catalog number and disc layout match the source exactly.
 
-```python
-# sources/discogs/search.py:676
-local_count = len(searchParams['tracks'])
-```
+**What remains true, and is still worth doing.** Disc layout is not a factor
+in ranking. `local_count = len(searchParams['tracks'])` (search.py) compares
+flat totals, and `disc` appears nowhere in `_compareRelease`. The only disc
+signal in `_candidate_score` is a -0.5 nudge comparing `format_quantity`
+against the highest local disc number, which is both weak and easily wrong —
+Spirit's correct release reports three format entries (CD, CD, All Media) for
+a two-disc set.
 
-A 2-disc album of 13 + 4 is offered to the matcher as "17 tracks", so a
-single-disc 17-track release matches exactly as well as the correct 2-disc
-one. The winner is then chosen on average track-length difference alone —
-`disc` appears nowhere in the comparison. The right release and a wrong one
-are indistinguishable.
+Both sides already carry what is needed: `_fetchSubdirectories` knows the
+local disc directories, and Discogs positions carry the disc (`CD1-1`,
+`2-4`). Comparing the per-disc distribution would have rejected Spirit's
+single-disc candidate on its own merits, without depending on the cache fix
+to widen the candidate list.
 
-The cost lands later, at tagging: `taggerutils.py:1130` skips the disc
-directory the chosen release does not have, and `taggerutils.py:1231` then
-raises on the per-disc count. Note a fourth album hit the same warning and
-still succeeded, so the warning alone is not the trigger — the raise is.
+So this is worth implementing — as a genuine improvement to ranking, not as
+the explanation for those three failures.
 
-**What would improve it.** Use disc layout as a discriminator. The
-information is already in hand on both sides: `_fetchSubdirectories` knows
-the local disc directories (and `searchParams['disc']` is derived from them
-at search.py:105-114), and Discogs positions carry the disc — `CD1-1`,
-`2-4`. A candidate whose per-disc distribution matches the local one should
-beat a candidate that only matches on the total.
-
-That is a strong discriminator, and cheap. It also fixes the failure at the
-right end: today the wrong release is chosen silently and the run dies much
-later with an error that says nothing about layout.
-
-Worth doing before reaching for `id.txt`. Pinning each box set by hand hides
-the defect rather than fixing it, and a pinned wrong-layout release still
-raises at taggerutils.py:1231 — the ID bypasses the *match* check, not the
-per-disc one.
+**The lesson worth keeping.** The batch log truncates each line and
+interleaves albums, so attributing a warning to a particular album by reading
+nearby lines is guesswork. Two diagnoses were published from it and both were
+wrong. Running one album on its own settled each in minutes.
