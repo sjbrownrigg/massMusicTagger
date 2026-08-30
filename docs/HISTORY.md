@@ -2,6 +2,50 @@
 
 ---
 
+## Version 3.9.0 (2026-08-30)
+
+### Changed
+
+**Preparation writes to staging instead of the source tree.** Splitting a CUE
+rip used to write its tracks beside the disc image, decode a full ~1.5 GB WAV
+next to it first, and move the image and sheet into a `.cue` directory.
+Converting `.m4a` wrote the transcode beside the original and moved the
+original into `.m4a`. All of it on the share, at the 9.8 MiB/s NAS-to-NAS rate
+`batch.staging_dir` exists to avoid.
+
+Nothing preparation produces is source material. A disc image and its sheet
+are the source; the split tracks are a decode artefact, made to be tagged and
+then finished with. With `staging_dir` set they now go there, and the source
+directory is left exactly as the user left it.
+
+Two further things follow. The source tree is read-only during preparation —
+stronger than splitting `scan()` from `prepare()` achieved, which only stopped
+a *dry run* from rewriting what it reported on. And re-runs become idempotent:
+a CUE album split once no longer presents a different shape on its second
+pass.
+
+The enabling change is that a source directory may now be two paths. `sourcedir`
+meant both *where audio is read from* and *what `source_action` archives or
+deletes*; pointing the latter at staging would archive a temporary decode and
+leave the disc images in place for ever. So the origin and the audio directory
+are now separate: the done marker, `id.txt` and the tag-in-place destination
+all follow the origin, and only the reading follows the audio.
+
+Staging holds a complete album — covers, rip logs and other sidecars are
+carried across, since anything left in the origin would be dropped from the
+tagged result. Preparation directories are swept at startup like assembly
+ones, and removed per album so a batch of CUE rips does not accumulate
+decodes.
+
+`cue.cue_done_dir` and `m4a.m4a_done_dir` keep working unchanged. With staging
+set there is nothing new to stash, but the directories they name are still
+pruned from scans — 108 of them exist across this library, holding the only
+copies of pre-conversion originals.
+
+Without `staging_dir` set, preparation still works in place exactly as before.
+
+---
+
 ## Version 3.8.0 (2026-08-30)
 
 ### Added
