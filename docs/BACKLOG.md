@@ -464,9 +464,12 @@ folder and its own copy of the image.
 
 ---
 
-## Split CUE tracks belong in staging, not in the source tree
+## Everything prepare() produces belongs in staging, not the source tree
 
-Splitting a CUE rip writes its output into the source directory:
+`FileUtils.prepare()` has exactly two kinds of work -- `PrepTask.kind` is
+`'cue' | 'm4a'` -- and both write derived audio into the source directory.
+
+**CUE splitting:**
 
 * `destination = cue.image_file_directory` (files.py) -- the split tracks land
   beside the disc image and stay there
@@ -480,9 +483,15 @@ in the pipeline, and staging does not reach it: staging redirects the
 *processor's destination*, while splitting happens earlier, in
 `_get_source_dirs` -> `FileUtils.prepare()`.
 
-**The right framing is not "staging should cover more".** Split tracks are
-not source material at all. The source is the disc image and its sheet; the
-tracks are a decode artefact, produced to be tagged and then finished with.
+**`.m4a` conversion does the same:** `out = os.path.splitext(path)[0] + '.'
++ target_ext` writes the transcode beside the original, and the original is
+then `shutil.move`d into a done directory. A converted album therefore leaves
+both the new files and a directory of originals behind, all on the share.
+
+**The right framing is not "staging should cover more".** Nothing `prepare()`
+produces is source material. The source is what the user put there -- a disc image
+and its sheet, or a folder of `.m4a` -- and everything prepare() makes from
+it is a decode artefact, produced to be tagged and then finished with.
 Staging is where temporary files belong, and leaving them in the source tree
 is pollution -- a CUE rip that has been through the tagger once is no longer
 the thing the user put there.
@@ -504,3 +513,12 @@ With that separation the rest is small: `prepare()` splits into a staging
 directory, returns it as the audio directory, and the existing staging
 cleanup removes it afterwards -- emptied on the way out, swept on the way in,
 exactly as the finished album already is.
+
+**A second thing this buys.** With prepare() writing to staging, the source
+tree becomes genuinely read-only during preparation. That is a stronger
+guarantee than splitting `scan()` from `prepare()` achieved: that split
+stopped a *dry run* from rewriting the files it was reporting on, but a real
+run still mutates the source before deciding anything about it. It also makes
+re-runs idempotent -- today a CUE album that has been split once presents a
+different shape on the second pass than it did on the first, because the
+tracks it produced are sitting next to the image.
