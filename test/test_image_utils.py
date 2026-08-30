@@ -1044,3 +1044,69 @@ class EmbeddingIntoAnMP3(unittest.TestCase):
         from massmusictagger import image_utils
         src = inspect.getsource(image_utils.embed_typed_images)
         self.assertIn('desc=base', src)
+
+
+class AConnectorThatWritesNothing(unittest.TestCase):
+    """Not every failure raises.
+
+    The Cover Art Archive answers 404 for a release whose front cover it does
+    not hold, and the connector logs that and returns -- leaving no file.
+    _fetch_and_measure handed the caller that path anyway, so the download
+    step tried to move a file that had never existed:
+
+        Failed to download front.jpg image: [Errno 2] ... front.jpg.part
+
+    Seen eleven times in one batch run.
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.target = self._tmp.name
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_a_silent_failure_yields_no_path(self):
+        from massmusictagger.image_utils import _fetch_and_measure
+        conn = MagicMock()
+        conn.fetch_image = MagicMock(return_value=None)   # writes nothing
+        path, dims = _fetch_and_measure(
+            conn, 'https://caa/front', os.path.join(self.target, 'front.jpg.part'))
+        self.assertIsNone(path)
+        self.assertIsNone(dims)
+
+    def test_a_raising_failure_still_yields_no_path(self):
+        from massmusictagger.image_utils import _fetch_and_measure
+        conn = MagicMock()
+        conn.fetch_image = MagicMock(side_effect=OSError('404'))
+        path, dims = _fetch_and_measure(
+            conn, 'https://caa/front', os.path.join(self.target, 'front.jpg.part'))
+        self.assertIsNone(path)
+        self.assertIsNone(dims)
+
+    def test_a_real_download_still_works(self):
+        from massmusictagger.image_utils import _fetch_and_measure
+        from PIL import Image
+        conn = MagicMock()
+        conn.fetch_image = MagicMock(
+            side_effect=lambda dest, uri: Image.new('RGB', (500, 400)).save(dest))
+        path, dims = _fetch_and_measure(
+            conn, 'https://caa/front', os.path.join(self.target, 'front.jpg.part'))
+        self.assertTrue(path and os.path.exists(path))
+        self.assertEqual(dims, (500, 400))
+
+    def test_the_album_is_still_tagged_when_the_cover_404s(self):
+        """A missing cover must not derail the release."""
+        from massmusictagger.image_utils import download_typed_images
+        from PIL import Image
+        Image.new('RGB', (800, 800)).save(os.path.join(self.target, 'cover.jpg'))
+        cfg = _make_cfg(**{'artwork.image_policy': 'prefer_larger',
+                           'artwork.download_only_cover': 'false'})
+        album = _make_album([{'uri': 'https://caa/front', 'caa_types': ['Front'],
+                              'type': 'primary'}])
+        album.target_dir = self.target
+        conn = MagicMock()
+        conn.fetch_image = MagicMock(return_value=None)   # 404, writes nothing
+        download_typed_images(album, conn, cfg)
+        self.assertIn('cover.jpg', os.listdir(self.target))
+        leftovers = [f for f in os.listdir(self.target) if f.endswith('.part')]
+        self.assertEqual(leftovers, [], 'no scratch file left behind')

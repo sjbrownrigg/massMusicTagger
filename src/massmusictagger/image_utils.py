@@ -195,6 +195,18 @@ def download_typed_images(album, connector, cfg: 'TaggerConfig') -> None:
             _discard(fetched)
             continue
 
+        # A connector need not raise to have failed: the Cover Art Archive
+        # answers 404 for a release whose front it does not hold, and the
+        # connector logs that and returns. Treating that as a download meant
+        # the supersede step below deleted the release's own cover to make way
+        # for a file that does not exist.
+        if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+            logger.warning('%s produced no image for %s — keeping what the '
+                           'release already had', att.provenance or 'the source',
+                           filename)
+            _discard(dest)
+            continue
+
         # The extension came from the URL, before there were any bytes to
         # look at. Now there are: a CAA URL that ends .jpg can still serve a
         # PNG, and a PNG named .jpg is not read by every player. Correcting it
@@ -376,7 +388,15 @@ def _fetch_and_measure(connector, uri: str, tmp: str):
     """
     try:
         connector.fetch_image(tmp, uri)
-        return tmp, _measured(tmp, uri)
+        if os.path.exists(tmp):
+            return tmp, _measured(tmp, uri)
+        # A connector need not raise. The Cover Art Archive answers 404 for a
+        # release whose front cover it does not hold, and the connector logs
+        # that and returns -- leaving no file. Handing the caller a path to a
+        # file that was never created made it try to move one:
+        #   Failed to download front.jpg image: [Errno 2] ... front.jpg.part
+        logger.debug('No file at %s after fetching %s', tmp, uri)
+        return None, None
     except Exception as exc:
         logger.debug('Scratch download to %s failed (%s); trying the system '
                      'temp directory', tmp, exc)
@@ -388,6 +408,12 @@ def _fetch_and_measure(connector, uri: str, tmp: str):
         connector.fetch_image(alt, uri)
     except Exception as exc:
         logger.warning('Could not fetch %s to compare sizes: %s', uri, exc)
+        _discard(alt)
+        return None, None
+    # mkstemp creates the file, so "it exists" proves nothing here -- an
+    # empty one means the connector returned without writing anything.
+    if not os.path.exists(alt) or os.path.getsize(alt) == 0:
+        logger.debug('Nothing was written to %s for %s', alt, uri)
         _discard(alt)
         return None, None
     return alt, _measured(alt, uri)
