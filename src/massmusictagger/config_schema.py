@@ -91,6 +91,7 @@ DEPRECATED = frozenset({
     ('naming', 'format_codes'),
     ('naming', 'char_substitutions'),
     ('source', 'source_hints_file'),
+    ('musicbrainz', 'source_hints_file'),
     ('common', 'formats_file'),
     ('file-formatting', 'image'),
 })
@@ -109,6 +110,10 @@ DEPRECATION_NOTES = {
     ('source', 'source_hints_file'):
         'source_hints.yaml is found beside config.yaml, so nothing needs to '
         'declare where it is. The key still works and warns.',
+    ('musicbrainz', 'source_hints_file'):
+        'source hints are shared by every source, not just MusicBrainz, and '
+        'source_hints.yaml is found beside config.yaml. The key still works '
+        'and warns.',
     ('naming', 'format_codes'):
         'format_codes.yaml is found beside config.yaml, so nothing needs to '
         'declare where it is, and what it finds is merged over the bundled '
@@ -278,6 +283,12 @@ DEFAULTS = {
     ('musicbrainz', 'acoustid_submitter_key'): '',
     ('musicbrainz', 'acoustid_early'): 'False',
     ('musicbrainz', 'caa_request_delay'): '0.5',
+    # The three disk caches. They were read by the connector with defaults of
+    # their own, and documented, but never declared -- so setting one worked
+    # and was reported as a typo in the same breath.
+    ('musicbrainz', 'cache_metadata'): 'True',
+    ('musicbrainz', 'cache_images'): 'True',
+    ('musicbrainz', 'cache_search'): 'True',
     ('musicbrainz', 'cache_directory'): '',
     ('musicbrainz', 'user_agent'): '',
     # Written as a YAML list in the sample, which flattens to this string.

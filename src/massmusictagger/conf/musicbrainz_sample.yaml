@@ -74,3 +74,15 @@ musicbrainz:
   # Increase if you see "rate-limited (429)" warnings in the log.
   # Set to 0 to disable (only safe when batch.workers = 1 and cache is warm).
   caa_request_delay: 0.5
+
+  # ── Disk caches ──────────────────────────────────────────────────────────
+  #
+  # All three default to on. Turning one off means asking MusicBrainz or the
+  # Cover Art Archive again every run, which is slower and less polite to a
+  # free service -- worth it only when you are chasing a stale answer.
+  #
+  # The cache lives under cache_directory above, or the state directory when
+  # that is unset.
+  cache_metadata: true    # release JSON and the Cover Art Archive image index
+  cache_images:   true     # the downloaded image files themselves
+  cache_search:   true     # which release a search chose, not the response
