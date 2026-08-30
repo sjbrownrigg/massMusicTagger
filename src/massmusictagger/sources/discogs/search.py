@@ -27,7 +27,8 @@ from rapidfuzz import fuzz
 from massmusictagger.core.cache import SearchCache
 from massmusictagger.sources.discogs.connector import DiscogsConnector
 from massmusictagger.sources.discogs.utils import (
-    AUDIO_EXTENSIONS, VARIOUS_ARTIST_NAMES, extract_catalog_hint,
+    AUDIO_EXTENSIONS, VARIOUS_ARTIST_NAMES, extract_catalog_hints,
+    catalog_hint_from_tag,
     normalize_catalog_number, strip_catalog_suffix, strip_discogs_id_suffix,
     build_flat_tracklist, ignored_source_dirs, is_non_audio_position,
     merge_indexed_subtracks, natural_sort_key,
@@ -92,9 +93,16 @@ class DiscogsSearch(DiscogsConnector):
                     searchParams['artists'].append(a)
             searchParams['albumartist'] = metadata.albumartist or ''
             _raw_album = re.sub(r'\[.*?\]', '', metadata.album or '')
-            catalog_hint = extract_catalog_hint(_raw_album)
-            if catalog_hint:
-                searchParams['catalog_hint'] = catalog_hint
+            catalog_hints = set(extract_catalog_hints(_raw_album))
+            # A rip carrying `catalognum` names its pressing outright, which
+            # beats parsing a number out of a title -- and the two disagree
+            # often: Delta Machine tags '88765 46063 2' while its album tag
+            # is just 'Delta Machine', so the title yielded nothing at all.
+            tag_hint = catalog_hint_from_tag(getattr(metadata, 'catalognum', None))
+            if tag_hint:
+                catalog_hints.add(tag_hint)
+            if catalog_hints:
+                searchParams['catalog_hints'] = frozenset(catalog_hints)
             searchParams['album'] = strip_catalog_suffix(_raw_album)
             searchParams['year'] = metadata.year
             searchParams['date'] = metadata.date
@@ -905,11 +913,14 @@ class DiscogsSearch(DiscogsConnector):
         # reissues of the same release share identical track counts and
         # near-identical durations (e.g. "In Your Room" maxi-singles) — the
         # catalog number is the only thing that tells them apart.
-        catalog_hint = searchParams.get('catalog_hint')
-        if catalog_hint:
+        catalog_hints = searchParams.get('catalog_hints')
+        if catalog_hints:
             catnos = {normalize_catalog_number(l.get('catno', ''))
                       for l in data.get('labels', [])}
-            if catalog_hint in catnos:
+            matched = catnos & catalog_hints
+            if matched:
+                logger.info('  [%s] catalog number %s matches the folder name',
+                            release.id, sorted(matched)[0])
                 score -= 10.0
 
         # Descriptor boost: soft scoring signal from folder-name keywords

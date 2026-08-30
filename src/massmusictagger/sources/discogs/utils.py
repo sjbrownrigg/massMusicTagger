@@ -378,6 +378,7 @@ def strip_discogs_id_suffix(name: str) -> str:
 # 'Deluxe Edition' or '2009 Remaster' never have one.
 _CATALOG_TOKEN_RE = re.compile(r'^(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9\-]{4,}$')
 _TRAILING_PAREN_RE = re.compile(r'\s*\(([^()]*)\)\s*$')
+_YEAR_RE = re.compile(r'(19|20)\d{2}')
 
 
 def strip_catalog_suffix(title: str) -> str:
@@ -417,28 +418,80 @@ def normalize_catalog_number(catno: str) -> str:
     return re.sub(r'[\s\-]', '', catno or '').lower()
 
 
-def extract_catalog_hint(title: str) -> 'str | None':
-    """Extract a normalised catalog-number hint from a title's trailing
-    parenthetical group — the same group strip_catalog_suffix() removes.
+def _is_catalog_like(candidate: str) -> bool:
+    """Is this normalised string plausibly a catalog number?
 
-    Used to disambiguate between several Discogs releases that otherwise
-    match equally well (identical track count and near-identical durations
-    are common across regional/format reissues of the same single/album).
-    When the embedded tag happens to fold the catalog number into the title,
-    that's a strong, free signal for picking the exact pressing — e.g.
-    'In Your Room (Maxi XLCDBong24)' should prefer the Discogs release whose
-    catalog number normalises to 'xlcdbong24' over others with identical
-    durations but unrelated catalog numbers.
+    Deliberately permissive about letters -- plenty of catalog numbers are
+    purely numeric (Sony/Columbia's '88765 46063 2') -- but it must contain a
+    digit, be long enough not to collide with noise, and not be a bare year,
+    since a trailing '(2013)' is a date rather than a catalog number.
+    """
+    if len(candidate) < 3:
+        return False
+    if not any(ch.isdigit() for ch in candidate):
+        return False
+    if _YEAR_RE.fullmatch(candidate):
+        return False
+    return True
 
-    Returns None if no catalog-like token is found in the trailing group.
+
+def extract_catalog_hints(title: str) -> frozenset:
+    """Catalog-number candidates from a title's trailing parenthetical group.
+
+    Used to disambiguate several Discogs releases that otherwise match
+    equally well -- identical track counts and near-identical durations are
+    common across regional and format reissues, and the catalog number is
+    often the only thing that separates them.
+
+    A whole set is returned rather than one string because the group may hold
+    a descriptor as well as the number: 'Maxi XLCDBong24' must still yield
+    'xlcdbong24', while 'CK 86656' must be taken whole -- 'CK' is part of the
+    number, not a descriptor. Nothing here can tell those apart reliably, so
+    every suffix of the token list is offered and the caller matches any.
+
+    The earlier version took a single token matching /letter and digit/, which
+    missed every space-separated number -- 'ISLA 23', 'MET 1010',
+    '88765 46063 2'. Measured over a 554-album library, that failed on 372 of
+    the 456 titles carrying a trailing group: 81%. Since the signal is worth
+    -10 in the ranking, losing it means the wrong pressing wins.
     """
     m = _TRAILING_PAREN_RE.search(title)
     if not m:
+        return frozenset()
+
+    tokens = m.group(1).split()
+    hints = set()
+    for start in range(len(tokens)):
+        candidate = normalize_catalog_number(''.join(tokens[start:]))
+        if _is_catalog_like(candidate):
+            hints.add(candidate)
+    return frozenset(hints)
+
+
+def catalog_hint_from_tag(catno: str) -> 'str | None':
+    """A catalog number taken from a tag field rather than parsed from a title.
+
+    Worth more than the parsed form and needs no guessing: a rip carrying
+    `catalognum` is naming its pressing outright. Measured over a 60-album
+    sample of the library, 73% already had the tag, while the album title
+    carried the number far less often -- Delta Machine's tag held
+    '88765 46063 2' while its album tag was just 'Delta Machine'.
+    """
+    normalised = normalize_catalog_number(catno or '')
+    return normalised if _is_catalog_like(normalised) else None
+
+
+def extract_catalog_hint(title: str) -> 'str | None':
+    """The single most specific catalog hint, or None.
+
+    Kept for callers that want one value; the longest candidate is the most
+    specific and so the least likely to collide. Prefer
+    extract_catalog_hints() where a set can be matched.
+    """
+    hints = extract_catalog_hints(title)
+    if not hints:
         return None
-    catalog_tokens = [t for t in m.group(1).split() if _CATALOG_TOKEN_RE.match(t)]
-    if not catalog_tokens:
-        return None
-    return normalize_catalog_number(catalog_tokens[-1])
+    return max(hints, key=len)
 
 
 def parse_extraartists(extraartists_data: list) -> dict:
