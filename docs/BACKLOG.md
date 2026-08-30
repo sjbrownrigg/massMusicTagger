@@ -158,3 +158,56 @@ All 2 albums already tagged (.done present) — use --force to re-tag
 
 reserving the existing warning for a tree that genuinely holds no audio. The
 information is already in hand; only the message is missing.
+
+---
+
+## The Discogs token is written into verbose logs
+
+**Observed.** Running with `-v`, the request URL is logged with the token in
+the query string:
+
+```
+INFO  Fetching release 4449888 from Discogs
+      /releases/4449888?token=<the account's personal token>
+```
+
+It appears at DEBUG level, so a normal run is clean — but `-v` is precisely
+what someone turns on to capture a log for a bug report, which is the moment
+the log is most likely to be shared.
+
+That matters more here than it would elsewhere: Discogs issues **one personal
+token per account**, so a leaked token cannot be rotated without breaking
+every other deployment using it.
+
+**What would improve it.** Redact the query string before logging, or log the
+path only. The token is already available from the client object where it is
+genuinely needed, so nothing depends on it being in the message.
+
+Worth checking the same for MusicBrainz and the AcoustID key while in there.
+
+---
+
+## A downstream failure is reported as if the album did not match
+
+**Observed.** During the bulk re-tag, one album logged:
+
+```
+ERR Failed to process /incoming/David Bowie/[2004] Hours... [LDCD ...]
+Summary: 7 processed — 6 tagged  0 skipped  1 failed  0 dry-run
+```
+
+The natural reading is that nothing matched. It is wrong. Re-running the
+search against both a cold and a warm cache finds four acceptable candidates
+— 1060982 and 4449888 at 1.7s and 1.5s average track-length difference — and
+picks one. The *matching* worked; something after it raised.
+
+The batch's log filter compounded it, cutting the message at the album name
+so the exception never reached the operator, but the underlying problem is
+that one line covers two very different situations: no release was found, and
+a release was found but processing then failed. Only the first is a matching
+problem, and only the second is a bug.
+
+**What would improve it.** Say which. When the failure comes after a match,
+name the release that was matched and the exception, so the log distinguishes
+"nothing fits this album" from "this album matched 1060982 and then failed
+writing". The information is in hand at the point the message is written.
