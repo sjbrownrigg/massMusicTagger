@@ -46,7 +46,12 @@
 common:
 # ─────────────────────────────────────────────────────────────────────────────
 
-  user_agent: "massMusicTagger/2.0.0 +https://github.com/sjbrownrigg/massMusicTagger"
+  # How massMusicTagger introduces itself to Discogs. Left unset it is
+  # built from the running version, so it cannot go stale -- which a
+  # written-out copy does: this line said 2.0.0 for two major versions,
+  # and copying the sample pinned every new configuration to it.
+  # Set it only to override that entirely.
+  # user_agent: ""
   formats_file: ""
   source_dir: ""
   dest_dir: ""

@@ -38,6 +38,12 @@ def _build_parser() -> argparse.ArgumentParser:
                    help='Move settings that changed section in 3.0.0 into '
                         'their new homes, in place. Writes a .bak first. '
                         'Defaults to the configuration directory in use.')
+    p.add_argument('--annotate-config', dest='annotate_config', nargs='?',
+                   const='', metavar='DIR',
+                   help='Rewrite config.yaml with the current reference '
+                        'comments, keeping every value you have set. Writes a '
+                        '.bak first. Defaults to the configuration directory '
+                        'in use.')
     p.add_argument('--force-new-config', dest='force_new_config',
                    action='store_true',
                    help='With --new-config, overwrite files that already exist. '
@@ -338,6 +344,224 @@ def _drop_empty_sections(text: str) -> str:
         if not has_setting:
             drop.add(i)
     return ''.join(l for i, l in enumerate(lines) if i not in drop)
+
+
+def _annotate_config(parser, opts):
+    """Rewrite config.yaml with the reference comments, keeping every value.
+
+    A configuration that has been carried forward for years holds the right
+    settings and none of the explanation: the comments were in the sample the
+    file was first copied from, and nothing has put them back since.
+
+    This walks the packaged sample, which is the annotated reference, and
+    substitutes the value the user has for each setting. So the output is the
+    reference's comments and structure with the user's answers in it.
+
+    The property that matters is that nothing is lost. Values the sample does
+    not know about are carried through under the section they were in, and the
+    result is compared with the original before anything is written: if the
+    two do not parse to the same settings, it refuses rather than guessing.
+    """
+    import yaml
+    from massmusictagger import roots
+
+    target = opts.annotate_config or roots.config_dir()
+    path = os.path.join(os.path.abspath(os.path.expanduser(target)),
+                        roots.CONFIG_FILENAME)
+    if not os.path.exists(path):
+        parser.error(f'No {roots.CONFIG_FILENAME} in {target}')
+
+    sample_path = os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml')
+    with open(path, encoding='utf-8') as fh:
+        original_text = fh.read()
+    try:
+        original = yaml.safe_load(original_text) or {}
+    except yaml.YAMLError as exc:
+        parser.error(f'Could not read {path}: {exc}')
+
+    rebuilt = _rebuild_from_sample(sample_path, original, original_text)
+
+    try:
+        check = yaml.safe_load(rebuilt) or {}
+    except yaml.YAMLError as exc:
+        parser.error(f'Refusing to write: the result would not parse ({exc})')
+
+    lost = _settings_lost(original, check)
+    if lost:
+        parser.error('Refusing to write: these settings would be lost or '
+                     'changed:\n' + '\n'.join(f'  {s}.{k}: {a!r} -> {b!r}'
+                                               for s, k, a, b in lost))
+
+    backup = path + '.bak'
+    os.replace(path, backup)
+    with open(path, 'w', encoding='utf-8') as fh:
+        fh.write(rebuilt)
+
+    before = sum(1 for l in original_text.splitlines() if l.strip().startswith('#'))
+    after = sum(1 for l in rebuilt.splitlines() if l.strip().startswith('#'))
+    print(f'Annotated {path}')
+    print(f'  previous version kept at {backup}')
+    print(f'  comment lines: {before} -> {after}')
+    print(f'  settings: {sum(len(v) for v in original.values() if isinstance(v, dict))}'
+          f', all preserved')
+
+
+def _flatten_settings(data):
+    flat = {}
+    for section, values in (data or {}).items():
+        if isinstance(values, dict):
+            for key, value in values.items():
+                flat[(section, key)] = value
+        else:
+            flat[(section, None)] = values
+    return flat
+
+
+def _settings_lost(before, after):
+    """Any difference in the settings, in either direction.
+
+    Gaining a setting is as much a change as losing one: the sample carries
+    live lines for things a user may have deliberately left unset, and
+    writing one in would silently start applying it.
+    """
+    a, b = _flatten_settings(before), _flatten_settings(after)
+    changed = [(s, k, a[(s, k)], b.get((s, k)))
+               for (s, k) in a if b.get((s, k)) != a[(s, k)]]
+    gained = [(s, k, None, b[(s, k)]) for (s, k) in b if (s, k) not in a]
+    return changed + gained
+
+
+def _rebuild_from_sample(sample_path, original, original_text):
+    """The sample's comments and layout, carrying the user's values."""
+    import yaml
+
+    with open(sample_path, encoding='utf-8') as fh:
+        sample_lines = fh.readlines()
+
+    user = _flatten_settings(original)
+    # Blocks the sample cannot represent -- lists, and free-form sections --
+    # are lifted from the user's own file verbatim.
+    blocks = _value_blocks(original_text)
+
+    out, section, used = [], None, set()
+    i = 0
+    while i < len(sample_lines):
+        line = sample_lines[i]
+        header = re.match(r'^([a-z_][a-z_0-9-]*):\s*$', line)
+        if header:
+            section = header.group(1)
+            out.append(line)
+            i += 1
+            continue
+
+        setting = re.match(r'^(\s+)([a-z_][a-z_0-9-]*):(.*)$', line)
+        if setting and section is not None:
+            indent, key, rest = setting.groups()
+            # Skip the sample's own continuation lines for this setting.
+            j = i + 1
+            while j < len(sample_lines) and re.match(r'^\s+[-#]', sample_lines[j]) \
+                    and not re.match(r'^\s+[a-z_][a-z_0-9-]*:', sample_lines[j]):
+                j += 1
+
+            if (section, key) in user:
+                used.add((section, key))
+                block = blocks.get((section, key))
+                if block is not None:
+                    out.extend(block)
+                else:
+                    out.append(f'{indent}{key}: {_scalar(user[(section, key)])}\n')
+                i = j
+                continue
+            # Not set by the user: keep the sample's commentary, but comment
+            # the setting itself out. Annotating must not change behaviour,
+            # and adding a key the user had chosen not to set is a change --
+            # the sample's user_agent line would have pinned a value that is
+            # otherwise derived from the running version.
+            for k in range(i, j):
+                text_line = sample_lines[k]
+                stripped = text_line.strip()
+                if not stripped or stripped.startswith('#'):
+                    out.append(text_line)          # its commentary, unchanged
+                elif k == i:
+                    out.append(f'{indent}# {key}:{rest}\n')
+                else:
+                    # A block value's continuation lines go with it. Leaving a
+                    # list's "- item" lines live under a commented-out key
+                    # reattaches them to the section, which then loads as a
+                    # list where a mapping was expected.
+                    out.append(f'{indent}# {stripped}\n')
+            i = j
+            continue
+
+        out.append(line)
+        i += 1
+
+    extra = [(s, k) for (s, k) in user if (s, k) not in used]
+    if extra:
+        out.append('\n# ── Kept from your configuration ─────────────────────'
+                   '───────────────────────\n')
+        out.append('# Settings the reference does not describe.\n\n')
+        by_section = {}
+        for s, k in extra:
+            by_section.setdefault(s, []).append(k)
+        for s in sorted(by_section):
+            out.append(f'{s}:\n')
+            for k in by_section[s]:
+                block = blocks.get((s, k))
+                if block is not None:
+                    out.extend(block)
+                else:
+                    out.append(f'  {k}: {_scalar(user[(s, k)])}\n')
+            out.append('\n')
+
+    # A section whose every setting was commented out reads as an empty
+    # mapping, which YAML loads as None -- a setting the original did not
+    # have. Drop the header with it.
+    return _drop_empty_sections(''.join(out))
+
+
+def _scalar(value):
+    """Render a value the way YAML will read it back unchanged."""
+    import yaml
+    if value is None:
+        return '""'
+    if isinstance(value, bool):
+        return 'true' if value else 'false'
+    if isinstance(value, (int, float)):
+        return str(value)
+    text = str(value)
+    dumped = yaml.safe_dump(text, default_flow_style=True).strip()
+    if dumped.endswith('\n...'):
+        dumped = dumped[:-4].strip()
+    return dumped
+
+
+def _value_blocks(text):
+    """The user's own lines for any setting whose value spans more than one.
+
+    A YAML list, or a free-form section's contents -- neither survives being
+    rewritten as a scalar, so they are carried across exactly as written.
+    """
+    blocks, section, current, lines = {}, None, None, text.splitlines(keepends=True)
+    for n, line in enumerate(lines):
+        header = re.match(r'^([a-z_][a-z_0-9-]*):\s*$', line)
+        if header:
+            section = header.group(1)
+            current = None
+            continue
+        setting = re.match(r'^(\s+)([a-z_][a-z_0-9-]*):(\s*)$', line)
+        if setting and section is not None:
+            key = setting.group(2)
+            j = n + 1
+            body = [line]
+            while j < len(lines) and re.match(r'^\s+[-\s]', lines[j]) \
+                    and not re.match(r'^\s+[a-z_][a-z_0-9-]*:', lines[j]):
+                if lines[j].strip():
+                    body.append(lines[j])
+                j += 1
+            if len(body) > 1:
+                blocks[(section, key)] = body
+    return blocks
 
 
 def _migrate_config(parser, opts):
@@ -711,6 +935,9 @@ def _main(argv: list[str] | None = None) -> None:
 
     if opts.migrate_config is not None:
         return _migrate_config(parser, opts)
+
+    if opts.annotate_config is not None:
+        return _annotate_config(parser, opts)
 
     # Show help when invoked with no arguments and no persistent source_dir
     # is configured — avoids a confusing error about missing source directory.

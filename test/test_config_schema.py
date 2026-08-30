@@ -53,8 +53,34 @@ def test_every_sample_named_here_exists():
 
 # ── sample and schema agree ──────────────────────────────────────────────────
 
+def _documented_keys():
+    """Keys the samples describe, live or commented out.
+
+    A setting shown commented out is still documented -- that is how the
+    samples present a value better left to the code, such as the user agent
+    built from the running version. Only counting live lines would call those
+    undocumented and push someone to write them back in.
+    """
+    import re
+    documented, section = set(), None
+    for name in SAMPLES:
+        path = os.path.join(roots.BUNDLED_CONF, name)
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                header = re.match(r"^([a-z_][a-z_0-9-]*):\s*$", line)
+                if header:
+                    section = header.group(1)
+                    continue
+                setting = re.match(r"^\s+#?\s*([a-z_][a-z_0-9-]*):", line)
+                if setting and section:
+                    documented.add((section, setting.group(1)))
+    return documented | set(_sample_pairs())
+
+
 def test_sample_documents_every_schema_key():
-    documented = set(_sample_pairs())
+    documented = _documented_keys()
     known = (set(config_schema.DEFAULTS) | set(config_schema.REQUIRED)
              | set(config_schema.MMT_KEYS))
     undocumented = {k for k in known - documented
@@ -109,11 +135,22 @@ def test_the_user_agent_carries_the_running_version():
     assert __version__ in config_schema.DEFAULTS[('common', 'user_agent')]
 
 
-def test_the_sample_user_agent_names_this_program_too():
-    """The version is exempt from the exact-match test; the name is not."""
-    ua = _sample_pairs(('config_sample.yaml',))[('common', 'user_agent')]
-    assert ua.startswith('massMusicTagger/')
-    assert 'discogstagger' not in ua
+def test_the_sample_does_not_ship_a_user_agent_at_all():
+    """It is derived from the running version, so a written value goes stale.
+
+    The sample carried one live, so every configuration made from it pinned
+    whatever literal happened to be there -- which said 2.0.0 through two
+    major versions.
+    """
+    assert ('common', 'user_agent') not in _sample_pairs()
+    assert ('common', 'user_agent') in _documented_keys(), \
+        'still describe it, just commented out'
+
+
+def test_the_sample_explains_why_the_user_agent_is_unset():
+    path = os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml')
+    text = open(path, encoding='utf-8').read()
+    assert 'built from the running version' in text
 
 
 # ── deprecations explain themselves ──────────────────────────────────────────
@@ -475,3 +512,109 @@ def test_migrating_twice_is_a_no_op(tmp_path, capsys):
 
     mmt_main._migrate_config(_Parser(), _Opts())
     assert 'needs no changes' in capsys.readouterr().out
+
+
+# ── --annotate-config ────────────────────────────────────────────────────────
+#
+# A configuration carried forward for years holds the right settings and none
+# of the explanation: the comments were in the sample it was first copied
+# from, and nothing has put them back since.
+
+def _annotate(tmp_path, body):
+    from massmusictagger import __main__ as mmt_main
+    (tmp_path / "config.yaml").write_text(body, encoding="utf-8")
+
+    class _Opts:
+        annotate_config = str(tmp_path)
+
+    class _Parser:
+        @staticmethod
+        def error(msg):
+            raise AssertionError(msg)
+
+    mmt_main._annotate_config(_Parser(), _Opts())
+    return (tmp_path / "config.yaml").read_text(encoding="utf-8")
+
+
+def test_annotate_keeps_every_value(tmp_path):
+    import yaml as _yaml
+    body = ("common:\n  source_dir: /incoming\n  dest_dir: /sorted\n"
+            "naming:\n  char_profile: windows\n"
+            "artwork:\n  image_policy: prefer_larger\n")
+    before = _yaml.safe_load(body)
+    after = _yaml.safe_load(_annotate(tmp_path, body))
+    assert after == before
+
+
+def test_annotate_adds_the_comments(tmp_path):
+    body = "naming:\n  char_profile: windows\n"
+    out = _annotate(tmp_path, body)
+    assert out.count('#') > body.count('#') + 10
+
+
+def test_annotate_never_adds_a_setting(tmp_path):
+    """The sample carries live lines for things a user may have left unset.
+
+    Its user_agent line would pin a value that is otherwise derived from the
+    running version -- writing it in would silently start applying it.
+    """
+    import yaml as _yaml
+    body = "common:\n  source_dir: /incoming\n"
+    after = _yaml.safe_load(_annotate(tmp_path, body))
+    assert set(after['common']) == {'source_dir'}
+    assert 'user_agent' not in after['common']
+
+
+def test_an_unset_setting_appears_commented_out(tmp_path):
+    """Documented, but not applied."""
+    out = _annotate(tmp_path, "common:\n  source_dir: /incoming\n")
+    assert '# user_agent' in out
+
+
+def test_annotate_preserves_a_list_value(tmp_path):
+    import yaml as _yaml
+    body = ("source:\n  priority:\n    - discogs\n    - musicbrainz\n")
+    after = _yaml.safe_load(_annotate(tmp_path, body))
+    assert after['source']['priority'] == ['discogs', 'musicbrainz']
+
+
+def test_annotate_keeps_a_setting_the_sample_does_not_know(tmp_path):
+    import yaml as _yaml
+    body = "common:\n  source_dir: /incoming\nmine:\n  something: 42\n"
+    after = _yaml.safe_load(_annotate(tmp_path, body))
+    assert after['mine']['something'] == 42
+
+
+def test_annotate_writes_a_backup(tmp_path):
+    _annotate(tmp_path, "naming:\n  char_profile: windows\n")
+    assert (tmp_path / "config.yaml.bak").exists()
+
+
+def test_annotate_is_stable(tmp_path):
+    """Running it twice changes nothing the second time."""
+    body = "naming:\n  char_profile: windows\n"
+    once = _annotate(tmp_path, body)
+    twice = _annotate(tmp_path, once)
+    assert twice == once
+
+
+def test_the_sample_does_not_pin_the_user_agent(tmp_path):
+    """A fresh configuration must not freeze a derived value.
+
+    The sample wrote user_agent live, so --new-config pinned every new
+    configuration to whatever literal it happened to carry -- which said
+    2.0.0 for two major versions.
+    """
+    import yaml as _yaml
+    from massmusictagger.core.tagger_config import write_new_config
+    write_new_config(str(tmp_path))
+    fresh = _yaml.safe_load((tmp_path / "config.yaml").read_text(encoding="utf-8"))
+    assert 'user_agent' not in (fresh.get('common') or {})
+
+
+def test_a_fresh_config_reports_the_running_version(tmp_path):
+    from massmusictagger.core.tagger_config import write_new_config, TaggerConfig
+    from massmusictagger import __version__
+    write_new_config(str(tmp_path))
+    cfg = TaggerConfig(str(tmp_path / "config.yaml"))
+    assert __version__ in cfg.get('common', 'user_agent')
