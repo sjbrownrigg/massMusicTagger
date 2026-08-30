@@ -239,3 +239,55 @@ remaster under 1976. That is the same trade-off already accepted for the
 Discogs master-year fallback. It is the right safety net when no dated
 candidate exists at all, and the wrong thing to reach for first — hence the
 ordering above.
+
+---
+
+## Matching flattens the album, so a wrong-layout release can win
+
+**Observed.** Three Depeche Mode deluxe sets failed, all identically:
+
+```
+WARN Found audio directory CD 2 but Discogs only lists 1 disc(s) — skipping
+ERR  Failed to process ... raise TaggerError(
+```
+
+| album | local layout |
+|---|---|
+| Spirit (SICP 30937~8) | CD 1: 12, CD 2 Jungle Spirit Mixes: 5 |
+| Delta Machine (Deluxe) | CD 1: 13, CD 2: 4 |
+| Sounds Of The Universe (Deluxe) | CD 1: 14, CD 2: 11, CD 3: 14 |
+
+**They are not being ignored — a different release is winning.** The search
+compares only the *flat total*:
+
+```python
+# sources/discogs/search.py:676
+local_count = len(searchParams['tracks'])
+```
+
+A 2-disc album of 13 + 4 is offered to the matcher as "17 tracks", so a
+single-disc 17-track release matches exactly as well as the correct 2-disc
+one. The winner is then chosen on average track-length difference alone —
+`disc` appears nowhere in the comparison. The right release and a wrong one
+are indistinguishable.
+
+The cost lands later, at tagging: `taggerutils.py:1130` skips the disc
+directory the chosen release does not have, and `taggerutils.py:1231` then
+raises on the per-disc count. Note a fourth album hit the same warning and
+still succeeded, so the warning alone is not the trigger — the raise is.
+
+**What would improve it.** Use disc layout as a discriminator. The
+information is already in hand on both sides: `_fetchSubdirectories` knows
+the local disc directories (and `searchParams['disc']` is derived from them
+at search.py:105-114), and Discogs positions carry the disc — `CD1-1`,
+`2-4`. A candidate whose per-disc distribution matches the local one should
+beat a candidate that only matches on the total.
+
+That is a strong discriminator, and cheap. It also fixes the failure at the
+right end: today the wrong release is chosen silently and the run dies much
+later with an error that says nothing about layout.
+
+Worth doing before reaching for `id.txt`. Pinning each box set by hand hides
+the defect rather than fixing it, and a pinned wrong-layout release still
+raises at taggerutils.py:1231 — the ID bypasses the *match* check, not the
+per-disc one.
