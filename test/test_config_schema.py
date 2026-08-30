@@ -618,3 +618,36 @@ def test_a_fresh_config_reports_the_running_version(tmp_path):
     write_new_config(str(tmp_path))
     cfg = TaggerConfig(str(tmp_path / "config.yaml"))
     assert __version__ in cfg.get('common', 'user_agent')
+
+
+def test_the_safety_net_catches_a_gained_setting():
+    """_settings_lost is the check that runs before anything is written.
+
+    The rebuild already avoids adding settings, so this exercises the net
+    itself rather than the mechanism -- it is what would stop a future change
+    to the rebuild from quietly writing a value in.
+    """
+    from massmusictagger.__main__ import _settings_lost
+    before = {'common': {'source_dir': '/in'}}
+    after = {'common': {'source_dir': '/in', 'user_agent': 'pinned'}}
+    assert _settings_lost(before, after) == [
+        ('common', 'user_agent', None, 'pinned')]
+
+
+def test_the_safety_net_catches_a_lost_setting():
+    from massmusictagger.__main__ import _settings_lost
+    assert _settings_lost({'common': {'source_dir': '/in'}}, {'common': {}}) == [
+        ('common', 'source_dir', '/in', None)]
+
+
+def test_the_safety_net_catches_a_changed_value():
+    from massmusictagger.__main__ import _settings_lost
+    assert _settings_lost({'naming': {'char_profile': 'windows'}},
+                          {'naming': {'char_profile': 'linux'}}) == [
+        ('naming', 'char_profile', 'windows', 'linux')]
+
+
+def test_the_safety_net_passes_an_identical_config():
+    from massmusictagger.__main__ import _settings_lost
+    same = {'common': {'source_dir': '/in'}, 'naming': {'char_profile': 'linux'}}
+    assert _settings_lost(same, dict(same)) == []
