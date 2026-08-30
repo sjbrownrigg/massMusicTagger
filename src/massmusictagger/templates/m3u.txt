@@ -1,7 +1,7 @@
 #EXTM3U
 % for disc in album.discs:
     % for track in disc.tracks:
-#EXTINF:-1,${track.artist} - ${track.title}
+#EXTINF:-1,${(track.artist + ' - ') if track.artist and track.artist != album.artist else ''}${track.title}
         % if album.has_multi_disc:
 ${disc.target_dir}/${track.new_file}
         % else:

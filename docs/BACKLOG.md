@@ -8,6 +8,11 @@ was observed, what is actually happening, and what would improve it.
 
 ## Canonicalise the artist name when falling back to existing tags
 
+**Deferred deliberately.** `existing_tags` is currently commented out of
+`source.priority`, so this fallback does not run at all and the fix would
+have no effect. Revisit it together with turning that source back on, rather
+than building against a path nothing takes.
+
 **Observed.** One artist appears in the library under five names:
 
 ```
@@ -68,20 +73,27 @@ questions currently share one answer.
 
 ---
 
-## Consider a wider check on artwork shape
+## Artwork shape — decided: trust what the source typed
 
-`_local_front` compares aspect ratios to distinguish "the same picture,
-scanned larger" from "a different picture that happens to be bigger" — which
-is what stops a 2.4:1 sleeve spread being embedded as the front cover.
+`_local_front` compares aspect ratios to tell "the same picture, scanned
+larger" from "a different picture that happens to be bigger", which is what
+stops a 2.4:1 sleeve spread being embedded as a front cover.
 
-The same reasoning applies to what a *source* offers. Cover Art Archive typed
-a 5033x1465 wraparound scan as `Front` for The Waterboys' Modern Blues, and
-`image_policy: prefer_larger` compares pixel counts, so a spread always wins
-on size. It is currently only avoided because the release also had a local
-cover to prefer.
+The open question was whether to apply the same reasoning to what a *source*
+offers. Cover Art Archive typed a 5033x1465 wraparound scan as `Front` for
+The Waterboys' Modern Blues, and `image_policy: prefer_larger` compares pixel
+counts, so a spread always wins on size.
 
-Not obviously right to impose: the source *said* it was the front, and some
-releases genuinely have wide covers. Worth a decision rather than a default.
+**Decided: no shape check on remote artwork.** When a source has typed an
+image as the front cover, that typing is the best information available and
+is taken at face value. Some releases genuinely have wide covers, and second
+-guessing a deliberate label would trade a rare cosmetic problem for a
+systematic one.
+
+The local check stays, because there nothing has typed anything — the shape
+comparison is standing in for the label that a source would have provided.
+
+No further work; kept for the reasoning.
 
 ---
 

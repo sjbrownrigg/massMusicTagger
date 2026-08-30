@@ -11,6 +11,6 @@ ____________________________________________________
 
 % for disc in album.discs:
     % for track in disc.tracks:
-  ${str(track.tracknumber).zfill(2)} ${track.artist} ${track.title}
+  ${str(track.tracknumber).zfill(2)} ${(track.artist + ' - ') if track.artist and track.artist != album.artist else ''}${track.title}
     % endfor
 % endfor
