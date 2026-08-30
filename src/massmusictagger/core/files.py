@@ -34,7 +34,73 @@ def _cue_stem(name: str) -> str:
     return stem.strip().lower()
 
 
-def dedupe_cue_sheets(cue_files, audio_files):
+def cue_referenced_file(path: str) -> str:
+    """The audio file a cue sheet's FILE directive names, or ''.
+
+    Read tolerantly: sheets come from rippers on every platform and are
+    routinely neither UTF-8 nor declared, so a strict decode throws away the
+    one fact worth having.
+    """
+    try:
+        with open(path, 'rb') as fh:
+            raw = fh.read()
+    except OSError:
+        return ''
+    # utf-16 is tried only behind a BOM: it decodes almost any byte sequence
+    # without complaint, so offering it blindly turns a latin-1 sheet into
+    # mojibake with no FILE line rather than letting latin-1 read it.
+    encodings = ['utf-8-sig', 'utf-8', 'latin-1']
+    if raw[:2] in (b'\xff\xfe', b'\xfe\xff'):
+        encodings.insert(0, 'utf-16')
+
+    for encoding in encodings:
+        try:
+            text = raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped.upper().startswith('FILE'):
+                continue
+            match = re.match(r'(?i)FILE\s+"([^"]+)"', stripped)
+            if match:
+                return match.group(1)
+            parts = stripped.split()
+            if len(parts) > 1:
+                return parts[1]
+        # No FILE line under this encoding -- try the next rather than
+        # concluding the sheet has none.
+    return ''
+
+
+def _cue_names_present_audio(directory: str, cue_name: str) -> bool:
+    """Does this sheet name an audio file that is actually here?
+
+    An EAC rip commonly leaves a second sheet per disc pointing at the scratch
+    file it ripped through -- `FILE "Range.wav"` -- which was never kept. Two
+    sheets against one image then defeat the single-file test and the disc is
+    never split: it reaches the tagger as one untagged track and matches
+    nothing. Nick Cave's Lovely Creatures arrived exactly like that, six
+    sheets for three images.
+
+    Asking the sheet is more reliable than reading its filename. The two
+    sheets there share no stem at all -- one carries the artist prefix, the
+    other an "ISRC" suffix -- so no amount of stem grouping would pair them.
+    """
+    cue_path = cue_name if os.path.isabs(cue_name) else os.path.join(
+        directory, cue_name)
+    named = cue_referenced_file(cue_path)
+    if not named:
+        return True     # says nothing; not evidence against it
+    # A sheet's FILE is relative to the sheet, not to the album. The scan
+    # gathers sheets from every disc subdirectory into one list, so resolving
+    # against the album root looks for CD1's image beside CD2's and finds
+    # neither.
+    return os.path.exists(
+        os.path.join(os.path.dirname(cue_path), os.path.basename(named)))
+
+
+def dedupe_cue_sheets(cue_files, audio_files, directory=''):
     """One cue sheet per album, preferring the one naming the audio present.
 
     A ripper often leaves two sheets for the same album -- "album.cue" beside
@@ -47,6 +113,21 @@ def dedupe_cue_sheets(cue_files, audio_files):
     Every multi-sheet directory in the library this was written against is a
     duplicate pair of exactly this kind.
     """
+    # First, drop sheets naming audio that is not here. An EAC rip often
+    # leaves a second sheet per disc pointing at the scratch file it ripped
+    # through, which was never kept -- and those sheets share no filename stem
+    # with the real one, so grouping by name cannot pair them. Skipped when it
+    # would discard everything: a directory where no sheet resolves is telling
+    # us the check does not apply, not that every sheet is junk.
+    if directory:
+        usable = [c for c in cue_files
+                  if _cue_names_present_audio(directory, c)]
+        if usable:
+            if len(usable) < len(cue_files):
+                logger.info('Ignoring %d cue sheet(s) naming audio that is not '
+                            'present', len(cue_files) - len(usable))
+            cue_files = usable
+
     audio_exts = {os.path.splitext(a)[1].lstrip('.').lower() for a in audio_files}
     groups = {}
     for name in cue_files:
@@ -344,7 +425,8 @@ class FileUtils(object):
             dirs[:] = [d for d in dirs if d not in unwalk]
 
             if parse_cue_files and cue_files:
-                cue_files = dedupe_cue_sheets(cue_files, audio_files)
+                cue_files = dedupe_cue_sheets(cue_files, audio_files,
+                                              directory=root)
             if parse_cue_files and cue_files and len(cue_files) == len(audio_files):
                 tasks.append(PrepTask(root, 'cue', tuple(sorted(cue_files))))
                 source_dirs.append(root + '/')
