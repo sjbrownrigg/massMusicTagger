@@ -351,18 +351,41 @@ string. What occurs in this library:
 | `,` | David Bowie, John Hiatt | ambiguous |
 | `And` | Depeche Mode And Richard Morel | ambiguous |
 
-Clear at both ends. `Featuring`, `Feat.`, `Ft.`, `Presents`, `Introducing`
-and `Remixed by` subordinate what follows; `/`, `vs.`, `&`, `+` and `Meets`
-do not. `And` and `,` genuinely are not decidable from the join alone.
+Clear at both ends, ambiguous in the middle -- and the middle is exactly
+where one person's judgement should not be baked into everyone's tagger.
 
-**The decision rule that matters: collapse only on an unambiguously
-subordinating join, and keep the full credit otherwise.** The two errors are
-not equal. A featuring credit left uncollapsed costs one surplus folder,
-visible and trivially fixed. A split collapsed under its first artist hides
-the others from the library entirely, and nothing in the result shows that
-it happened.
+**So the classification belongs in a rule table the user owns**, not in a
+list in the source. The project already has this shape three times over:
+`format_codes.yaml`, `source_hints.yaml` and `char_substitutions.yaml` all
+ship a packaged default that a file beside `config.yaml` merges over, so a
+user can override one line without freezing the rest at whatever shipped
+that day.
 
-Worth noting `&` is safe to treat as coordinating: a band name like
+```yaml
+# artist_joins.yaml
+subordinating:      # the first artist is the primary; the rest are guests
+  - "featuring"
+  - "feat."
+  - "ft."
+  - "presents"
+  - "introducing"
+  - "remixed by"
+coordinating:       # equal billing; keep the whole credit
+  - "/"
+  - "vs."
+  - "versus"
+  - "meets"
+  - "&"
+  - "+"
+```
+
+Anything unlisted stays coordinating, which is the safe default: **a
+featuring credit left uncollapsed costs one surplus folder, visible and
+trivially fixed, while a split collapsed under its first artist hides the
+other artists entirely and leaves no trace that it happened.** So `and` and
+`,` ship unlisted, and anyone who wants them subordinating can say so.
+
+Worth noting `&` is listed coordinating but rarely matters: a band name like
 "Nick Cave & The Bad Seeds" is a single entity in both databases, one credit
 rather than two, so it never reaches this logic.
 
@@ -375,8 +398,13 @@ track distinction `use_anv` already embodies.
 That points at a format-string variable rather than a config setting --
 say `%albumartist_primary%`, resolving to the primary artist when the credit
 is subordinating and to the full credit otherwise. Filing is already
-controlled through `formats.ini`, so this stays opt-in, per-format-string,
-and adds no setting to think about.
+controlled through `formats.ini`, so using it at all stays the user's choice,
+per format string, and adds no setting to think about.
+
+Together that leaves two decisions with the user and none hardwired: the
+table says which joins subordinate, and the format string says whether
+filing uses that at all. The packaged table is a starting point, not a
+ruling.
 
 One prerequisite: `Album` currently keeps `artists` (the names) and a
 flattened `_artist_display`, but discards the join phrases. They would need
