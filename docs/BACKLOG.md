@@ -522,3 +522,28 @@ run still mutates the source before deciding anything about it. It also makes
 re-runs idempotent -- today a CUE album that has been split once presents a
 different shape on the second pass than it did on the first, because the
 tracks it produced are sitting next to the image.
+
+**Do not deprecate `*_done_dir` awareness along with it.** The keys carry two
+separate responsibilities that only look like one:
+
+* `ignored_source_dirs()` prunes `.cue` and `.m4a` from the scan
+  (files.py:285-290). **This must stay permanently.**
+* `shutil.move(path, done_dir)` stashes originals there. This is the part
+  staging replaces, and only for new work.
+
+Measured on the live library: **54 `.cue` and 54 `.m4a` directories in the
+archive, and 3 more `.cue` in incoming** -- 108 in all, holding the original
+disc images and `.m4a` files, several hundred megabytes each. They are the
+only copies of the pre-conversion originals.
+
+Drop the pruning and a scan walks into every one of them, treats each as an
+album, and either tags duplicates or re-converts originals. The three in
+`incoming` would be hit on the very next run.
+
+So the change is safe only while scoped to the write side: keys, defaults and
+pruning all stay; only where preparation *puts* things moves. Nothing already
+on disk changes meaning.
+
+One shape to keep reading correctly: a legacy CUE rip already split in place
+has its originals in `.cue/` and its split tracks beside them. The new scheme
+would never produce that, but it exists and must still scan sensibly.
