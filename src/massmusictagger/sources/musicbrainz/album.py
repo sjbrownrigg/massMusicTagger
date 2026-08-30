@@ -96,6 +96,27 @@ class MusicBrainzAlbum:
         album.release_date = self._normalise_date(date_str)
         album.year = date_str[:4] if len(date_str) >= 4 else None
 
+        # A MusicBrainz release may carry no date at all -- Station to Station
+        # (Ryko RCD 10141) has date '' -- and the album then filed with no year
+        # while the LP beside it showed [1976-01-23]. The release group knows,
+        # and it is already fetched ('release-groups' is in _INCLUDES).
+        #
+        # This is the *original* release date, so a 1991 remaster falls back to
+        # 1976. That is the same trade-off already accepted for the Discogs
+        # master-year fallback: an approximate year sorts far better than none,
+        # and it is announced rather than silent.
+        if not album.year:
+            rg_date = ((r.get('release-group') or {})
+                       .get('first-release-date') or '')
+            if len(rg_date) >= 4:
+                album.year = rg_date[:4]
+                if not album.release_date:
+                    album.release_date = self._normalise_date(rg_date)
+                logger.info(
+                    'Release %s has no date; using %s from its release group '
+                    '(the original release, not this edition)',
+                    mbid, album.year)
+
         album.country = r.get('country', '') or ''
         # Normalise MB "Promotional" → "Promo" to match Discogs vocabulary
         _raw_status = r.get('status', '') or ''

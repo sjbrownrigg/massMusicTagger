@@ -210,55 +210,34 @@ release and the exception would have cost nothing and saved all of it.
 
 ## A MusicBrainz release with no date leaves the album with no year
 
-**Observed.** *Station to Station (Ryko remaster) (RCD 10141)* was filed with
-no year at all, while the LP beside it got `[1976-01-23]`:
+**Fixed in 3.7.0**, and the diagnosis needed correcting on the way.
 
-```
-David Bowie/Station to Station (Ryko remaster) (RCD 10141) [CD flac-lossless-44s]
-David Bowie/[1976-01-23] Station to Station (APL1 1327) [LP flac-lossless-44s]
-```
+*Station to Station (Ryko remaster, RCD 10141)* filed with no year at all,
+while the LP beside it showed `[1976-01-23]`. It matched MusicBrainz release
+`3abff816`, whose `date` is the empty string, and `album.year` was taken
+straight from it with no fallback.
 
-It matched MusicBrainz release `3abff816-a765-4aca-817d-030781b7979a`, whose
-`date` is the empty string. `album.year` is taken straight from it:
+**What was wrong in the first write-up.** It claimed the search does not
+prefer a dated candidate. It does: tier 3 ranks on
+`(title_score, artist_score, has_date)`, and `has_date` is exactly that
+tie-break (search.py). MusicBrainz holds three releases with that catalogue
+number, two dated 1991 and one undated, and had the search run it would have
+preferred a dated one.
 
-```python
-# sources/musicbrainz/album.py:83
-album.year = date_str[:4] if len(date_str) >= 4 else None
-```
+The album never reached tier 3. It already carried a `musicbrainz_releaseid`
+tag from an earlier run, and tier 2 reuses that identifier directly -- by
+design, and reasonable. Ranking was never consulted.
 
-This is the same defect that was fixed on the Discogs side, where a release
-with no year now falls back to its master. MusicBrainz never got the
-equivalent.
+**What was genuinely missing**, and is now fixed: no release-group fallback.
+`release-group['first-release-date']` was `1976-01-23`, already fetched
+(`release-groups` is in `_INCLUDES`) and unused. The Discogs side gained a
+master-year fallback long ago; MusicBrainz never got the equivalent.
 
-**Two separate problems, and the order matters.**
-
-*The search does not prefer a dated candidate.* MusicBrainz holds three
-releases with that catalogue number:
-
-| date | country | label | id |
-|---|---|---|---|
-| *(none)* | US | Rykodisc | `3abff816` ← chosen |
-| 1991 | US | Rykodisc | `a25dc82a` |
-| 1991 | US | BMG Direct Marketing | `8393fe01` |
-
-All three are the same pressing. Nothing breaks the tie on completeness, so
-the one release lacking a date was as likely to win as either that has one.
-A candidate carrying a date is strictly more useful than one that does not,
-and this is the fix that yields the *right* answer: **1991**, the year of
-this edition.
-
-*There is no release-group fallback.* Even having chosen the undated release,
-`release-group['first-release-date']` was `1976-01-23` and went unused. The
-release group is already fetched — `release-groups` is in `_INCLUDES`
-(connector.py:45) and `rg` is read at album.py:101 for the type fields — so
-the fallback costs no extra request.
-
-Worth being explicit about what it gives, though: the release group's date is
-the date of the *original* release, so this fallback would file the 1991
-remaster under 1976. That is the same trade-off already accepted for the
-Discogs master-year fallback. It is the right safety net when no dated
-candidate exists at all, and the wrong thing to reach for first — hence the
-ordering above.
+Worth being explicit that this yields the *original* release date, so the
+1991 remaster now files under 1976 rather than under nothing. That is the
+same trade-off already accepted for Discogs masters, and it is logged rather
+than silent. Getting 1991 instead would mean re-searching rather than
+reusing the stored identifier, which is a different and larger decision.
 
 ---
 
