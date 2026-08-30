@@ -564,3 +564,31 @@ defaults, so for this deployment it is simply two fewer keys.
 That is the shape the config discipline already asks for -- defaults live in
 code, and the configuration holds decisions the user actually has a stake in.
 Where a scratch directory sits inside the cache is not one of them.
+
+**How it composes with the existing copy, which is not a plain copy.**
+`copy_files()` maps each track individually --
+`shutil.copyfile(source_folder/track.orig_file, target_folder/track.new_file)`
+-- so it copies *and renames* to whatever the `song` format string produced.
+
+That name only exists after the release is matched, and preparation runs
+before matching: splitting cannot write final filenames because it does not
+yet know what the album is. So preparation and copying are not alternatives
+to each other; they are consecutive steps that both end in staging:
+
+| album | into staging | then |
+|---|---|---|
+| ordinary | `copy_files()` copies and renames from the share | -- |
+| CUE | `shntool` splits the image into staging as `01.flac`... | `copy_files()` becomes a local rename |
+| `.m4a` | `ffmpeg` transcodes into staging | `copy_files()` becomes a local rename |
+
+For a prepared album the copy degenerates into a rename **within one
+filesystem** -- effectively free, against the cross-link copy it is today.
+The benefit is unchanged: for a CUE rip the only traffic over the share
+becomes reading the disc image once and writing the finished album once,
+instead of the decode-to-WAV, split, copy, ReplayGain re-read and tag rewrite
+that all cross it today.
+
+Worth checking during implementation that `copy_files()` handles
+source-equals-target sensibly: it already guards with
+`if not source_folder == target_folder`, which is the branch a rename-in-place
+would take.
