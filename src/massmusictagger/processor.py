@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -180,6 +181,40 @@ def _cleanup_empty_parents(path: str, root: str) -> None:
         except OSError:
             break
         current = parent
+
+
+
+def _stage_root(cfg) -> str:
+    """The configured staging directory, or '' when staging is off."""
+    try:
+        raw = cfg.get('batch', 'staging_dir') or ''
+    except Exception:
+        raw = ''
+    return os.path.expanduser(raw.strip())
+
+
+def _move_staged(staged_dir: str, staging_dest: str, final_dest: str) -> str:
+    """Move a finished album out of staging and return its final path.
+
+    *staged_dir* sits under *staging_dest*; the same relative path is
+    recreated under *final_dest*, so the format string decides the layout
+    exactly as it does without staging.
+
+    A collision is suffixed rather than overwritten. Losing an album to a
+    name clash is worse than an odd-looking folder, and the source is not
+    archived until this path has been verified to hold audio.
+    """
+    rel = os.path.relpath(staged_dir, staging_dest)
+    target = os.path.join(final_dest, rel)
+    if os.path.exists(target):
+        n = 2
+        while os.path.exists(f'{target} ({n})'):
+            n += 1
+        target = f'{target} ({n})'
+    os.makedirs(os.path.dirname(target) or final_dest, exist_ok=True)
+    logger.info('Staging: moving finished album to %s', target)
+    shutil.move(staged_dir, target)
+    return target
 
 
 def _post_process_source(result: 'ProcessingResult', cfg, fh, tu) -> None:
@@ -409,7 +444,27 @@ class MassProcessor:
                 result.elapsed = time.monotonic() - t0
                 return result
 
-            destdir = os.path.expanduser(cfg.get('common', 'dest_dir') or sourcedir)
+            final_destdir = os.path.expanduser(
+                cfg.get('common', 'dest_dir') or sourcedir)
+
+            # Staging. Tagging otherwise reads the source from the share and
+            # writes it back there, then ReplayGain reads the destination
+            # again and tagging rewrites it -- every pass crossing the link.
+            # Measured NAS-to-NAS: 9.8 MiB/s, against 1280 MiB/s local. With a
+            # staging directory the album is copied in once, assembled at
+            # local speed, and copied out once.
+            staging_root = _stage_root(cfg)
+            if staging_root:
+                os.makedirs(staging_root, exist_ok=True)
+                staging_dest = tempfile.mkdtemp(prefix='mmt-stage-',
+                                                dir=staging_root)
+                destdir = staging_dest
+                logger.info('Staging %s in %s',
+                            os.path.basename(sourcedir.rstrip('/\\')),
+                            staging_dest)
+            else:
+                staging_dest = ''
+                destdir = final_destdir
 
             from massmusictagger.core.taggerutils import TaggerUtils, TagHandler, FileHandler
             tu = TaggerUtils(sourcedir, destdir, cfg, album)
@@ -494,6 +549,14 @@ class MassProcessor:
                     logger.warning('Could not write the .%s for %r: %s',
                                    kind, album.title, exc)
 
+            if staging_dest:
+                album.target_dir = _move_staged(
+                    album.target_dir, staging_dest, final_destdir)
+                result.target_dir = album.target_dir
+
+            # Only now, with the album at its real destination, is it safe to
+            # touch the source: _post_process_source verifies result.target_dir
+            # holds audio before archiving or deleting anything.
             _post_process_source(result, cfg, fh, tu)
 
             result.outcome = OUTCOME_OK
@@ -512,6 +575,12 @@ class MassProcessor:
                 logger.error('Failed to process %s: %s', sourcedir, exc, exc_info=True)
                 result.error = str(exc)
             result.outcome = OUTCOME_FAILED
+
+        finally:
+            # A failed album must not leave gigabytes behind in staging.
+            staged = locals().get('staging_dest') or ''
+            if staged and os.path.isdir(staged):
+                shutil.rmtree(staged, ignore_errors=True)
 
         result.elapsed = time.monotonic() - t0
         return result

@@ -147,6 +147,21 @@ batch:
   # `workers` instead.
   cpu_jobs: 1
 
+  # Assemble each album on local disk, then copy the finished result to
+  # dest_dir. Empty (the default) writes straight to dest_dir as before.
+  #
+  # Worth setting when dest_dir is a network share. Tagging otherwise reads
+  # the source from the share and writes it back there, then ReplayGain reads
+  # the destination again and tagging rewrites it -- every pass crossing the
+  # link. Measured NAS-to-NAS: 9.8 MiB/s, against 1280 MiB/s local. Staging
+  # copies in once, assembles at local speed, and copies out once.
+  #
+  # Needs room for the largest album you process, on a real local disk -- not
+  # another network mount, which would defeat the point. A failed album is
+  # cleaned up rather than left behind.
+  #   staging_dir: /cache/staging
+  staging_dir: ""
+
   # Path to the JSON audit log (append-only).  Records every processed
   # directory with outcome, source used, matched release, and elapsed time.
   # Leave empty to disable the audit log (and with it --undo). To enable it,

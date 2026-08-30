@@ -277,6 +277,7 @@ DEFAULTS = {
     ('batch', 'audit_log'): '',
     ('batch', 'workers'): '1',
     ('batch', 'cpu_jobs'): '1',
+    ('batch', 'staging_dir'): '',
     ('artwork', 'image_source'): 'auto',
     ('archiving', 'source_action'): 'done_file',
     ('archiving', 'source_archive_dir'): '',
