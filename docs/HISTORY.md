@@ -2,6 +2,36 @@
 
 ---
 
+## Version 3.6.0 (2026-08-30)
+
+### Fixed
+
+**Catalog-number hints were being lost, so the wrong pressing could win.**
+The catalog number is worth -10 in candidate ranking and is often decisive --
+regional and format reissues share track counts and near-identical durations,
+leaving the number as the only thing that separates them.
+
+It failed in two ways. Extraction required a single token containing both a
+letter and a digit, so every space-separated number was missed: `ISLA 23`,
+`MET 1010`, `CK 86656`, `88765 46063 2`. Over a 554-album library that lost
+the signal on **372 of the 456** titles with a trailing parenthetical group.
+
+And the hint was only ever parsed out of the album *title*, which is usually
+not where the number lives. Delta Machine's album tag is just
+`Delta Machine`, while its files carry `catalognum = 88765 46063 2`. The tag
+is now used directly; **73%** of a 60-album sample had one.
+
+Candidates are returned as a set, because a trailing group may hold a
+descriptor as well as a number and nothing tells them apart reliably --
+`Maxi XLCDBong24` must yield `xlcdbong24`, while `CK 86656` must be taken
+whole. Every suffix is offered and any match counts.
+
+False positives are guarded against, since they cost more than misses: a
+candidate needs a digit, at least three characters, and must not be a bare
+year, so a trailing `(2013)` stays a date.
+
+---
+
 ## Version 3.5.1 (2026-08-30)
 
 ### Fixed
