@@ -579,3 +579,37 @@ into.
 One shape must keep scanning sensibly even though the new code would never
 produce it: a legacy CUE rip split in place, originals in `.cue/` and tracks
 beside them.
+
+---
+
+## A search that will match nothing has no budget
+
+**Observed.** During a bulk run one album held a worker for over 25 minutes:
+
+```
+candidate comparisons in 25 min : 2374
+no-match outcomes               : 0
+successful matches              : 0
+```
+
+A 16-track album whose candidates all report 9, 11 or 2 tracks. Every one is
+rejected on count, and the search keeps going: each search result has its
+master sifted, and for a prolific artist that enumerates thousands of
+releases before the tiers are exhausted.
+
+It is not a hang -- the work is real and it does finish -- but the effort is
+unbounded and produces nothing. It also makes monitoring harder: "no files
+written for 25 minutes" is the signature of a wedged container, and here it
+was a perfectly healthy one. The container log is the only reliable
+discriminator, and even that misleads unless you know its clock runs an hour
+behind the host.
+
+**What would improve it.** A cap on comparisons per album, or an early exit
+when a run of candidates all miss the track count by a wide margin. A 16-track
+album against a 2-track release is not a near miss worth pursuing, and
+nothing about the next thousand candidates will change that.
+
+Worth measuring first: how often a match arrives *late* in the candidate list.
+If matches essentially always land early, the cap can be tight and the saving
+is large. That is a cheap thing to count from a cached corpus and would settle
+the number rather than guessing it.
