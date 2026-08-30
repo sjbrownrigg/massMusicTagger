@@ -547,3 +547,20 @@ on disk changes meaning.
 One shape to keep reading correctly: a legacy CUE rip already split in place
 has its originals in `.cue/` and its split tracks beside them. The new scheme
 would never produce that, but it exists and must still scan sensibly.
+
+**And then the two keys can go from the configuration.** Once preparation
+writes to staging there is nothing new to stash, so the only remaining job is
+recognising the legacy directories -- and their names never needed to be a
+user's decision. Nobody cares what a temporary directory inside the cache is
+called.
+
+Move `.cue` and `.m4a` into constants that `ignored_source_dirs()` reads, and
+mark `cue.cue_done_dir` and `m4a.m4a_done_dir` **DEPRECATED rather than
+REMOVED**, following `naming.char_substitutions`: the key still works and
+warns, so anyone who customised the name keeps their directories pruned
+instead of having them silently walked into. The live configuration uses the
+defaults, so for this deployment it is simply two fewer keys.
+
+That is the shape the config discipline already asks for -- defaults live in
+code, and the configuration holds decisions the user actually has a stake in.
+Where a scratch directory sits inside the cache is not one of them.
