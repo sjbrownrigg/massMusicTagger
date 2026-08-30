@@ -2,6 +2,74 @@
 
 ---
 
+## Version 3.3.0 (2026-08-30)
+
+Configuration you can see and change, and one wrong-artist match closed.
+
+### A different artist is a different record
+
+MusicBrainz tier 3 ranked candidates by a lexicographic
+`(title, artist, date)` tuple, so a perfect title beat *any* artist score,
+and nothing rejected a candidate on the artist alone. Tier 3 compares title
+and track count and nothing else, so once ranking failed to express "wrong
+artist", there was nothing left to catch it: **"Pariah" by Anja Huwe (2024)
+was tagged as "Pariah" by Red Dons (2010)** — same title, same two tracks.
+
+A candidate whose credited artist scores below 60% against ours is now
+skipped rather than ranked lower. That mismatch scores 35; every legitimate
+variation measured scores 62 or more, and all six are tested.
+
+**A cached search hid the fix.** The search cache stores the chosen MBID, not
+the API response, so a cached answer bypasses ranking entirely and the fix
+appeared not to work. The cache key now carries a logic version that retires
+old answers when the matching rules change.
+
+Discogs was never affected: it validates on track durations, or track-title
+similarity when durations are missing.
+
+### The rule tables are yours to read
+
+`--new-config` now writes `format_codes.yaml`, `char_substitutions.yaml` and
+`source_hints.yaml` into a new configuration, **entirely commented out**.
+They were not written at all, which kept them improving with each upgrade and
+left nobody able to find out what the rules were.
+
+A commented template answers both: the file is there to read and edit, and
+until a line is uncommented it changes nothing. What you do uncomment is
+merged over the packaged table, so changing one abbreviation keeps the rest
+and keeps gaining later additions.
+
+`--migrate-config` retires deprecated keys too. It handled moved and removed
+ones, so a migrated configuration still carried live `format_codes`,
+`char_substitutions` and `source_hints_file` keys — each naming a `conf/`
+path that resolves to nothing, each warning on every run. They are commented
+out in place with the reason written above them. **A configuration migrated
+before 3.3.0 should be migrated again**; the second pass is otherwise a no-op.
+
+### The format hint missed the bit depth in use
+
+`source_hints.yaml` is meant to spot a hi-res source from its folder name,
+and its digital list had `24 Bit`, `24bit` and `24-Bit` — none of which match
+`[FLAC] [24B-44.1kHz]`. No hint was produced, so nothing distinguished a
+24-bit download from a CD rip. The abbreviated spellings are now included,
+written with their surrounding punctuation so "Symphony No 24b" does not
+match, and a user's hints file **adds to** the packaged one rather than
+replacing it — a copy otherwise froze the token list at whatever shipped that
+day.
+
+### Artwork and archiving
+
+- **An MP3 kept one embedded image out of four.** ID3 keys a picture frame by
+  its description and every image was written with the same empty one, so each
+  overwrote the last: an album ended up with a 165×165 untyped thumbnail as
+  its only artwork. FLAC was unaffected, which is why it went unseen.
+- **The archive path is sanitised** with the same character profile as the
+  destination. `:wumpscut:` was filed as `-wumpscut-` in sorted and
+  `:wumpscut:` in archive — one artist in two places, and a path a
+  Windows-hosted share would refuse outright.
+
+---
+
 ## Version 3.2.0 (2026-08-29)
 
 Everything here was found by re-tagging a real 413-album library and looking
