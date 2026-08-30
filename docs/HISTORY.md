@@ -2,6 +2,45 @@
 
 ---
 
+## Version 3.7.0 (2026-08-30)
+
+### Added
+
+**`%albumartist_primary%` — file an album under its primary artist.** A
+release credited "David Bowie Featuring Al B. Sure!" gets its own artist
+folder and fragments a discography. This variable reads the same as
+`%albumartist%` except when a credit is one artist with guests, where it
+gives the first artist alone. A split release — "D.A.R.P.A. / Dive /
+:wumpscut:" — keeps its whole billing.
+
+Two things decide it, and neither is hardwired. Credits resolving to a single
+artist collapse first: 48 of 73 join tokens in a real Discogs cache are `=`,
+which is transliteration (one artist id listed twice, once in another script),
+not collaboration. After that, **`artist_joins.yaml`** says which join phrases
+mark a guest — a new rule table beside `config.yaml`, merged over the packaged
+one like `format_codes.yaml` and `source_hints.yaml`.
+
+Unlisted joins keep the whole credit, so `and` and `,` ship unlisted rather
+than guessed at: an uncollapsed featuring credit costs one surplus folder,
+while a collapsed split hides artists with nothing to show it happened.
+
+The variable is never written as a tag — `albumartist` always keeps the full
+credit. Configurations whose format strings do not mention it are unaffected.
+
+### Fixed
+
+**A MusicBrainz release with no date left the album with no year.** *Station
+to Station* (Ryko RCD 10141) has an empty `date`, and the album filed with no
+year while the LP beside it showed `[1976-01-23]`. The release group's
+`first-release-date` was already fetched and unused; the Discogs side has had
+a master-year fallback for a long time.
+
+Note this is the *original* release date, so a 1991 remaster now files under
+1976 rather than under nothing — the same trade-off already accepted for
+Discogs masters, and logged rather than silent.
+
+---
+
 ## Version 3.6.2 (2026-08-30)
 
 ### Fixed
