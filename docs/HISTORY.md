@@ -2,6 +2,36 @@
 
 ---
 
+## Version 3.4.0 (2026-08-30)
+
+### Added
+
+**`mmt --annotate-config`** puts the reference comments back into a
+configuration that has lost them. A file carried forward for years holds the
+right settings and none of the explanation — the comments were in the sample
+it was first copied from, and nothing has ever put them back.
+
+It walks the packaged sample and substitutes the value you have for each
+setting, so the result is the reference's structure and commentary with your
+answers in it. On a real deployment: 68 comment lines to 197, 49 settings
+unchanged.
+
+Nothing changes but the comments. The result is compared with the original
+before anything is written, in both directions — gaining a setting is as much
+a change as losing one — and the command refuses rather than guessing. A
+setting you have not set is written out commented, documented but not
+applied. The original is kept as `config.yaml.bak`.
+
+### Fixed
+
+**The sample pinned the user agent.** `common.user_agent` is built from the
+running version precisely so it cannot go stale, and the sample carried a
+literal copy — so every configuration made with `--new-config` froze it at
+whatever that line said, which was `2.0.0` through two major versions. The
+sample now shows it commented out, with the reason.
+
+---
+
 ## Version 3.3.0 (2026-08-30)
 
 Configuration you can see and change, and one wrong-artist match closed.
