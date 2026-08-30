@@ -93,9 +93,12 @@ def make_discogs_mapper(cfg: 'TaggerConfig', connector=None,
 def make_mb_mapper(cfg: 'TaggerConfig') -> 'SourceMapper':
     from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
 
+    use_anv = (cfg.getboolean('naming', 'use_anv')
+               if cfg.has_option('naming', 'use_anv') else True)
+
     class _MBMapper:
         def map(self, raw_release):
-            album = MusicBrainzAlbum(raw_release).map()
+            album = MusicBrainzAlbum(raw_release, use_anv=use_anv).map()
             album.source = 'musicbrainz'
             return album
 

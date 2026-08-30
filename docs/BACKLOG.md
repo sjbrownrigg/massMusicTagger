@@ -48,6 +48,15 @@ but different artist is worse than leaving the tag alone.
 
 ## Decide whether the album artist should ever use a name variation
 
+**Partly settled in 3.6.2.** MusicBrainz was ignoring `use_anv` entirely and
+always taking the credited form, so the setting only ever governed Discogs.
+Both sources now honour it, and DHS/D.H.S. collapsed to one folder.
+
+What is still open is the finer distinction below: `use_anv` remains one
+answer to two questions, applying equally to the album artist (where a
+variation fragments a discography) and the track artist (where it is the
+right name, being what the release actually credits).
+
 `use_anv` controls whether the sleeve credit (Discogs' Artist Name Variation)
 is preferred over the canonical database name. It is currently `false`.
 

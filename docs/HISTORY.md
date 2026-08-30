@@ -2,6 +2,30 @@
 
 ---
 
+## Version 3.6.2 (2026-08-30)
+
+### Fixed
+
+**MusicBrainz ignored `naming.use_anv`, splitting artists across folders.**
+MusicBrainz's artist-credit `name` is its ANV equivalent — the form printed on
+one particular release — while `artist.name` is the canonical name of the
+artist entity. The mapper fetched both and always preferred the credit, so a
+setting you had turned off went on applying.
+
+DHS showed the cost: *House of God* is credited `DHS` on one release and
+`D.H.S.` on another, both artist MBID `257180c1`, and the library grew two
+folders for one act. Discogs has honoured `use_anv` all along; MusicBrainz was
+never given it.
+
+With `use_anv: false` both releases now file under `DHS`. With `use_anv: true`
+the credited form is kept, as before.
+
+No new setting: the existing one now means the same thing for both sources.
+Note this changes naming for future runs only — folders already written stay
+where they are.
+
+---
+
 ## Version 3.6.1 (2026-08-30)
 
 ### Fixed

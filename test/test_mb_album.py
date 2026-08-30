@@ -468,3 +468,69 @@ class TestVinylFormatNormalisation(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class UseAnvTest(unittest.TestCase):
+    """naming.use_anv must govern MusicBrainz as it governs Discogs.
+
+    MusicBrainz's artist-credit `name` is its ANV equivalent -- what a
+    particular release printed -- while `artist.name` is the canonical name of
+    the artist entity. Preferring the credit unconditionally split DHS into two
+    library folders: 'House of God' is credited 'DHS' on one release and
+    'D.H.S.' on another, both artist MBID 257180c1.
+    """
+
+    @staticmethod
+    def _release(credited, canonical):
+        return {
+            'id': 'r1',
+            'title': 'House of God',
+            'artist-credit': [{
+                'name': credited,
+                'joinphrase': '',
+                'artist': {'id': '257180c1', 'name': canonical},
+            }],
+            'medium-list': [],
+        }
+
+    def test_anv_off_uses_the_canonical_name(self):
+        from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
+        album = MusicBrainzAlbum(self._release('D.H.S.', 'DHS'),
+                                 use_anv=False).map()
+        self.assertEqual(album.artist, 'DHS')
+
+    def test_anv_on_keeps_the_credited_form(self):
+        from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
+        album = MusicBrainzAlbum(self._release('D.H.S.', 'DHS'),
+                                 use_anv=True).map()
+        self.assertEqual(album.artist, 'D.H.S.')
+
+    def test_both_credits_of_one_artist_converge_when_anv_is_off(self):
+        """The actual defect: one act, two folders."""
+        from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
+        names = {
+            MusicBrainzAlbum(self._release(credited, 'DHS'),
+                             use_anv=False).map().artist
+            for credited in ('DHS', 'D.H.S.')
+        }
+        self.assertEqual(names, {'DHS'},
+                         'differing credits must collapse to one folder')
+
+    def test_missing_canonical_falls_back_to_the_credit(self):
+        from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
+        album = MusicBrainzAlbum(self._release('D.H.S.', ''),
+                                 use_anv=False).map()
+        self.assertEqual(album.artist, 'D.H.S.')
+
+    def test_default_is_unchanged_for_callers_that_pass_nothing(self):
+        from massmusictagger.sources.musicbrainz.album import MusicBrainzAlbum
+        album = MusicBrainzAlbum(self._release('D.H.S.', 'DHS')).map()
+        self.assertEqual(album.artist, 'D.H.S.')
+
+    def test_the_factory_passes_the_setting_through(self):
+        """Wiring: the mapper was constructed without it for a long time."""
+        import inspect
+        from massmusictagger import source_factory
+        src = inspect.getsource(source_factory.make_mb_mapper)
+        self.assertIn("cfg.getboolean('naming', 'use_anv')", src)
+        self.assertIn('use_anv=use_anv', src)

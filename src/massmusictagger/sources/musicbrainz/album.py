@@ -44,8 +44,16 @@ _THE_SUFFIX_RE = re.compile(r"(.*),\s+The$", re.IGNORECASE)
 class MusicBrainzAlbum:
     """Maps a raw MusicBrainz release dict to an Album."""
 
-    def __init__(self, release: dict):
+    def __init__(self, release: dict, use_anv: bool = True):
         self.release = release
+        #: Honour naming.use_anv, as the Discogs mapper does. MusicBrainz's
+        #: artist-credit `name` is its ANV equivalent -- the form printed on
+        #: that particular release -- while `artist.name` is the canonical
+        #: name of the artist entity. Preferring the credit fragments a
+        #: discography: DHS released 'House of God' credited both as 'DHS'
+        #: and as 'D.H.S.', same artist MBID 257180c1, and the library grew
+        #: two folders for one act.
+        self.use_anv = use_anv
 
     def map(self) -> Album:
         r = self.release
@@ -195,10 +203,15 @@ class MusicBrainzAlbum:
                 continue
             if not isinstance(item, dict):
                 continue
-            # 'name' is the credited form (MB's ANV equivalent)
+            # 'name' is the credited form (MB's ANV equivalent);
+            # artist.name is the canonical name of the artist entity.
             credited = (item.get('name') or '').strip()
             canonical = (item.get('artist', {}).get('name') or '').strip()
-            display = self._normalise_the(credited or canonical)
+            if self.use_anv:
+                chosen = credited or canonical
+            else:
+                chosen = canonical or credited
+            display = self._normalise_the(chosen)
             names.append(display)
             joinphrase = item.get('joinphrase', '')
             display_parts.append(display + (joinphrase or ''))
