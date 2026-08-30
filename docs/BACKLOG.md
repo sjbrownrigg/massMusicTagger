@@ -307,3 +307,78 @@ the explanation for those three failures.
 interleaves albums, so attributing a warning to a particular album by reading
 nearby lines is guesswork. Two diagnoses were published from it and both were
 wrong. Running one album on its own settled each in minutes.
+
+---
+
+## Filing multi-artist releases under the primary artist
+
+**The question.** A release credited "David Bowie Featuring Al B. Sure!" gets
+its own artist folder, fragmenting Bowie's discography. Filing it under the
+primary artist is obviously right. Doing the same to a split release --
+"D.A.R.P.A. / Dive / :wumpscut:" -- would be obviously wrong, because it
+hides two artists entirely. Is the distinction reliable enough to act on?
+
+**Yes, in two steps, and the second is where the care is needed.**
+
+### Step 1 -- collapse credits that are the same artist
+
+Measured over the cached Discogs releases, **48 of 73** join tokens are `=`.
+That is not a collaboration marker at all; it is Discogs' transliteration
+form, the same artist listed twice:
+
+```
+name='David Bowie' anv=''                join='=' id=10263
+name='David Bowie' anv='デビッド・ボウイー'  join=''  id=10263
+```
+
+So the first test is not the join phrase but the **artist identity**: if
+every credit resolves to one entity -- Discogs `id`, MusicBrainz artist MBID
+-- there is one artist and nothing to decide. That covers the majority case
+here and needs no heuristics. It is the same principle that collapsed
+DHS/D.H.S. in 3.6.2.
+
+### Step 2 -- classify the join, for genuinely different artists
+
+The join phrase is already parsed by both mappers to build the display
+string. What occurs in this library:
+
+| join | example | reading |
+|---|---|---|
+| `/` | D.A.R.P.A. / Dive / :wumpscut: | split -- keep all |
+| `vs.` | DHS vs. DJ Slip | equal billing -- keep all |
+| `With` | David Bowie With Tina Turner | Bowie is primary |
+| `Remixed by` | Depeche Mode Remixed by Symbion Project | DM is primary |
+| `,` | David Bowie, John Hiatt | ambiguous |
+| `And` | Depeche Mode And Richard Morel | ambiguous |
+
+Clear at both ends. `Featuring`, `Feat.`, `Ft.`, `Presents`, `Introducing`
+and `Remixed by` subordinate what follows; `/`, `vs.`, `&`, `+` and `Meets`
+do not. `And` and `,` genuinely are not decidable from the join alone.
+
+**The decision rule that matters: collapse only on an unambiguously
+subordinating join, and keep the full credit otherwise.** The two errors are
+not equal. A featuring credit left uncollapsed costs one surplus folder,
+visible and trivially fixed. A split collapsed under its first artist hides
+the others from the library entirely, and nothing in the result shows that
+it happened.
+
+Worth noting `&` is safe to treat as coordinating: a band name like
+"Nick Cave & The Bad Seeds" is a single entity in both databases, one credit
+rather than two, so it never reaches this logic.
+
+### Where to apply it
+
+**Not to the `albumartist` tag.** The tag should keep saying what the release
+says. Only the *directory* wants simplifying, which is the same album-versus-
+track distinction `use_anv` already embodies.
+
+That points at a format-string variable rather than a config setting --
+say `%albumartist_primary%`, resolving to the primary artist when the credit
+is subordinating and to the full credit otherwise. Filing is already
+controlled through `formats.ini`, so this stays opt-in, per-format-string,
+and adds no setting to think about.
+
+One prerequisite: `Album` currently keeps `artists` (the names) and a
+flattened `_artist_display`, but discards the join phrases. They would need
+retaining at map time, where both mappers already have them. Parsing them
+back out of the display string would work but is the fragile way round.
