@@ -2,6 +2,46 @@
 
 ---
 
+## Version 3.5.0 (2026-08-30)
+
+### Added
+
+**`batch.cpu_jobs` — one global cap on CPU-heavy external work.** Concurrent
+decode threads were `batch.workers` x `os.cpu_count()`: each worker started
+its own `r128gain`, and nothing passed `-c`, so r128gain fell back to
+`os.cpu_count()`. On a four-core host at `workers: 4` that is up to 32 decode
+threads on four cores — thrash rather than throughput.
+
+Workers and CPU concurrency are different concerns and now have separate
+dials. Workers exist to overlap *waiting*, which still dominates: reading a
+345 MB album from the NAS took 33.0s against 19.1s to scan it, with the
+container at 1.5% CPU. Keep `workers` high for the link; `cpu_jobs`
+(default 1) bounds the CPU-heavy subprocesses they start.
+
+One semaphore covers all of them — `r128gain`, `shntool` and `flac` for CUE
+splitting, `ffmpeg` for transcoding, `fpcalc` for fingerprinting — because
+the contended resource is the CPU itself. Per-stage queues would each run at
+their own cap simultaneously and rebuild the problem a level up.
+
+**`replaygain.thread_count`** (default 2) is passed as r128gain's `-c`.
+Measured on 12 FLAC / 345 MB from local disk it saturates at two threads:
+35.1s, 19.1s, 20.1s, 20.6s at `-c 1/2/4/8`. Everything above two was already
+contention. The effective ceiling is now `cpu_jobs` x `thread_count` — on a
+`workers: 4` deployment, 2 threads rather than 32.
+
+Both keys are new with defaults, so an existing configuration keeps working
+and simply gains the cap. `mmt --new-config` writes them documented; run
+`mmt --annotate-config` to add the reference comments to a config you
+already have.
+
+### Fixed
+
+**A stale error told you to pass `-c <config.yaml>`,** a switch removed in
+3.0.0. It now names the discovery order: `$MMT_CONFIG_DIR`, then
+`$XDG_CONFIG_HOME/massmusictagger`, then `~/.config/massmusictagger`.
+
+---
+
 ## Version 3.4.1 (2026-08-30)
 
 ### Fixed

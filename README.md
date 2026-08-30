@@ -438,6 +438,49 @@ is used even if the track count disagrees, because you chose it, while an
 embedded tag falls through to searching, because it may be stale after a
 reissue.
 
+## Performance
+
+Two dials, and they control different things. Setting them together is the
+mistake worth avoiding, because their effects multiply.
+
+```yaml
+batch:
+  workers: 4      # albums in flight -- overlaps waiting on the network
+  cpu_jobs: 1     # CPU-heavy programs at once -- across all workers
+replaygain:
+  thread_count: 2 # tracks r128gain scans in parallel (its -c flag)
+```
+
+**`workers` is for waiting.** Tagging is dominated by the share, not the
+processor. Measured against a NAS over SMB:
+
+| Path | Throughput |
+|---|---|
+| NAS -> local disk | 31 MiB/s |
+| local disk -> NAS | 21 MiB/s |
+| **NAS -> NAS (what tagging does)** | **9.8 MiB/s** |
+| local -> local | 1280 MiB/s |
+
+A 345 MB album took 33.0s to read from the share against 19.1s to scan for
+ReplayGain, with the container at 1.5% CPU. Raise `workers` to keep the link
+busy while albums wait on it.
+
+**`cpu_jobs` is for the processor**, and it is what stops `workers` from
+multiplying. Each worker runs its own external decoders, so without a cap the
+concurrent thread count is `workers` x `os.cpu_count()` — at `workers: 4` on
+a four-core machine, up to 32 decode threads on four cores. `cpu_jobs` bounds
+them globally, covering `r128gain`, `shntool` and `flac` for CUE splitting,
+`ffmpeg` for transcoding, and `fpcalc` for fingerprinting.
+
+**`thread_count` is r128gain's own parallelism.** It saturates at two: on 12
+FLAC / 345 MB from local disk it took 35.1s, 19.1s, 20.1s and 20.6s at
+`-c 1/2/4/8`. Above two the threads only contend, which is why the default
+is 2 rather than the `os.cpu_count()` r128gain would otherwise use.
+
+The ceiling on decode threads is `cpu_jobs` x `thread_count`. Aim the
+configuration at your weakest host: `workers: 4, cpu_jobs: 1` keeps a slow
+mini-PC responsive and simply finishes sooner on a faster machine.
+
 ## Source priority
 
 Configured in `config.yaml` — see [sources.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/sources.md):
