@@ -1,0 +1,67 @@
+# How a multi-artist credit is read when filing an album.
+#
+# A release credited "David Bowie Featuring Al B. Sure!" gets its own artist
+# folder unless something says Bowie is the primary artist and the rest are
+# guests. Doing the same to a split release -- "D.A.R.P.A. / Dive /
+# :wumpscut:" -- would be wrong, because it hides two artists entirely.
+#
+# The join phrase between the credits is what separates the two, and both
+# Discogs and MusicBrainz provide it. This table says how to read each one.
+#
+# Only used by the %albumartist_primary% format variable. If your format
+# strings do not mention it, none of this applies and albums file under the
+# full credit exactly as before. The albumartist *tag* always keeps the full
+# credit either way -- the tag should say what the release says.
+#
+# A copy of this file beside config.yaml is MERGED OVER the packaged one, so
+# adding a phrase here does not discard the rest of the table, and later
+# additions still reach you.
+
+artist_joins:
+
+  # The first artist is the primary; everything after is a guest credit.
+  # %albumartist_primary% resolves to the first artist alone.
+  subordinating:
+    - "featuring"
+    - "feat."
+    - "feat"
+    - "ft."
+    - "ft"
+    - "presents"
+    - "introducing"
+    - "remixed by"
+    - "with"
+
+  # Equal billing. %albumartist_primary% keeps the whole credit, so a split
+  # release or a collaboration still files under all of its artists.
+  coordinating:
+    - "/"
+    - "vs."
+    - "vs"
+    - "versus"
+    - "meets"
+    - "&"
+    - "+"
+
+# Anything not listed is treated as coordinating -- the full credit is kept.
+#
+# That default is deliberate, because the two mistakes are not equal. A
+# featuring credit left uncollapsed costs one surplus folder: visible, and
+# fixed by adding a line here. A split collapsed under its first artist hides
+# the other artists from the library entirely, and nothing in the result shows
+# that it happened.
+#
+# So the genuinely ambiguous joins ship unlisted rather than guessed at:
+#
+#   "and"   -- "Depeche Mode And Richard Morel" is a remix credit where
+#              Depeche Mode is primary; "Belle And Sebastian" is a band, and
+#              "Simon And Garfunkel" is a duo. No reading fits all three.
+#   ","     -- "David Bowie, John Hiatt" reads as a collaboration, but a comma
+#              is also just a list separator.
+#
+# Move either into `subordinating` above if your collection wants it.
+#
+# One join needs no rule: "=" is Discogs' transliteration marker, the same
+# artist listed twice (once with a non-Latin name). Credits that resolve to
+# one artist are collapsed before this table is consulted, so it never
+# reaches here.

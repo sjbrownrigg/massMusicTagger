@@ -153,6 +153,11 @@ LAYOUT = {
     "format_codes": "format_codes.yaml",
     "char_substitutions": "char_substitutions.yaml",
     "source_hints": "source_hints.yaml",
+    # How a multi-artist credit is read when filing -- which join phrases mark
+    # a guest ("feat.") and which mark equal billing ("/"). A judgement call
+    # that decides which folder an album lands in, so it belongs where the user
+    # can change it. Merged over the bundled table like the others.
+    "artist_joins": "artist_joins.yaml",
 }
 
 

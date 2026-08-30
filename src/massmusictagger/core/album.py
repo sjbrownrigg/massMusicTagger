@@ -55,6 +55,17 @@ class Album(BaseObject):
         self.id = identifier
         self.artists = artists      # individual names, for albumartists tag
         self._artist_display = None # combined display string, set by DiscogsAlbum
+        #: Join phrase following each credited artist -- 'Featuring', '/',
+        #: 'vs.'. Kept alongside the names because the phrase is what tells a
+        #: guest credit from a split release, and it is otherwise lost into
+        #: _artist_display. Parallel to `artists`; the last entry is normally
+        #: empty. Only %albumartist_primary% consults it.
+        self.artist_joins = []
+        #: Source identifier per credited artist (Discogs artist id,
+        #: MusicBrainz artist MBID) where the source gives one. Several
+        #: credits sharing an id are one artist -- Discogs' '=' form lists an
+        #: artist twice, once transliterated.
+        self.artist_ids = []
         self.title = title
         self.discs = []
         self.fileformat = "flac"

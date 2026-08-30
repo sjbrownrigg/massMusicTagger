@@ -796,6 +796,32 @@ class TaggerUtils(object):
                 if self.format_mapping[desc.lower()] is not None:
                     self.album.format_description[i] = self.format_mapping[desc.lower()]
 
+    def _primary_album_artist(self):
+        """%albumartist_primary% -- the name an album should file under.
+
+        Falls back to the full credit on any doubt: an unknown join, a
+        missing table, an unexpected shape. Filing an album under too many
+        artists is visible and cheap to correct; filing it under too few
+        hides an artist with nothing to show it happened.
+        """
+        from massmusictagger.core.naming import artistjoins
+
+        display = self.album.artist
+        try:
+            table = artistjoins.load_artist_joins(
+                _discovered(self.config, 'artist_joins') or None)
+            return artistjoins.primary_artist(
+                getattr(self.album, 'artists', None),
+                getattr(self.album, 'artist_joins', None),
+                display,
+                table,
+                ids=getattr(self.album, 'artist_ids', None),
+            )
+        except Exception as exc:
+            logger.debug('Could not resolve a primary artist (%s) — '
+                         'using the full credit', exc)
+            return display
+
     def _value_from_tag_format(self, format, discno=1, trackno=1, filetype=".mp3"):
         """ Fill in the used variables using the track information
             Transform all variables and use them in the given format string, make this
@@ -808,6 +834,12 @@ class TaggerUtils(object):
 
             '%album artist%': self.album.artist,
             '%albumartist%': self.album.artist,
+            # The name to file under. Same as %albumartist% unless the credit
+            # is one artist with guests -- "David Bowie Featuring Al B. Sure!"
+            # gives "David Bowie" -- while a split or collaboration keeps its
+            # whole billing. Which joins mean which is set in
+            # artist_joins.yaml; the tag itself is never changed.
+            '%albumartist_primary%': self._primary_album_artist(),
             '%album%': self.album.title,
             '%catno%':  ', '.join(self.album.catnumbers),
             # All Discogs format names as a JSON array — use with $inarray():

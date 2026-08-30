@@ -246,6 +246,31 @@ paths.
 | `albumartist` | ✓ | ✓ | ✓ | N | `release.artists` combined with join text; ANV used when `use_anv: true` | `release.artist-credit` combined with joinphrase; credited name preferred |
 | `albumartists` | ✓ | ✓ | ✓ | N | Individual artist names as array | Individual credited names as array |
 | `albumartist_sort` | ✓ | ✓ | ✓† | N | First artist canonical name | First artist `sort-name` from MB (e.g. `deadmaus` for `deadmau5`) |
+
+### Filing under the primary artist
+
+`%albumartist_primary%` is a format-string variable only — it is never
+written as a tag. It reads the same as `%albumartist%` except when a credit
+is one artist with guests:
+
+| credit | `%albumartist%` | `%albumartist_primary%` |
+|---|---|---|
+| David Bowie Featuring Al B. Sure! | *unchanged* | `David Bowie` |
+| D.A.R.P.A. / Dive / :wumpscut: | *unchanged* | *unchanged* |
+| DHS vs. DJ Slip | *unchanged* | *unchanged* |
+| David Bowie = David Bowie | *unchanged* | `David Bowie` |
+
+Use it in the `dir` format string to stop guest credits fragmenting an
+artist's discography, while the `albumartist` tag keeps saying exactly what
+the release says.
+
+Two things decide the result, and both are yours. Credits resolving to one
+artist are collapsed first — the last row above is Discogs' transliteration
+form, the same artist id listed twice — and after that
+[`artist_joins.yaml`](../src/massmusictagger/conf/artist_joins.yaml) says
+which join phrases mark a guest. Unlisted joins keep the whole credit, so
+`and` and `,` ship unlisted rather than guessed at; move them if your
+collection wants them collapsed.
 | `composer` | ✓ | ✓† | ✓† | N | dt3: album artist. mmt: actual composers from `release.extraartists` (Written-By, Composed By) when present; empty otherwise | Composers from MB release relations (future work) |
 | `year` | ✓ | ✓ | ✓ | N | `release.year` | First 4 chars of `release.date`; skipped when absent |
 | `date` | — | ✓† | ✓† | N | `release.released` normalised — strips zero components (`1998-01-00` → `1998-01`) | `release.date` normalised |

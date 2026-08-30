@@ -308,6 +308,7 @@ _NEW_CONFIG_TEMPLATES = (
     ('format_codes.yaml', 'format_codes.yaml'),
     ('char_substitutions.yaml', 'char_substitutions.yaml'),
     ('source_hints.yaml', 'source_hints.yaml'),
+    ('artist_joins.yaml', 'artist_joins.yaml'),
 )
 
 

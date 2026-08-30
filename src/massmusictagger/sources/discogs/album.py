@@ -71,6 +71,17 @@ class DiscogsAlbum(object):
 
         album = Album(self.release.id, self.release.title.strip(), self.album_artists(self.release.artists))
         album._artist_display = self.album_artist_display(self.release.artists)
+        # Keep the join phrases and artist ids: the phrase separates a guest
+        # credit from a split release, and equal ids mean one artist wearing
+        # two names (Discogs' '=' transliteration form).
+        album.artist_joins = [
+            (a.data.get('join', '') if hasattr(a, 'data') else '')
+            for a in self.release.artists if not isinstance(a, str)
+        ]
+        album.artist_ids = [
+            (getattr(a, 'id', None) if not isinstance(a, str) else None)
+            for a in self.release.artists if not isinstance(a, str)
+        ]
 
         album.sort_artist = self.sort_artist(self.release.artists)
         album.url = self.url

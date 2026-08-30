@@ -61,6 +61,10 @@ class MusicBrainzAlbum:
 
         raw_credits = r.get('artist-credit', [])
         artists, artist_display = self._map_artist_credit(raw_credits)
+        joins = [(c.get('joinphrase') or '')
+                 for c in raw_credits if isinstance(c, dict)]
+        artist_ids = [((c.get('artist') or {}).get('id'))
+                      for c in raw_credits if isinstance(c, dict)]
 
         # Defensive fallback: if artist-credit parsing yielded nothing,
         # use the pre-formatted artist-credit-phrase string.
@@ -72,6 +76,8 @@ class MusicBrainzAlbum:
 
         album = Album(mbid, r.get('title', '').strip(), artists)
         album._artist_display = artist_display
+        album.artist_joins = joins
+        album.artist_ids = artist_ids
 
         # sort_artist: use MB sort-name from the first artist credit's artist dict.
         # e.g. 'deadmau5' has sort-name 'deadmaus'; 'The Cure' → 'Cure, The'.
