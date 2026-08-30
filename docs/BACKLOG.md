@@ -464,116 +464,68 @@ folder and its own copy of the image.
 
 ---
 
-## Everything prepare() produces belongs in staging, not the source tree
+## Preparation should write to staging, not the source tree
+
+### The problem
 
 `FileUtils.prepare()` has exactly two kinds of work -- `PrepTask.kind` is
-`'cue' | 'm4a'` -- and both write derived audio into the source directory.
+`'cue' | 'm4a'` -- and both write derived audio into the source directory:
 
-**CUE splitting:**
+* **CUE splitting** writes tracks to `cue.image_file_directory`, and decodes
+  the image to `src_image + '_tmp_decode.wav'` beside it first.
+* **`.m4a` conversion** writes the transcode to
+  `os.path.splitext(path)[0] + '.' + target_ext`, then moves the original
+  into a done directory.
 
-* `destination = cue.image_file_directory` (files.py) -- the split tracks land
-  beside the disc image and stay there
-* `tmp_wav = src_image + '_tmp_decode.wav'` -- a full WAV decode of the image,
-  written next to it and then deleted
+For a three-disc CUE rip of ~500 MB images that is roughly 4.5 GB of
+transient writes and 3.4 GB of lasting ones, all at the 9.8 MiB/s NAS-to-NAS
+rate `batch.staging_dir` exists to avoid. It is the heaviest filesystem
+operation in the pipeline, and staging does not reach it: staging redirects
+the *processor's destination*, while preparation runs earlier, in
+`_get_source_dirs` -> `prepare()`.
 
-For a three-disc rip of ~500 MB images that is roughly 4.5 GB of transient
-writes and 3.4 GB of lasting ones, all at the 9.8 MiB/s NAS-to-NAS rate that
-`batch.staging_dir` exists to avoid. It is the heaviest filesystem operation
-in the pipeline, and staging does not reach it: staging redirects the
-*processor's destination*, while splitting happens earlier, in
-`_get_source_dirs` -> `FileUtils.prepare()`.
+### The insight
 
-**`.m4a` conversion does the same:** `out = os.path.splitext(path)[0] + '.'
-+ target_ext` writes the transcode beside the original, and the original is
-then `shutil.move`d into a done directory. A converted album therefore leaves
-both the new files and a directory of originals behind, all on the share.
-
-**The right framing is not "staging should cover more".** Nothing `prepare()`
-produces is source material. The source is what the user put there -- a disc image
-and its sheet, or a folder of `.m4a` -- and everything prepare() makes from
-it is a decode artefact, produced to be tagged and then finished with.
-Staging is where temporary files belong, and leaving them in the source tree
-is pollution -- a CUE rip that has been through the tagger once is no longer
+Nothing `prepare()` produces is source material. The source is what the user
+put there -- a disc image and its sheet, or a folder of `.m4a` -- and
+everything made from it is a decode artefact, produced to be tagged and then
+finished with. Staging is where temporary files belong. Leaving them in the
+source tree means a rip that has been through the tagger once is no longer
 the thing the user put there.
 
-**The complication, and it is the whole of the work.** `sourcedir` currently
-means two things at once: where the audio is read from, and what
-`source_action` archives or deletes. `_post_process_source` calls
-`shutil.move(result.sourcedir, ...)` and `shutil.rmtree(result.sourcedir)`.
-If splitting wrote to staging and the album's `sourcedir` became that path,
-`move` would archive the temporary split and leave the disc images in
-`incoming` for ever; `remove` would delete the split and leave them too.
+### What blocks it
 
-So the two roles have to separate before anything else: an *origin* that
-archiving acts on -- always the directory the user put there -- and an *audio
-directory* the scan and processor read from, which for a CUE rip is the
-staging copy and for everything else is the same as the origin.
+`sourcedir` currently means two things at once: **where audio is read from**,
+and **what `source_action` archives or deletes** --
+`_post_process_source` calls `shutil.move(result.sourcedir, ...)` and
+`shutil.rmtree(result.sourcedir)`.
 
-With that separation the rest is small: `prepare()` splits into a staging
-directory, returns it as the audio directory, and the existing staging
-cleanup removes it afterwards -- emptied on the way out, swept on the way in,
-exactly as the finished album already is.
+Write preparation to staging without separating those, and `move` archives
+the temporary split while leaving the disc images in `incoming` for ever;
+`remove` deletes the split and leaves them too.
 
-**A second thing this buys.** With prepare() writing to staging, the source
-tree becomes genuinely read-only during preparation. That is a stronger
-guarantee than splitting `scan()` from `prepare()` achieved: that split
-stopped a *dry run* from rewriting the files it was reporting on, but a real
-run still mutates the source before deciding anything about it. It also makes
-re-runs idempotent -- today a CUE album that has been split once presents a
-different shape on the second pass than it did on the first, because the
-tracks it produced are sitting next to the image.
+**So the whole of the work is one distinction**: an *origin*, always the
+directory the user put there and the only thing archiving acts on, and an
+*audio directory* the scan and processor read from -- staging for a prepared
+album, the same as the origin for everything else. `PrepTask` already carries
+`dirpath`; what it needs to return is where the prepared audio ended up.
 
-**Do not deprecate `*_done_dir` awareness along with it.** The keys carry two
-separate responsibilities that only look like one:
+### What follows once that exists
 
-* `ignored_source_dirs()` prunes `.cue` and `.m4a` from the scan
-  (files.py:285-290). **This must stay permanently.**
-* `shutil.move(path, done_dir)` stashes originals there. This is the part
-  staging replaces, and only for new work.
+**Staging becomes a run-level facility rather than a processor-private one.**
+Today it is allocated per album inside `_process_one`, after matching.
+Preparation needs it earlier, so the per-album directory must be allocatable
+at prepare time and handed forward. The startup sweep already runs early
+enough: `MassProcessor` is built at `__main__.py:1086` and `_get_source_dirs`
+at 1099. Watch mode calls the same `_get_source_dirs`, so it inherits this
+without separate work.
 
-Measured on the live library: **54 `.cue` and 54 `.m4a` directories in the
-archive, and 3 more `.cue` in incoming** -- 108 in all, holding the original
-disc images and `.m4a` files, several hundred megabytes each. They are the
-only copies of the pre-conversion originals.
-
-Drop the pruning and a scan walks into every one of them, treats each as an
-album, and either tags duplicates or re-converts originals. The three in
-`incoming` would be hit on the very next run.
-
-So the change is safe only while scoped to the write side: keys, defaults and
-pruning all stay; only where preparation *puts* things moves. Nothing already
-on disk changes meaning.
-
-One shape to keep reading correctly: a legacy CUE rip already split in place
-has its originals in `.cue/` and its split tracks beside them. The new scheme
-would never produce that, but it exists and must still scan sensibly.
-
-**And then the two keys can go from the configuration.** Once preparation
-writes to staging there is nothing new to stash, so the only remaining job is
-recognising the legacy directories -- and their names never needed to be a
-user's decision. Nobody cares what a temporary directory inside the cache is
-called.
-
-Move `.cue` and `.m4a` into constants that `ignored_source_dirs()` reads, and
-mark `cue.cue_done_dir` and `m4a.m4a_done_dir` **DEPRECATED rather than
-REMOVED**, following `naming.char_substitutions`: the key still works and
-warns, so anyone who customised the name keeps their directories pruned
-instead of having them silently walked into. The live configuration uses the
-defaults, so for this deployment it is simply two fewer keys.
-
-That is the shape the config discipline already asks for -- defaults live in
-code, and the configuration holds decisions the user actually has a stake in.
-Where a scratch directory sits inside the cache is not one of them.
-
-**How it composes with the existing copy, which is not a plain copy.**
-`copy_files()` maps each track individually --
-`shutil.copyfile(source_folder/track.orig_file, target_folder/track.new_file)`
--- so it copies *and renames* to whatever the `song` format string produced.
-
-That name only exists after the release is matched, and preparation runs
-before matching: splitting cannot write final filenames because it does not
-yet know what the album is. So preparation and copying are not alternatives
-to each other; they are consecutive steps that both end in staging:
+**Preparation and copying stay consecutive, not alternative.**
+`copy_files()` is not a directory copy -- it maps each track individually,
+`shutil.copyfile(source/track.orig_file, target/track.new_file)`, renaming to
+whatever the `song` format string produced. That name exists only after
+matching, and preparation runs before it, so splitting cannot write final
+filenames. Both steps end in staging:
 
 | album | into staging | then |
 |---|---|---|
@@ -581,14 +533,49 @@ to each other; they are consecutive steps that both end in staging:
 | CUE | `shntool` splits the image into staging as `01.flac`... | `copy_files()` becomes a local rename |
 | `.m4a` | `ffmpeg` transcodes into staging | `copy_files()` becomes a local rename |
 
-For a prepared album the copy degenerates into a rename **within one
-filesystem** -- effectively free, against the cross-link copy it is today.
-The benefit is unchanged: for a CUE rip the only traffic over the share
-becomes reading the disc image once and writing the finished album once,
-instead of the decode-to-WAV, split, copy, ReplayGain re-read and tag rewrite
-that all cross it today.
+For a prepared album the copy degenerates into a rename within one
+filesystem -- effectively free, against the cross-link copy it is today. A
+CUE rip would then cross the share only to read the image once and write the
+finished album once. `copy_files()` already guards with
+`if not source_folder == target_folder`, which is the branch a rename in
+place would take.
 
-Worth checking during implementation that `copy_files()` handles
-source-equals-target sensibly: it already guards with
-`if not source_folder == target_folder`, which is the branch a rename-in-place
-would take.
+**The source tree becomes read-only during preparation.** Stronger than
+splitting `scan()` from `prepare()` achieved: that stopped a *dry run* from
+rewriting the files it reported on, but a real run still mutates the source
+before deciding anything about it.
+
+**Re-runs become idempotent.** Today a CUE album split once presents a
+different shape on its second pass, because the tracks it produced sit beside
+the image.
+
+**Two config keys can go.** With nothing new to stash, the only remaining job
+is recognising the legacy directories, and their names were never a decision
+the user has a stake in. Move `.cue` and `.m4a` into constants that
+`ignored_source_dirs()` reads.
+
+### The hazard, which is not optional
+
+`cue.cue_done_dir` and `m4a.m4a_done_dir` carry two responsibilities that
+look like one:
+
+* `ignored_source_dirs()` prunes those directories from the scan
+  (files.py:285-290). **This must stay permanently.**
+* `shutil.move(path, done_dir)` stashes originals there. Only this is
+  replaced, and only for new work.
+
+Measured on the live library: **54 `.cue` and 54 `.m4a` directories in the
+archive, and 3 more `.cue` in incoming** -- 108 in all, holding the only
+copies of pre-conversion originals, several hundred megabytes each. Drop the
+pruning and a scan walks into every one, treats each as an album, and either
+tags duplicates or re-converts originals. The three in `incoming` would be
+hit on the very next run.
+
+So mark the keys **DEPRECATED, not REMOVED**, following
+`naming.char_substitutions`: still honoured, still warning, so anyone who
+customised a name keeps their directories pruned rather than silently walked
+into.
+
+One shape must keep scanning sensibly even though the new code would never
+produce it: a legacy CUE rip split in place, originals in `.cue/` and tracks
+beside them.
