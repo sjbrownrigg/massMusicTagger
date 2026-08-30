@@ -186,6 +186,17 @@ name the release that was matched and the exception, so the log distinguishes
 "nothing fits this album" from "this album matched 1060982 and then failed
 writing". The information is in hand at the point the message is written.
 
+**Resolved, and it confirms the point.** The exception was
+`mutagen.flac.error: file said N bytes, read fewer`, wrapped in
+`UnreadableFileError` -- a truncated read over SMB. All 27 source files parse
+cleanly, and the album tagged without incident on a retry, so the fault was
+transient I/O rather than damaged audio.
+
+That is exactly the distinction the message failed to draw. "Failed to
+process" sent two people hunting for a matching problem for the better part
+of an hour when the correct reading was "retry it". Naming the matched
+release and the exception would have cost nothing and saved all of it.
+
 ---
 
 ## A MusicBrainz release with no date leaves the album with no year
