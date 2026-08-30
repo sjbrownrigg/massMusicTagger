@@ -140,33 +140,38 @@ drvfs to the Windows SMB client, may be a bigger win for less work.
 
 ---
 
-## An already-finished tree reports "No audio source directories found"
+## "No audio source directories found" when the album itself is complete
 
-**Observed.** Two albums in a re-tag run logged:
+**Mostly already fixed; the remaining gap is narrower than first recorded.**
+
+An earlier version of this entry said the tagger reports a finished tree as
+though it found nothing. It does not: `_get_source_dirs` returns
+`n_ignored`, and `__main__` logs *"All N album(s) already tagged — nothing to
+do"*. That has been in place since 2026-05-31, three months before the
+observation was written down. Reading the log was not enough; the code said
+otherwise.
+
+What actually produced the misleading line is narrower. The batch script
+passes each album directory individually, and when the directory handed in
+**is itself** the completed album -- rather than a tree containing one --
+nothing is counted as ignored, `n_ignored` is 0, and the generic warning is
+used:
 
 ```
 WARN No audio source directories found
 ```
 
-Both were fine. Each held a `.done` marker from an earlier run, so
-`get_audio_dirs` skipped them, and with nothing left the caller reported the
-empty result as a warning — the same message an empty or unreadable directory
-produces.
+Reproduced with two albums whose folders carry `.done` and hold the audio
+directly.
 
-The two cases deserve different words. Nothing to do is a success; nothing
-*found* is a problem, and reading the first as the second sends you looking
-for a fault that is not there. It cost real time during the bulk re-tag,
-because the warning appears in exactly the same place as a genuine failure.
+**What would improve it.** Count the root itself when it is excluded for a
+done marker, so a single completed album reports like a completed tree. Small
+and contained, and the message it should print already exists.
 
-**What would improve it.** `scan()` already knows how many directories it
-skipped for a done marker. Carry that count out and say so:
-
-```
-All 2 albums already tagged (.done present) — use --force to re-tag
-```
-
-reserving the existing warning for a tree that genuinely holds no audio. The
-information is already in hand; only the message is missing.
+**The lesson, which is the same one twice today.** Both this and the
+multi-disc entry were written from a truncated batch log without checking the
+code or running the case. Both were wrong. The log is the cheapest evidence
+and the least reliable.
 
 ---
 
