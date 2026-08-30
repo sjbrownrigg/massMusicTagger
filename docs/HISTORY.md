@@ -2,6 +2,65 @@
 
 ---
 
+## Version 3.8.0 (2026-08-30)
+
+### Added
+
+**`batch.staging_dir` — assemble albums on local disk.** Tagging read the
+source from the share and wrote it back there, then ReplayGain read the
+destination again and tagging rewrote it: every pass crossing the link.
+Measured NAS-to-NAS **9.8 MiB/s**, against 1280 MiB/s local. With a staging
+directory the album is copied in once, assembled at local speed, and copied
+out once.
+
+Empty by default, so nothing changes for anyone who does not set it.
+
+The ordering matters more than the speed: the source is archived or deleted
+only after the output is verified to hold audio, and that check reads
+`result.target_dir`, so the move out of staging happens first and updates it.
+A destination collision is suffixed rather than overwritten. Staging is
+emptied as each album moves out, and anything left behind by a killed run —
+`docker rm -f` is a SIGKILL and skips the cleanup — is swept at startup.
+
+**`artwork.artist_image` — the artist's picture.** Written as `artist.jpg` in
+the artist folder and embedded in every track as ID3/FLAC picture type 8,
+"Artist/performer". Fetched from Discogs, the only source that has them —
+MusicBrainz stores none — and cached per artist id, so a discography fetches
+it once rather than once per album. Off by default, and most useful alongside
+`%albumartist_primary%`: without that, a guest credit gets its own folder and
+each collects a copy of the same picture.
+
+### Fixed
+
+**Disc layout was ignored when ranking candidates.** Matching compared the
+flat track total, so a single-disc release of seventeen tracks scored exactly
+as well as the correct 13 + 4, and the difference surfaced much later as a
+per-disc count mismatch during tagging — an error that never mentioned
+layout. Candidates whose per-disc distribution matches now score −5, and
+those with a different number of discs +5. On the real *Spirit* candidates
+against a local 12 + 5 that is a ten-point swing.
+
+Compared as a distribution rather than a disc count, because
+`format_quantity` is unreliable here: Spirit's correct 2-CD release reports
+three format entries (CD, CD, All Media).
+
+**A 24-bit source could match a CD pressing.** CD audio is 16-bit by
+definition. The rule runs one way only — 16-bit rules nothing out, since it
+may equally be a CD rip or a lossless download — and SACD and DVD are
+excluded from the check because both carry hi-res.
+
+**A finished album passed directly reported "No audio source directories
+found".** `_count_ignored` skipped the root, so when the directory handed in
+*was* the completed album — what a batch script passing one album per run
+does — nothing was counted and a complete album read as an empty one.
+
+**`info.txt` and `m3u.txt` always printed the track artist.** Both built
+their own track lines and ignored the rule the `song` format string applies,
+so the artist appeared even when it matched the album artist. The playlist's
+file paths were already correct; only the human-readable labels diverged.
+
+---
+
 ## Version 3.7.0 (2026-08-30)
 
 ### Added
