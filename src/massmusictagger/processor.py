@@ -22,6 +22,8 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from massmusictagger.core import cpuguard
+
 if TYPE_CHECKING:
     from massmusictagger.core.tagger_config import TaggerConfig
 
@@ -248,6 +250,11 @@ class MassProcessor:
                  audit_log_path: Optional[str] = None):
         self.cfg = cfg
         self.workers = workers
+
+        # Workers overlap waiting on the share; cpu_jobs bounds the CPU-heavy
+        # subprocesses they start. Sizing them together multiplies -- see
+        # core/cpuguard.py. Configure before any worker runs.
+        cpuguard.configure(cfg.get('batch', 'cpu_jobs'))
         self.dry_run = dry_run
         self.review = review
         self.force = force

@@ -23,6 +23,7 @@ from massmusictagger.core.naming.pathutils import resolve_path
 from massmusictagger.core.attachments import LOCAL_COVER_NAMES
 from massmusictagger import roots
 from massmusictagger.core.naming.charmap import build_map, apply_substitutions, strip_invalid
+from massmusictagger.core import cpuguard
 from massmusictagger.core.naming.formatcodes import (
     load_format_codes, compute_format_code, compute_edition, extract_vinyl_size,
 )
@@ -345,6 +346,7 @@ class FileHandler(object):
         self.cue_done_dir = self.config.get('cue', 'cue_done_dir')
         self.rg_process = self.config.getboolean('replaygain', 'add_tags')
         self.rg_application = self.config.get('replaygain', 'application')
+        self.rg_thread_count = self.config.get('replaygain', 'thread_count')
 
 
     def create_done_file(self):
@@ -502,7 +504,11 @@ class FileHandler(object):
                         self.rg_application, len(file_paths), ext)
 
             if self.rg_application == 'r128gain':
-                cmd = ['r128gain', '-a'] + file_paths
+                # Without -c, r128gain uses os.cpu_count(). It saturates at
+                # two threads, so the rest only contend -- and with several
+                # workers each starting their own, the count multiplies.
+                cmd = (['r128gain', '-a', '-c', str(self.rg_thread_count)]
+                       + file_paths)
             elif self.rg_application == 'loudgain':
                 cmd = ['loudgain'] + lg_flags.get(ext, []) + file_paths
             elif self.rg_application == 'metaflac':
@@ -511,7 +517,8 @@ class FileHandler(object):
                 logger.error('Unknown ReplayGain application: %s', self.rg_application)
                 return
 
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            with cpuguard.slot('ReplayGain'):
+                result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 logger.error('ReplayGain failed (exit %d):\n%s',
                              result.returncode, result.stderr.strip())

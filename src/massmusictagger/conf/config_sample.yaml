@@ -129,7 +129,23 @@ batch:
 
   # Number of concurrent worker threads for mass processing.
   # Set to 1 for sequential processing (required for --review mode).
+  #
+  # Workers exist to overlap *waiting*, not to spread computation. Tagging is
+  # dominated by the share -- reading an album from a NAS took 33s against 19s
+  # of ReplayGain scanning on the machine this was measured on, with the
+  # container at 1.5% CPU. Raise this to keep the link busy.
   workers: 1
+
+  # How many CPU-heavy external programs may run at once, across all workers:
+  # r128gain, shntool and flac for CUE splitting, ffmpeg for transcoding,
+  # fpcalc for fingerprinting.
+  #
+  # This is deliberately a separate dial from `workers`. Without it the two
+  # multiply -- each worker starts its own decoder -- so `workers: 4` on a
+  # four-core host meant up to 32 concurrent decode threads, which is thrash
+  # rather than throughput. Leave this at 1 on a modest machine and raise
+  # `workers` instead.
+  cpu_jobs: 1
 
   # Path to the JSON audit log (append-only).  Records every processed
   # directory with outcome, source used, matched release, and elapsed time.
@@ -300,6 +316,16 @@ replaygain:
 
   add_tags: true
   application: r128gain
+
+  # Tracks r128gain scans in parallel within one album (its -c flag).
+  #
+  # Left unset r128gain uses os.cpu_count(), which buys nothing: measured on
+  # 12 FLAC / 345 MB from local disk it took 35.1s at -c 1, 19.1s at -c 2,
+  # 20.1s at -c 4 and 20.6s at -c 8. It saturates at two threads, and beyond
+  # that the extra threads are pure contention.
+  #
+  # Only applies to r128gain; loudgain and metaflac have no equivalent.
+  thread_count: 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────

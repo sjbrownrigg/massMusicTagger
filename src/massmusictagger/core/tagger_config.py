@@ -49,8 +49,10 @@ class TaggerConfig(RawConfigParser):
         if not config_file:
             raise config_schema.ConfigError(
                 "No configuration file given.\n"
-                "  Pass one with -c <config.yaml>. Copy the annotated "
-                f"reference at {_SAMPLE_YAML} and edit that copy.\n"
+                "  Run `mmt --new-config` to create one. It is looked for in "
+                "$MMT_CONFIG_DIR, else $XDG_CONFIG_HOME/massmusictagger, "
+                "else ~/.config/massmusictagger.\n"
+                f"  The annotated reference is at {_SAMPLE_YAML}.\n"
                 "  Tagging renames and moves files, so it will not run "
                 "against settings you have not reviewed."
             )

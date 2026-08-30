@@ -27,6 +27,7 @@ import musicbrainzngs
 from rapidfuzz import fuzz
 
 from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+from massmusictagger.core import cpuguard
 from massmusictagger.core.mediafile import MediaFile
 
 if TYPE_CHECKING:
@@ -484,7 +485,11 @@ class MBSearch:
         import acoustid
         logger.info('MB tier 6: single-track AcoustID — %s', os.path.basename(audio_path))
         try:
-            results = list(acoustid.match(api_key, audio_path))
+            # acoustid.match() fingerprints *and* looks up, so the slot also
+            # covers the network call. Imprecise, but these tiers only run
+            # once a search by name has already failed, so they are rare.
+            with cpuguard.slot('AcoustID fingerprint'):
+                results = list(acoustid.match(api_key, audio_path))
         except Exception as exc:
             logger.warning('MB tier 6: AcoustID failed: %s', exc)
             return None
@@ -531,7 +536,8 @@ class MBSearch:
         recording_ids: list[str] = []
         for fpath in audio_files:
             try:
-                results = list(acoustid.match(api_key, fpath))
+                with cpuguard.slot('AcoustID fingerprint'):
+                    results = list(acoustid.match(api_key, fpath))
                 results.sort(key=lambda r: r[0], reverse=True)
                 for score, rec_id, *_ in results:
                     if score >= _MULTI_ACOUSTID_MIN_SCORE:

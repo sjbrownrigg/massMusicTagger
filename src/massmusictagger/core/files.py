@@ -8,6 +8,7 @@ import re
 from typing import NamedTuple
 
 from massmusictagger.core.cue import CUE, Track
+from massmusictagger.core import cpuguard
 from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS, ignored_source_dirs
 
 import logging
@@ -467,7 +468,8 @@ class FileUtils(object):
             cmd = (['ffmpeg', '-y', '-i', path, '-map_metadata', '0', '-c:a', encoder]
                    + quality_args + [out])
             logger.debug('M4A: running %s', ' '.join(cmd))
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            with cpuguard.slot('transcode'):
+                result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 logger.error('ffmpeg conversion failed (exit %d):\n%s',
                              result.returncode, result.stderr.strip())
@@ -571,7 +573,8 @@ class FileUtils(object):
                 cmd = ['ffmpeg', '-y', '-i', src, '-c:a', 'flac',
                        '-compression_level', self.flac_compression_level, out]
                 logger.debug('CUE: running %s', ' '.join(cmd))
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                with cpuguard.slot('transcode'):
+                    result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:
                     logger.error('ffmpeg conversion failed (exit %d):\n%s',
                                  result.returncode, result.stderr.strip())
@@ -599,10 +602,11 @@ class FileUtils(object):
             if effective_ext not in native_formats:
                 tmp_wav = src_image.rsplit('.', 1)[0] + '_tmp_decode.wav'
                 logger.info('Decoding %s → WAV for shntool (ffmpeg)', effective_ext)
-                decode = subprocess.run(
-                    ['ffmpeg', '-y', '-i', src_image, tmp_wav],
-                    capture_output=True, text=True,
-                )
+                with cpuguard.slot('decode'):
+                    decode = subprocess.run(
+                        ['ffmpeg', '-y', '-i', src_image, tmp_wav],
+                        capture_output=True, text=True,
+                    )
                 if decode.returncode != 0:
                     logger.error('ffmpeg decode failed (exit %d):\n%s',
                                  decode.returncode, decode.stderr.strip())
@@ -618,7 +622,8 @@ class FileUtils(object):
                 '-d', str(destination),
             ]
             logger.debug('CUE: running %s', ' '.join(cmd))
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            with cpuguard.slot('shntool split'):
+                result = subprocess.run(cmd, capture_output=True, text=True)
 
             if tmp_wav and os.path.exists(tmp_wav):
                 os.unlink(tmp_wav)

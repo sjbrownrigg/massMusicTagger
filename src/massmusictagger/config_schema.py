@@ -248,6 +248,7 @@ DEFAULTS = {
     # ── [replaygain] ──────────────────────────────────────────────────
     ('replaygain', 'add_tags'): 'True',
     ('replaygain', 'application'): 'r128gain',
+    ('replaygain', 'thread_count'): '2',
 
     # ── [cache] ───────────────────────────────────────────────────────
     ('cache', 'directory'): '',
@@ -275,6 +276,7 @@ DEFAULTS = {
     # already applying, so behaviour is unchanged.
     ('batch', 'audit_log'): '',
     ('batch', 'workers'): '1',
+    ('batch', 'cpu_jobs'): '1',
     ('artwork', 'image_source'): 'auto',
     ('archiving', 'source_action'): 'done_file',
     ('archiving', 'source_archive_dir'): '',
