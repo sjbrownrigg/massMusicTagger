@@ -406,3 +406,58 @@ One prerequisite: `Album` currently keeps `artists` (the names) and a
 flattened `_artist_display`, but discards the join phrases. They would need
 retaining at map time, where both mappers already have them. Parsing them
 back out of the display string would work but is the fragile way round.
+
+---
+
+## The MusicBrainz cache path lives in a credentials file
+
+`credentials/musicbrainz.yaml` carries `cache_directory: /cache/mb`, while
+Discogs takes its cache path from `config.yaml`:
+
+| source | where the path lives |
+|---|---|
+| Discogs | `config.yaml` -> `cache: directory: /cache/discogs` |
+| MusicBrainz | `credentials/musicbrainz.yaml` -> `cache_directory: /cache/mb` |
+
+A cache directory is not a credential, and nothing signposts the difference.
+It cost four failed runs to find while setting up a test configuration: the
+obvious file was edited repeatedly and the real setting was somewhere else.
+
+Credentials files are merged into the configuration under their section name,
+so `cfg.get('musicbrainz', 'cache_directory')` reads whichever file supplies
+it -- which is what makes the split invisible.
+
+**What would improve it.** Treat `cache.directory` as the root and derive
+both, which is already the de facto layout: `<root>/discogs` and `<root>/mb`
+are exactly what the two settings point at today. Keep the per-source keys
+working as deprecated overrides, and warn when one is found in a credentials
+file, since that is the case nobody will think to look for.
+
+---
+
+## Artist images in the artist folder
+
+**Feasible from Discogs only.** `api.discogs.com/artists/<id>` returns an
+`images` list -- 54 for David Bowie, with one `type=primary` and the rest
+secondary. MusicBrainz stores no artist images at all; only release cover art
+through the Cover Art Archive. So an album matched on MusicBrainz would need
+a separate Discogs artist lookup to get one.
+
+**This pairs with `%albumartist_primary%`.** An artist folder is only a
+stable place to put a picture once guest credits stop creating folders of
+their own -- otherwise "David Bowie Featuring Al B. Sure!" gets its own
+folder and its own copy of the image.
+
+**Open questions, none of them technical:**
+
+* *Filename.* Media servers disagree: Plex looks for `artist.jpg` or
+  `poster.jpg`, Jellyfin and Kodi for `folder.jpg`. Guessing wrong means the
+  file is ignored.
+* *Embed as well?* ID3 and FLAC both have picture type 8, "Artist/performer".
+  But an artist image embedded in every track adds its weight to every file
+  for something the player normally reads from the folder once -- and this
+  library already skips 24 MB booklets rather than embed them.
+* *Fetch once per artist.* One folder serves many albums, so the lookup and
+  download want caching per artist id, not per album.
+* *What happens on a MusicBrainz match* -- accept no image, or look the
+  artist up on Discogs anyway.
