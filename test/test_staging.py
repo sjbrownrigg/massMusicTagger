@@ -145,5 +145,68 @@ class OrderingTest(unittest.TestCase):
         self.assertIn('shutil.rmtree(staged, ignore_errors=True)', src)
 
 
+
+class SweepStaleStagingTest(unittest.TestCase):
+    """Emptied on the way out, swept on the way in.
+
+    A per-album staging directory is removed in a `finally`, so an ordinary
+    failure cleans up after itself. A killed process does not -- and clearing
+    a wedged container with `docker rm -f` is a SIGKILL, which is exactly how
+    this library's first bulk re-tag was unstuck. Gigabytes would have stayed
+    behind with nothing ever looking again.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def _stale(self, name, size_files=2):
+        from massmusictagger.processor import _STAGE_PREFIX
+        path = os.path.join(self.tmp, _STAGE_PREFIX + name)
+        os.makedirs(os.path.join(path, 'Artist', 'Album'))
+        for i in range(size_files):
+            open(os.path.join(path, 'Artist', 'Album', f'{i}.flac'), 'wb').close()
+        return path
+
+    def test_a_leftover_directory_is_removed(self):
+        from massmusictagger.processor import sweep_stale_staging
+        stale = self._stale('abc123')
+        self.assertEqual(sweep_stale_staging(self.tmp), 1)
+        self.assertFalse(os.path.exists(stale))
+
+    def test_several_are_removed(self):
+        from massmusictagger.processor import sweep_stale_staging
+        for name in ('a', 'b', 'c'):
+            self._stale(name)
+        self.assertEqual(sweep_stale_staging(self.tmp), 3)
+
+    def test_unrelated_contents_are_left_alone(self):
+        """The staging root may be a cache directory shared with other things."""
+        from massmusictagger.processor import sweep_stale_staging
+        keep_dir = os.path.join(self.tmp, 'discogs')
+        os.makedirs(keep_dir)
+        keep_file = os.path.join(self.tmp, 'notes.txt')
+        open(keep_file, 'wb').close()
+        self._stale('x')
+
+        self.assertEqual(sweep_stale_staging(self.tmp), 1)
+        self.assertTrue(os.path.isdir(keep_dir))
+        self.assertTrue(os.path.isfile(keep_file))
+
+    def test_an_empty_or_missing_root_is_a_no_op(self):
+        from massmusictagger.processor import sweep_stale_staging
+        self.assertEqual(sweep_stale_staging(self.tmp), 0)
+        self.assertEqual(sweep_stale_staging(''), 0)
+        self.assertEqual(sweep_stale_staging('/nonexistent/staging'), 0)
+
+    def test_it_runs_once_per_run_not_per_album(self):
+        """A concurrent worker's staging must not be swept from under it."""
+        import inspect
+        from massmusictagger import processor
+        init = inspect.getsource(processor.MassProcessor.__init__)
+        one = inspect.getsource(processor.MassProcessor._process_one)
+        self.assertIn('sweep_stale_staging', init)
+        self.assertNotIn('sweep_stale_staging', one)
+
 if __name__ == '__main__':
     unittest.main()

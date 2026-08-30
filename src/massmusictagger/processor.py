@@ -184,6 +184,47 @@ def _cleanup_empty_parents(path: str, root: str) -> None:
 
 
 
+
+#: Prefix for a per-album staging directory. Also what the startup sweep
+#: looks for, so it must not change casually.
+_STAGE_PREFIX = 'mmt-stage-'
+
+
+def sweep_stale_staging(staging_root: str) -> int:
+    """Remove staging directories left behind by a previous run.
+
+    Each album's staging directory is removed in a `finally`, so an ordinary
+    failure cleans up after itself. A killed process does not: `docker rm -f`
+    is a SIGKILL, and clearing a wedged container that way is exactly what
+    happened during this library's first bulk re-tag. Several gigabytes would
+    simply have stayed behind, and nothing would ever have looked again.
+
+    So the lifetime is enforced at both ends: emptied on the way out, and
+    swept on the way in. Only directories carrying our own prefix are touched
+    -- the staging root may be a cache directory shared with other things.
+    """
+    if not staging_root or not os.path.isdir(staging_root):
+        return 0
+
+    removed = 0
+    for name in os.listdir(staging_root):
+        if not name.startswith(_STAGE_PREFIX):
+            continue
+        path = os.path.join(staging_root, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            shutil.rmtree(path)
+            removed += 1
+        except OSError as exc:
+            logger.warning('Could not remove stale staging directory %s: %s',
+                           path, exc)
+    if removed:
+        logger.info('Removed %d staging director%s left by a previous run',
+                    removed, 'y' if removed == 1 else 'ies')
+    return removed
+
+
 def _stage_root(cfg) -> str:
     """The configured staging directory, or '' when staging is off."""
     try:
@@ -290,6 +331,10 @@ class MassProcessor:
         # subprocesses they start. Sizing them together multiplies -- see
         # core/cpuguard.py. Configure before any worker runs.
         cpuguard.configure(cfg.get('batch', 'cpu_jobs'))
+
+        # Sweep once per run rather than per album: a directory being staged
+        # right now by a concurrent worker must not be swept from under it.
+        sweep_stale_staging(_stage_root(cfg))
         self.dry_run = dry_run
         self.review = review
         self.force = force
@@ -456,7 +501,7 @@ class MassProcessor:
             staging_root = _stage_root(cfg)
             if staging_root:
                 os.makedirs(staging_root, exist_ok=True)
-                staging_dest = tempfile.mkdtemp(prefix='mmt-stage-',
+                staging_dest = tempfile.mkdtemp(prefix=_STAGE_PREFIX,
                                                 dir=staging_root)
                 destdir = staging_dest
                 logger.info('Staging %s in %s',
