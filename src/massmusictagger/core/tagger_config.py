@@ -309,6 +309,28 @@ _NEW_CONFIG_TEMPLATES = (
 )
 
 
+# The Mako templates that produce the .nfo and .m3u. Written live, because a
+# commented-out template produces nothing -- unlike the rule tables, there is
+# no useful half-way state.
+#
+# Mako searches its lookup directories in order, so a copy here shadows the
+# packaged one file by file: taking info.txt to change the .nfo leaves the
+# .m3u coming from the package. Deleting a file here goes back to the packaged
+# version, which is the way to stop carrying one you no longer want to own.
+_NEW_CONFIG_MAKO = ('info.txt', 'm3u.txt')
+
+_MAKO_HEADER = """\
+## {name} -- your copy of the packaged template.
+##
+## This file now decides what massMusicTagger writes; the packaged version is
+## no longer consulted for it, so improvements to it will not reach you here.
+## Delete this file to go back to the packaged one.
+##
+## Only this template is affected. The others still come from the package.
+##
+"""
+
+
 def _commented_template(source_path: str, name: str) -> str:
     """The packaged table, commented out, with a header saying what it is."""
     with open(source_path, encoding='utf-8') as fh:
@@ -368,6 +390,21 @@ def write_new_config(dest_dir, force=False):
 
         with open(target, 'w', encoding='utf-8') as fh:
             fh.write(text)
+        written.append(target)
+
+    for name in _NEW_CONFIG_MAKO:
+        source = os.path.join(roots.BUNDLED_TEMPLATES, name)
+        target = os.path.join(dest_dir, roots.TEMPLATES_DIRNAME, name)
+        if not os.path.exists(source):
+            continue
+        if os.path.exists(target) and not force:
+            skipped.append(target)
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(source, encoding='utf-8') as fh:
+            body = fh.read()
+        with open(target, 'w', encoding='utf-8') as fh:
+            fh.write(_MAKO_HEADER.format(name=name) + body)
         written.append(target)
 
     for sample_name, out_name in _NEW_CONFIG_TEMPLATES:

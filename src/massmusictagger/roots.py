@@ -34,8 +34,9 @@ CONFIG_FILENAME = "config.yaml"
 #   formats.ini            file and directory naming (discovered by dt3)
 #   credentials/*.yaml     API tokens, one file per source
 #
-# Mako templates and the tagging rule tables belong to discogstagger3 and ship
-# inside that package; they are never copied into a config directory.
+# The tagging rule tables ship inside the package as defaults, and Mako
+# templates ship there as the fallback for anything a configuration does not
+# provide its own copy of. All of them are overridable from a config directory.
 CREDENTIALS_DIRNAME = "credentials"
 
 
@@ -131,7 +132,10 @@ BUNDLED_TEMPLATES = os.path.join(PACKAGE_ROOT, "templates")
 # release is *named* -- whether it is filed as DM or Digital Media -- and a
 # rule that decides that should be somewhere its owner can read it.
 #
-# Mako templates belong to the package and are not user files.
+# Mako templates are found in a templates/ directory beside config.yaml, and
+# fall back to the packaged ones. Mako searches its lookup directories in
+# order, so this shadows *per file*: copy info.txt out to change the .nfo and
+# the .m3u still comes from the package, and keeps improving with it.
 #
 # formats.ini is optional: absent means the bundled format strings are used.
 #
@@ -150,6 +154,25 @@ LAYOUT = {
     "char_substitutions": "char_substitutions.yaml",
     "source_hints": "source_hints.yaml",
 }
+
+
+#: Where a configuration keeps its own Mako templates.
+TEMPLATES_DIRNAME = "templates"
+
+
+def template_dirs(config_root_dir):
+    """Template lookup directories, most specific first.
+
+    A user's templates/ shadows the packaged one file by file, so taking a
+    copy of one template does not freeze the others.
+    """
+    dirs = []
+    if config_root_dir:
+        user = os.path.join(config_root_dir, TEMPLATES_DIRNAME)
+        if os.path.isdir(user):
+            dirs.append(user)
+    dirs.append(BUNDLED_TEMPLATES)
+    return dirs
 
 
 def discover(config_root_dir, what):

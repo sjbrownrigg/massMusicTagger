@@ -706,15 +706,23 @@ class TaggerUtils(object):
 
         logger.debug("album.target_dir (preliminary): %s", self.album.target_dir)
 
-        # Mako templates belong to discogstagger3, not to the user, so they
-        # always come from the package. They are not part of a configuration
-        # directory and are not copied into one.
+        # A templates/ directory beside config.yaml comes first, then the
+        # packaged one. Mako searches in order, so a user's copy shadows the
+        # package *per file*: taking info.txt to change the .nfo leaves the
+        # .m3u coming from the package, still gaining whatever later versions
+        # do to it.
         #
-        # This was previously TemplateLookup(directories=["templates"]) -- a
-        # path relative to the working directory, which resolved only when
-        # running from a source checkout and silently produced no .nfo/.m3u
-        # anywhere else.
-        self.template_lookup = TemplateLookup(directories=[_BUNDLED_TEMPLATES])
+        # This was once TemplateLookup(directories=["templates"]) -- relative
+        # to the working directory, so it resolved only from a source checkout
+        # and silently produced no .nfo or .m3u anywhere else.
+        config_root = None
+        try:
+            config_root = roots.config_root(
+                getattr(tagger_config, 'source_conffile', None))
+        except Exception:
+            config_root = None
+        self.template_lookup = TemplateLookup(
+            directories=roots.template_dirs(config_root))
 
     # Maps format string variable names (lowercase, no %) to the MediaFile
     # attribute that would be suppressed.  Only variables that have a direct
