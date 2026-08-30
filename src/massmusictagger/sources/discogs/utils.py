@@ -525,3 +525,35 @@ def parse_extraartists(extraartists_data: list) -> dict:
         elif role in LYRICIST_ROLES:
             result['lyricists'].append(name)
     return result
+
+
+_DISC_POSITION_RE = re.compile(
+    r'^\s*(?:CD|DISC|DVD)?\s*(\d{1,2})\s*[-.]\s*\d+', re.IGNORECASE)
+
+
+def disc_distribution(positions) -> tuple:
+    """Tracks per disc, in disc order, from a list of track positions.
+
+    Both sides speak the same dialect closely enough to compare: Discogs
+    writes 'CD1-1', '1-1' or '2-4' for a multi-disc release, and the local
+    scan builds '1-1' style positions from the disc subdirectories. Anything
+    without a disc prefix -- '1', 'A1', '13a' -- is disc one.
+
+    Returned as a tuple so it compares by value: (13, 4) for an album of
+    thirteen tracks then four.
+
+    This exists because matching otherwise compares only the flat total, so a
+    single-disc release of seventeen tracks scores exactly as well as the
+    correct 13 + 4, and the difference only surfaces much later as a per-disc
+    count mismatch during tagging.
+    """
+    counts = {}
+    order = []
+    for position in positions or []:
+        match = _DISC_POSITION_RE.match(str(position or ''))
+        disc = int(match.group(1)) if match else 1
+        if disc not in counts:
+            counts[disc] = 0
+            order.append(disc)
+        counts[disc] += 1
+    return tuple(counts[d] for d in sorted(order))

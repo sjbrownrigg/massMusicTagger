@@ -28,7 +28,7 @@ from massmusictagger.core.cache import SearchCache
 from massmusictagger.sources.discogs.connector import DiscogsConnector
 from massmusictagger.sources.discogs.utils import (
     AUDIO_EXTENSIONS, VARIOUS_ARTIST_NAMES, extract_catalog_hints,
-    catalog_hint_from_tag,
+    catalog_hint_from_tag, disc_distribution,
     normalize_catalog_number, strip_catalog_suffix, strip_discogs_id_suffix,
     build_flat_tracklist, ignored_source_dirs, is_non_audio_position,
     merge_indexed_subtracks, natural_sort_key,
@@ -37,6 +37,10 @@ from massmusictagger.core.mediafile import MediaFile
 from massmusictagger.core.naming.pathutils import resolve_path
 
 logger = logging.getLogger(__name__)
+
+#: Media that carry 16-bit audio by definition, so a 24-bit source cannot be
+#: a rip of one. SACD and DVD are deliberately absent: both carry hi-res.
+_CD_ONLY_FMTS = frozenset(('cd', 'cdr', 'cd-r', 'hdcd', 'minidisc'))
 
 
 class DiscogsSearch(DiscogsConnector):
@@ -105,6 +109,12 @@ class DiscogsSearch(DiscogsConnector):
                 searchParams['catalog_hints'] = frozenset(catalog_hints)
             searchParams['album'] = strip_catalog_suffix(_raw_album)
             searchParams['year'] = metadata.year
+            # Highest bit depth seen. A 24-bit file cannot have come off a CD,
+            # which is 16-bit by definition, so it rules that medium out.
+            depth = getattr(metadata, 'bitdepth', None)
+            if depth:
+                searchParams['bitdepth'] = max(
+                    int(depth), int(searchParams.get('bitdepth') or 0))
             searchParams['date'] = metadata.date
 
             disc = metadata.disc
@@ -758,6 +768,24 @@ class DiscogsSearch(DiscogsConnector):
             except Exception:
                 pass
 
+        # Bit depth rules a medium out, one way only. CD audio is 16-bit by
+        # definition, so a 24-bit source cannot be a CD rip -- the same album
+        # matched both 'Codes (SBR331) [9xDM]' and 'Codes (SBR331CD) [CD]'
+        # across two runs of a 24-bit/44.1 download, and only the first is
+        # possible. 16-bit rules nothing out, since a 16-bit file may equally
+        # be a CD rip or a lossless download.
+        local_depth = int(searchParams.get('bitdepth') or 0)
+        if local_depth > 16:
+            try:
+                rel_fmt = (release.data.get('formats', [{}])[0]
+                           .get('name', '') or '').lower()
+            except Exception:
+                rel_fmt = ''
+            if rel_fmt in _CD_ONLY_FMTS:
+                logger.info('  [%s] rejected — %d-bit source cannot be a %s '
+                            '(CD audio is 16-bit)', rid, local_depth, rel_fmt)
+                return False
+
         has_duration = any(t['duration'] is not None for t in trackInfo)
         if not has_duration:
             similarity = self._compareTitleSimilarity(searchParams['tracks'], trackInfo)
@@ -904,8 +932,35 @@ class DiscogsSearch(DiscogsConnector):
         elif fmt_name == 'cd' and not local_vinyl:
             score -= 1.0
 
-        local_disc = searchParams.get('disc')
-        if local_disc and qty == int(local_disc):
+        # Disc layout. The flat track count cannot tell a 2-disc 13 + 4 album
+        # from a single-disc release of seventeen, so both score identically
+        # and the wrong one can win -- surfacing much later as a per-disc count
+        # mismatch during tagging, with an error that never mentions layout.
+        #
+        # Compared as a distribution rather than a disc count, because Discogs
+        # format_quantity is unreliable for this: Spirit's correct 2-CD release
+        # reports three format entries (CD, CD, All Media).
+        local_disc_hint = searchParams.get('disc')
+        local_dist = disc_distribution(
+            t.get('position') for t in searchParams.get('tracks', []))
+        if len(local_dist) > 1:
+            try:
+                cand_dist = disc_distribution(
+                    t.get('position') for t in (data.get('tracklist') or [])
+                    if t.get('type_') == 'track')
+            except Exception:
+                cand_dist = ()
+            if cand_dist:
+                if cand_dist == local_dist:
+                    logger.info('  [%s] disc layout matches %s', release.id,
+                                list(local_dist))
+                    score -= 5.0
+                elif len(cand_dist) != len(local_dist):
+                    logger.info('  [%s] disc layout %s does not match local %s',
+                                release.id, list(cand_dist), list(local_dist))
+                    score += 5.0
+        elif local_disc_hint and qty == int(local_disc_hint):
+            # Single-disc local album: keep the old, weaker nudge.
             score -= 0.5
 
         # Catalog number match: a strong, decisive signal that overrides

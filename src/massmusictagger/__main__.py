@@ -897,11 +897,28 @@ def _count_ignored(source_dir: str, source_dirs: list[str], cfg, force: bool) ->
     through the processor and are reported as OUTCOME_SKIPPED there).
     Directories at the top of a known CD1/CD2 tree are counted once.
     """
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+
     if force:
         return 0
     done_file = cfg.get('archiving', 'done_file') or 'dt.done'
     src_set = {os.path.normpath(d) for d in source_dirs}
     n = 0
+
+    # The root is normally a tree of albums rather than an album, so it is not
+    # counted below. But it can be the album itself -- which is exactly what a
+    # batch script passing one directory per run does -- and then nothing was
+    # counted and a finished album reported as "No audio source directories
+    # found", the same message an empty directory gives.
+    try:
+        here = os.listdir(source_dir)
+    except OSError:
+        here = []
+    if (done_file in here
+            and any(f.lower().endswith(AUDIO_EXTENSIONS) for f in here)
+            and os.path.normpath(source_dir) not in src_set):
+        return 1
+
     for root, dirs, files in os.walk(source_dir, topdown=True):
         if root == source_dir:
             continue
