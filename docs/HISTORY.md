@@ -2,6 +2,25 @@
 
 ---
 
+## Version 3.4.1 (2026-08-30)
+
+### Fixed
+
+**`--annotate-config` refused on a configuration holding a setting the
+reference does not describe.** Those were appended under a fresh section
+header — a duplicate key, and YAML keeps the last one, so the section built
+from the reference was silently discarded along with every other setting in
+it. On a real configuration that meant `source_dir`, `dest_dir` and
+`watch_poll_interval` reported as lost.
+
+The check that runs before writing caught it and refused, which is the only
+reason this was an error message rather than a wrecked configuration.
+Unrecognised settings are now inserted into their existing section, marked
+`# Not described by the reference configuration.`, and a new header is only
+created for a section that is genuinely new.
+
+---
+
 ## Version 3.4.0 (2026-08-30)
 
 ### Added
