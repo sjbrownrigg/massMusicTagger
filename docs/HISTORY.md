@@ -2,6 +2,37 @@
 
 ---
 
+## Version 3.9.1 (2026-08-30)
+
+### Fixed
+
+**A cue sheet naming audio that is not present stopped an album being split.**
+An EAC rip commonly leaves two sheets per disc: the real one, and an ISRC
+sheet pointing at the scratch file it ripped through — `FILE "Range.wav"` —
+which was never kept. The test for a single-file rip is that sheets and audio
+files are equal in number, so six sheets against three disc images failed it
+and the set was never split. It reached the tagger as three untagged tracks,
+matched nothing, and reported a plain no-match with nothing to suggest the
+CUE handling was involved.
+
+Filename grouping could not solve it: the two sheets per disc share no stem
+at all, one carrying the artist prefix and the other an `ISRC` suffix. The
+sheet itself is the reliable witness — one whose `FILE` is not in its own
+directory cannot split anything. Nothing is dropped when no sheet resolves,
+since that means the check does not apply rather than that every sheet is
+junk.
+
+Sheets are read tolerantly, since rippers rarely declare an encoding. UTF-16
+is tried only behind a byte-order mark: it decodes almost any byte sequence
+without complaint, which would otherwise turn a latin-1 sheet into mojibake
+with no `FILE` line at all.
+
+Verified on Nick Cave's *Lovely Creatures*: six sheets reduced to three, all
+three discs split, 45 tracks tagged, and the source archived with its images
+and all six sheets intact.
+
+---
+
 ## Version 3.9.0 (2026-08-30)
 
 ### Changed
