@@ -76,10 +76,23 @@ _OTHER_READERS_KEYS = frozenset({'mbid', 'barcode'})
 
 
 class PrepTask(NamedTuple):
-    """Work a source directory needs before it can be tagged."""
+    """Work a source directory needs before it can be tagged.
+
+    ``outdir`` is where the prepared audio ended up. It is ``None`` until
+    prepare() runs, and equal to ``dirpath`` when preparation wrote in place
+    (no staging configured). When it differs, the album has two locations
+    that must not be confused: ``dirpath`` is the *origin* -- what the user
+    put there, and the only thing source_action may archive or delete -- and
+    ``outdir`` is where its audio now is.
+
+    Nothing prepare() produces is source material. A disc image and its sheet
+    are the source; the split tracks are a decode artefact, made to be tagged
+    and then finished with.
+    """
     dirpath: str
     kind: str       # 'cue' | 'm4a'
     files: tuple
+    outdir: 'str | None' = None
 
 
 def _actual_audio_format(path: str) -> str:
@@ -341,12 +354,67 @@ class FileUtils(object):
 
         return source_dirs, tasks
 
-    def prepare(self, tasks, dry_run=False):
+    #: Extensions that preparation consumes and must not carry into staging:
+    #: the disc image is decoded, the sheet is read, the .m4a is transcoded.
+    #: Everything else in the album directory -- covers, logs, .txt, .nfo --
+    #: belongs with the prepared album.
+    _PREP_CONSUMED = ('.cue', '.m4a', '.flac', '.ape', '.wv', '.wav',
+                      '.tta', '.mp3', '.ogg', '.m4b')
+
+    def _copy_prep_sidecars(self, origin, outdir):
+        """Bring an album's non-audio files along into staging.
+
+        Preparation writes audio, but an album is more than its audio: the
+        covers, rip logs and any .nfo sit beside it. copy_other_files() later
+        reads from wherever the audio is, so anything left behind in the
+        origin would simply be dropped from the tagged album.
+        """
+        if not outdir or os.path.abspath(outdir) == os.path.abspath(origin):
+            return
+        for name in os.listdir(origin):
+            src = os.path.join(origin, name)
+            if not os.path.isfile(src):
+                continue
+            if os.path.splitext(name)[1].lower() in self._PREP_CONSUMED:
+                continue
+            try:
+                shutil.copy2(src, os.path.join(outdir, name))
+            except OSError as exc:
+                logger.warning('Could not copy %s into staging: %s',
+                               _fssafe(name), exc)
+
+    def _prep_outdir(self, task, staging_root):
+        """Where this task's prepared audio should be written.
+
+        A per-album directory under *staging_root*, or the source directory
+        itself when no staging is configured -- which is the behaviour that
+        predates staging and stays the default.
+        """
+        if not staging_root:
+            return task.dirpath
+        import tempfile
+        os.makedirs(staging_root, exist_ok=True)
+        from massmusictagger.processor import _PREP_PREFIX
+        outdir = tempfile.mkdtemp(prefix=_PREP_PREFIX, dir=staging_root)
+        logger.info('Preparing %s in %s',
+                    _fssafe(os.path.basename(task.dirpath.rstrip('/\\'))),
+                    outdir)
+        return outdir
+
+    def prepare(self, tasks, dry_run=False, staging_root=''):
         """Run the transformations scan() identified.
 
-        Returns (prepared, failed) as lists of PrepTask. A failure is
-        reported and the other tasks still run: one album with a broken CUE
-        sheet should not stop the rest of a batch.
+        Returns (prepared, failed) as lists of PrepTask, each prepared task
+        carrying the ``outdir`` its audio was written to.
+
+        With *staging_root* set, that is a directory under it rather than the
+        source: split tracks and transcodes are decode artefacts, not source
+        material, and writing them beside the original both pollutes what the
+        user put there and makes a second run see a different album than the
+        first did.
+
+        A failure is reported and the other tasks still run: one album with a
+        broken CUE sheet should not stop the rest of a batch.
         """
         prepared, failed = [], []
         for task in tasks:
@@ -367,17 +435,25 @@ class FileUtils(object):
                         '--dry-run to see the real result.',
                         _fssafe(os.path.basename(task.dirpath.rstrip('/'))))
                 continue
+            outdir = self._prep_outdir(task, staging_root)
             try:
                 if task.kind == 'cue':
-                    ok = self._processCueFiles(task.dirpath, list(task.files)) == 0
+                    ok = self._processCueFiles(task.dirpath, list(task.files),
+                                               outdir=outdir) == 0
                 else:
-                    ok = bool(self._processM4aFiles(task.dirpath, list(task.files)))
+                    ok = bool(self._processM4aFiles(task.dirpath,
+                                                    list(task.files),
+                                                    outdir=outdir))
             except Exception as exc:
                 logger.error('Failed preparing %s in %s: %s',
                              what, _fssafe(task.dirpath), exc)
                 failed.append(task)
                 continue
-            (prepared if ok else failed).append(task)
+            if ok:
+                self._copy_prep_sidecars(task.dirpath, outdir)
+            # Record where the audio ended up. The caller needs both: the
+            # origin to archive, and this to read from.
+            (prepared if ok else failed).append(task._replace(outdir=outdir))
             if not ok:
                 logger.error('Could not prepare %s in %s', what,
                              _fssafe(task.dirpath))
@@ -393,7 +469,7 @@ class FileUtils(object):
         self.prepare(tasks, dry_run=self.dry_run)
         return source_dirs
 
-    def _processCueFiles(self, dir, files):
+    def _processCueFiles(self, dir, files, outdir=None):
         """ Process CUE files.  Work out multi-disc sets
         """
         files.sort()
@@ -407,14 +483,14 @@ class FileUtils(object):
             if len(files) > 1:
                 cue.discnumber = str(idx + 1)
                 cue.disctotal = str(len(files))
-            result = self._splitCueFile(cue)
+            result = self._splitCueFile(cue, outdir=outdir)
             if result != 0:
                 logger.error('CUE processing failed for %s', dir)
                 return 1
 
         return 0
 
-    def _processM4aFiles(self, dir, files):
+    def _processM4aFiles(self, dir, files, outdir=None):
         """ Convert or stash .m4a files according to the configured actions
             for ALAC (lossless) vs AAC (lossy) content.
 
@@ -462,7 +538,11 @@ class FileUtils(object):
                                action, _fssafe(file), codec)
                 continue
 
-            out = os.path.splitext(path)[0] + '.' + target_ext
+            # Written to outdir, which is a staging directory unless
+            # preparation is configured to work in place. The transcode is a
+            # decode artefact, not something to leave beside the original.
+            out = os.path.join(outdir or dir,
+                               os.path.splitext(file)[0] + '.' + target_ext)
             logger.info('M4A: converting %s (%s) → %s (%s)',
                         _fssafe(file), codec, _fssafe(os.path.basename(out)), action)
             cmd = (['ffmpeg', '-y', '-i', path, '-map_metadata', '0', '-c:a', encoder]
@@ -475,6 +555,12 @@ class FileUtils(object):
                              result.returncode, result.stderr.strip())
                 continue
 
+            if outdir and os.path.abspath(outdir) != os.path.abspath(dir):
+                # Source untouched: the transcode went to staging, so there is
+                # nothing to stash and the original stays exactly as it was.
+                converted_any = True
+                continue
+
             done_dir = os.path.join(dir, self.m4a_done_dir)
             Path(done_dir).mkdir(exist_ok=True)
             shutil.move(path, done_dir)
@@ -482,10 +568,13 @@ class FileUtils(object):
 
         return converted_any
 
-    def _tagFiles(self, cue):
+    def _tagFiles(self, cue, outdir=None):
         """ Tags files with the metadata present in cue file
+
+        Reads the split tracks from where _splitCueFile wrote them, which is
+        a staging directory unless preparation is working in place.
         """
-        file_path = cue.image_file_directory
+        file_path = outdir or cue.image_file_directory
         if cue.disctotal is not None and int(cue.disctotal) > 1:
             file_path = os.path.join(file_path, 'cd' + str(cue.discnumber))
         for track in cue.tracks:
@@ -526,12 +615,17 @@ class FileUtils(object):
                 audio.pprint()
                 audio.save()
 
-    def _splitCueFile(self, cue):
+    def _splitCueFile(self, cue, outdir=None):
         """ Handles the splitting and tidy up of cue files and associated audio
         """
-        destination = cue.image_file_directory
+        # Where the split tracks go. outdir is a staging directory unless
+        # preparation is configured to work in place; the tracks are a decode
+        # artefact of the image, not something to leave beside it.
+        destination = outdir or cue.image_file_directory
         if cue.disctotal is not None and int(cue.disctotal) > 1:
-            destination = os.path.join(cue.image_file_directory, 'cd' + str(cue.discnumber))
+            # Under the same root -- a multi-disc set must not send half its
+            # discs to staging and half back into the source tree.
+            destination = os.path.join(destination, 'cd' + str(cue.discnumber))
         p = Path(destination)
         if not p.exists():
             p.mkdir()
@@ -600,7 +694,14 @@ class FileUtils(object):
             tmp_wav = None
 
             if effective_ext not in native_formats:
-                tmp_wav = src_image.rsplit('.', 1)[0] + '_tmp_decode.wav'
+                # Decoded beside the split output rather than beside the
+                # image: on a share this is the single largest write in the
+                # pipeline, ~1.5 GB for a full disc, and it is deleted again
+                # moments later.
+                tmp_wav = os.path.join(
+                    destination,
+                    os.path.basename(src_image).rsplit('.', 1)[0]
+                    + '_tmp_decode.wav')
                 logger.info('Decoding %s → WAV for shntool (ffmpeg)', effective_ext)
                 with cpuguard.slot('decode'):
                     decode = subprocess.run(
@@ -634,7 +735,14 @@ class FileUtils(object):
                 return 1
 
         logger.info('Split complete — tagging %d tracks', track_count)
-        self._tagFiles(cue)
+        self._tagFiles(cue, outdir=outdir)
+
+        if outdir and os.path.abspath(outdir) != os.path.abspath(
+                cue.image_file_directory):
+            # Source untouched: the split went to staging, so the image and
+            # its sheet stay exactly where the user put them. Stashing them
+            # aside only made sense when the tracks landed beside them.
+            return 0
 
         logger.info('Stashing source CUE and image files in %s', self.cue_done_dir)
         done_dir = os.path.join(cue.image_file_directory, self.cue_done_dir)

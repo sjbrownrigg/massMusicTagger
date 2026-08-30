@@ -185,9 +185,15 @@ def _cleanup_empty_parents(path: str, root: str) -> None:
 
 
 
-#: Prefix for a per-album staging directory. Also what the startup sweep
-#: looks for, so it must not change casually.
+#: Prefixes for the directories staging owns. Also what the startup sweep
+#: looks for, so they must not change casually.
+#:
+#: Two kinds: 'mmt-stage-' holds an album being assembled for the
+#: destination, 'mmt-prep-' holds one whose CUE split or transcode was
+#: written there instead of into the source tree.
 _STAGE_PREFIX = 'mmt-stage-'
+_PREP_PREFIX = 'mmt-prep-'
+_OWNED_PREFIXES = (_STAGE_PREFIX, _PREP_PREFIX)
 
 
 def sweep_stale_staging(staging_root: str) -> int:
@@ -208,7 +214,7 @@ def sweep_stale_staging(staging_root: str) -> int:
 
     removed = 0
     for name in os.listdir(staging_root):
-        if not name.startswith(_STAGE_PREFIX):
+        if not name.startswith(_OWNED_PREFIXES):
             continue
         path = os.path.join(staging_root, name)
         if not os.path.isdir(path):
@@ -374,8 +380,17 @@ class MassProcessor:
             except ImportError:
                 logger.warning('MusicBrainz adapter not available — skipping MB path')
 
-    def process_all(self, source_dirs: list[str], n_ignored: int = 0) -> list[ProcessingResult]:
-        """Process all directories, returning a list of results."""
+    def process_all(self, source_dirs: list[str], n_ignored: int = 0,
+                    origins: 'dict[str, str] | None' = None) -> list[ProcessingResult]:
+        """Process all directories, returning a list of results.
+
+        *origins* maps an audio directory to the origin it was prepared
+        from, for albums whose CUE split or transcode was written to
+        staging. Audio is read from the key; source_action acts on the
+        value -- archiving the staging copy and leaving the user's disc
+        images behind for ever is the failure this prevents.
+        """
+        self._origins = dict(origins or {})
         results: list[ProcessingResult] = []
 
         # Serial processing when workers=1 (simpler for review mode and debugging)
@@ -383,15 +398,19 @@ class MassProcessor:
             with _make_progress(len(source_dirs)) as progress:
                 task = progress.add_task('Tagging', total=len(source_dirs))
                 for sd in source_dirs:
-                    result = self._process_one(sd, progress=progress, task=task)
+                    result = self._process_one(
+                        sd, progress=progress, task=task,
+                        origin=self._origins.get(sd.rstrip('/')))
                     results.append(result)
                     progress.advance(task)
         else:
             with _make_progress(len(source_dirs)) as progress:
                 task = progress.add_task('Tagging', total=len(source_dirs))
                 with ThreadPoolExecutor(max_workers=self.workers) as pool:
-                    futures = {pool.submit(self._process_one, sd): sd
-                               for sd in source_dirs}
+                    futures = {
+                        pool.submit(self._process_one, sd,
+                                    origin=self._origins.get(sd.rstrip('/'))): sd
+                        for sd in source_dirs}
                     for fut in as_completed(futures):
                         result = fut.result()
                         results.append(result)
@@ -401,8 +420,22 @@ class MassProcessor:
         self._print_summary(results, n_ignored=n_ignored)
         return results
 
-    def _process_one(self, sourcedir: str, **_) -> ProcessingResult:
-        result = ProcessingResult(sourcedir)
+    def _process_one(self, sourcedir: str, origin: 'str | None' = None,
+                     **_) -> ProcessingResult:
+        """Tag one album.
+
+        *sourcedir* is where the audio is. *origin* is what the user put
+        there, when preparation wrote the audio somewhere else -- a CUE split
+        or a transcode into staging. They are the same directory otherwise.
+
+        The distinction exists because `source_action` archives or deletes
+        `result.sourcedir`. Point that at a staging directory and `move`
+        archives a temporary decode while leaving the disc images in place
+        for ever, and `remove` deletes the decode and leaves them too. So the
+        result carries the origin, and only the reading below uses sourcedir.
+        """
+        origin = origin or sourcedir
+        result = ProcessingResult(origin)
         t0 = time.monotonic()
 
         try:
@@ -412,9 +445,12 @@ class MassProcessor:
             cfg = self.cfg
 
             done_file = cfg.get('archiving', 'done_file') or 'dt.done'
-            done_path = os.path.join(sourcedir, done_file)
+            # Against the origin, not the audio directory: the marker records
+            # that the user's directory has been dealt with, and a staging
+            # directory will not exist on the next run to be asked.
+            done_path = os.path.join(origin, done_file)
             if os.path.exists(done_path) and not self.force:
-                logger.info('Skipping %s (done file exists)', sourcedir)
+                logger.info('Skipping %s (done file exists)', origin)
                 result.outcome = OUTCOME_SKIPPED
                 result.elapsed = time.monotonic() - t0
                 return result
@@ -422,7 +458,9 @@ class MassProcessor:
             # --releaseid wins; otherwise an id.txt in this directory.
             override_source, override_id = self.release_id_source, self.release_id
             if not override_id:
-                override_source, override_id = self._id_file_override(sourcedir)
+                # From the origin: id.txt is the user's file, and
+                # preparation does not copy it into staging.
+                override_source, override_id = self._id_file_override(origin)
 
             from massmusictagger.cascade import search_and_map
             match = search_and_map(
@@ -489,8 +527,11 @@ class MassProcessor:
                 result.elapsed = time.monotonic() - t0
                 return result
 
+            # Falling back to the origin, not the audio directory: with no
+            # dest_dir the intent is to tag in place, and in place means where
+            # the user's files are, not a staging directory about to be swept.
             final_destdir = os.path.expanduser(
-                cfg.get('common', 'dest_dir') or sourcedir)
+                cfg.get('common', 'dest_dir') or origin)
 
             # Staging. Tagging otherwise reads the source from the share and
             # writes it back there, then ReplayGain reads the destination
@@ -641,6 +682,16 @@ class MassProcessor:
             staged = locals().get('staging_dest') or ''
             if staged and os.path.isdir(staged):
                 shutil.rmtree(staged, ignore_errors=True)
+
+            # The prepared audio too, once this album is done with it.
+            # Otherwise a batch of CUE rips accumulates every decode until the
+            # run ends and the next startup sweep clears them. Guarded on our
+            # own prefix as well as the origin differing, so a mis-set origins
+            # map can never delete a real source directory.
+            if (origin != sourcedir
+                    and os.path.basename(sourcedir.rstrip('/')).startswith(_PREP_PREFIX)
+                    and os.path.isdir(sourcedir)):
+                shutil.rmtree(sourcedir, ignore_errors=True)
 
         result.elapsed = time.monotonic() - t0
         return result

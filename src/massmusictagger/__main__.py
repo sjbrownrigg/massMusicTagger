@@ -796,9 +796,15 @@ def _bundled_sample(name: str = 'config_sample.yaml') -> str:
 
 def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
                      dry_run: bool = False) -> tuple[list[str], int]:
-    """Return (dirs_to_process, n_ignored).
+    """Return (dirs_to_process, n_ignored, origins).
 
     dirs_to_process — flat list of audio directories to tag.
+    origins         — {audio_dir: origin_dir} for albums whose audio was
+                      prepared into a staging directory. The origin is what
+                      the user put there and the only thing source_action may
+                      archive or delete; the key is where its audio now is.
+                      Empty when nothing needed preparing, or when preparation
+                      wrote in place.
     n_ignored       — count of directories that already have a done file and
                       were silently excluded before reaching the processor.
                       Directories that DO reach the processor but are skipped
@@ -843,10 +849,10 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
     has_id_here = id_file in files_here
 
     if has_audio_here and not has_id_here and not searchdiscogs:
-        return [source_dir], 0
+        return [source_dir], 0, {}
 
     if has_audio_here and has_id_here:
-        return [source_dir], 0
+        return [source_dir], 0, {}
 
     # Walk for id.txt directories (highest priority).
     id_dirs = fu.walk_dir_tree(source_dir, id_file)
@@ -855,7 +861,7 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
 
     if not searchdiscogs:
         dirs = id_dirs if id_dirs else ([source_dir] if has_audio_here else [])
-        return dirs, _count_ignored(source_dir, dirs, cfg, force)
+        return dirs, _count_ignored(source_dir, dirs, cfg, force), {}
 
     # searchdiscogs=true: also include audio dirs without an ancestor id.txt.
     # Two stages, deliberately. scan() only reads; prepare() runs the CUE
@@ -866,8 +872,21 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
     # conversion failure, not as 'no audio source directories found'.
     id_dir_set = set(id_dirs)
     scanned, prep_tasks = fu.scan(source_dir)
+    origins: dict[str, str] = {}
     if prep_tasks:
-        prepared, failed = fu.prepare(prep_tasks, dry_run=dry_run)
+        from massmusictagger.processor import _stage_root
+        prepared, failed = fu.prepare(prep_tasks, dry_run=dry_run,
+                                      staging_root=_stage_root(cfg))
+        # A prepared album now lives in two places: its origin, which is what
+        # the user put there and the only thing source_action may touch, and
+        # the directory its audio was written to. Where they differ, tag the
+        # latter and remember the former.
+        for task in prepared:
+            if task.outdir and os.path.abspath(task.outdir) != os.path.abspath(task.dirpath):
+                origins[task.outdir.rstrip('/')] = task.dirpath.rstrip('/')
+                scanned = [d for d in scanned
+                           if d.rstrip('/') != task.dirpath.rstrip('/')]
+                scanned.append(task.outdir)
         if prepared:
             logger.info('Prepared %d source director%s', len(prepared),
                         'y' if len(prepared) == 1 else 'ies')
@@ -887,7 +906,7 @@ def _get_source_dirs(cfg, sourcedir_arg: str | None, force: bool = False,
         )
     ]
     dirs = id_dirs + orphan_audio
-    return dirs, _count_ignored(source_dir, dirs, cfg, force)
+    return dirs, _count_ignored(source_dir, dirs, cfg, force), origins
 
 
 def _count_ignored(source_dir: str, source_dirs: list[str], cfg, force: bool) -> int:
@@ -1096,7 +1115,7 @@ def _main(argv: list[str] | None = None) -> None:
     if opts.watch:
         _watch_mode(opts, cfg, processor)
     else:
-        source_dirs, n_ignored = _get_source_dirs(cfg, opts.sourcedir, force=opts.force,
+        source_dirs, n_ignored, origins = _get_source_dirs(cfg, opts.sourcedir, force=opts.force,
                                                  dry_run=opts.dry_run)
         if not source_dirs:
             if n_ignored:
@@ -1130,7 +1149,8 @@ def _main(argv: list[str] | None = None) -> None:
                     ' → '.join(_priority) or 'auto',
                     workers,
                     _flags)
-        processor.process_all(source_dirs, n_ignored=n_ignored)
+        processor.process_all(source_dirs, n_ignored=n_ignored,
+                              origins=origins)
 
 
 def _watch_mode(opts, cfg, processor) -> None:
@@ -1159,12 +1179,13 @@ def _watch_mode(opts, cfg, processor) -> None:
 
     try:
         while True:
-            source_dirs, n_ignored = _get_source_dirs(cfg, source_root)
+            source_dirs, n_ignored, origins = _get_source_dirs(cfg, source_root)
             new_dirs = [d for d in source_dirs if d not in processed]
             if new_dirs:
                 logger.info('Found %d new director%s to process',
                             len(new_dirs), 'y' if len(new_dirs) == 1 else 'ies')
-                processor.process_all(new_dirs, n_ignored=n_ignored)
+                processor.process_all(new_dirs, n_ignored=n_ignored,
+                                      origins=origins)
                 processed.update(new_dirs)
             time.sleep(poll_interval)
     except KeyboardInterrupt:

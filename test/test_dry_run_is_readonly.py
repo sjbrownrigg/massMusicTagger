@@ -189,7 +189,7 @@ class ScanReadsPrepareWrites(unittest.TestCase):
             _, tasks = fu.scan(tmp)
             self.assertEqual(len(tasks), 2)
             calls = {'n': 0}
-            def flaky(dirpath, files):
+            def flaky(dirpath, files, outdir=None):
                 calls['n'] += 1
                 if calls['n'] == 1:
                     raise OSError('broken cue')
