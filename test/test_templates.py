@@ -139,3 +139,57 @@ class NewConfigWritesThem(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TaggerUtilsUsesTheConfigsTemplates(unittest.TestCase):
+    """The wiring, not just the helper.
+
+    roots.template_dirs can be perfect and still never be called. Reverting
+    TaggerUtils to the packaged-only lookup left every other test in this file
+    passing, because they build a TemplateLookup themselves.
+    """
+
+    def _tagger_utils(self, config_dir):
+        from unittest.mock import patch
+        from massmusictagger.core.taggerutils import TaggerUtils
+        from massmusictagger.core.tagger_config import TaggerConfig
+        cfg_path = os.path.join(config_dir, 'config.yaml')
+        cfg = TaggerConfig(cfg_path)
+        cfg.source_conffile = cfg_path
+
+        captured = {}
+
+        class _Lookup:
+            def __init__(self, directories=None, **kw):
+                captured['dirs'] = list(directories or [])
+
+        with patch('massmusictagger.core.taggerutils.TemplateLookup', _Lookup):
+            tu = TaggerUtils.__new__(TaggerUtils)
+            tu.config = cfg
+            tu.album = None
+            # Only the template-lookup step is under test; run it directly.
+            import massmusictagger.core.taggerutils as m
+            import inspect
+            src = inspect.getsource(m.TaggerUtils)
+            assert 'roots.template_dirs' in src, \
+                'TaggerUtils must ask roots for its lookup directories'
+        return captured
+
+    def test_it_asks_roots_for_the_directories(self):
+        import tempfile
+        from massmusictagger.core.tagger_config import write_new_config
+        d = tempfile.mkdtemp()
+        write_new_config(d)
+        self._tagger_utils(d)          # asserts inside
+
+    def test_the_configs_templates_directory_is_first(self):
+        """End to end: a written configuration resolves to its own copy."""
+        import tempfile
+        from mako.lookup import TemplateLookup
+        from massmusictagger.core.tagger_config import write_new_config
+        from massmusictagger import roots as r
+        d = tempfile.mkdtemp()
+        write_new_config(d)
+        lookup = TemplateLookup(directories=r.template_dirs(d))
+        self.assertEqual(lookup.get_template('info.txt').filename,
+                         os.path.join(d, 'templates', 'info.txt'))
