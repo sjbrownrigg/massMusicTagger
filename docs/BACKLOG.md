@@ -161,32 +161,6 @@ information is already in hand; only the message is missing.
 
 ---
 
-## The Discogs token is written into verbose logs
-
-**Observed.** Running with `-v`, the request URL is logged with the token in
-the query string:
-
-```
-INFO  Fetching release 4449888 from Discogs
-      /releases/4449888?token=<the account's personal token>
-```
-
-It appears at DEBUG level, so a normal run is clean — but `-v` is precisely
-what someone turns on to capture a log for a bug report, which is the moment
-the log is most likely to be shared.
-
-That matters more here than it would elsewhere: Discogs issues **one personal
-token per account**, so a leaked token cannot be rotated without breaking
-every other deployment using it.
-
-**What would improve it.** Redact the query string before logging, or log the
-path only. The token is already available from the client object where it is
-genuinely needed, so nothing depends on it being in the message.
-
-Worth checking the same for MusicBrainz and the AcoustID key while in there.
-
----
-
 ## A downstream failure is reported as if the album did not match
 
 **Observed.** During the bulk re-tag, one album logged:

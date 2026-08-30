@@ -2,6 +2,38 @@
 
 ---
 
+## Version 3.5.1 (2026-08-30)
+
+### Fixed
+
+**The Discogs token was written into verbose logs.** The client authenticates
+by putting the personal token in the query string, and urllib3 logs every
+request line at DEBUG:
+
+```
+DEBUG https://api.discogs.com:443 "GET /releases/4449888?token=<token>"
+```
+
+A normal run never showed it — the root logger sits at INFO, so DEBUG records
+are dropped before reaching a handler — but `-v` is exactly what someone
+enables to capture a log for a bug report, which is when a log is most likely
+to be shared.
+
+It cannot be fixed at our call sites, because the record comes from a
+third-party library. A `logging.Filter` on the handlers redacts credentials
+wherever they originate, covering libraries added later as well. It catches
+`token`, the OAuth parameters, `client_secret`, `api_key`, `password`,
+`secret`, and AcoustID's `client` key, in query strings and in
+`Authorization` headers.
+
+This matters more than a leaked key usually would: Discogs issues **one
+personal token per account**, so a token that reaches a shared log cannot be
+rotated without breaking every other deployment using that account.
+
+Rotate your token if you have previously shared a `-v` log.
+
+---
+
 ## Version 3.5.0 (2026-08-30)
 
 ### Added

@@ -12,7 +12,8 @@ import shutil
 import sys
 
 from massmusictagger.config_schema import ConfigError
-from massmusictagger import roots, __version__
+from massmusictagger import roots
+from massmusictagger import logredact, __version__
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,11 @@ def _setup_logging(verbose: bool, log_file: str | None = None,
             logging.getLogger(__name__).warning(
                 'Could not set up log file %s (%s) — logging to console only', log_file, exc
             )
+
+    # Strip credentials from every handler, including the file handler added
+    # above. The Discogs token travels in the query string and urllib3 logs
+    # the request line at DEBUG, so this cannot be fixed at our call sites.
+    logredact.install()
 
     # musicbrainzngs logs INFO for every unrecognised XML attribute in the MB
     # API response (e.g. 'uncaught attribute type-id').  These are harmless
