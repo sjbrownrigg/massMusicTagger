@@ -68,6 +68,12 @@ def dedupe_cue_sheets(cue_files, audio_files):
     return [sorted(names, key=preference)[0] for names in groups.values()]
 
 
+#: Keys in id.txt that belong to another reader. MusicBrainz picks mbid= and
+#: barcode= out of the same file for its own search tiers, so a file holding
+#: only those is valid and this reader passes over it in silence.
+_OTHER_READERS_KEYS = frozenset({'mbid', 'barcode'})
+
+
 class PrepTask(NamedTuple):
     """Work a source directory needs before it can be tagged."""
     dirpath: str
@@ -202,6 +208,8 @@ class FileUtils(object):
             if '=' in line:
                 key, _, val = line.partition('=')
                 key, val = key.strip().lower(), val.strip()
+                if key in _OTHER_READERS_KEYS:
+                    continue          # MusicBrainz reads these, not us
                 if key == 'name':
                     named = val.lower()
                 elif key.endswith('_id'):
@@ -229,8 +237,15 @@ class FileUtils(object):
                 source, release_id = 'discogs', bare
 
         if not release_id:
-            logger.warning('%s declares no release ID — ignoring',
-                           _fssafe(idfile))
+            # Keys another reader owns are not this reader's business.
+            # MusicBrainz picks mbid= and barcode= out of the same file for
+            # its own search tiers, and a file holding only those is valid --
+            # warning about it says the file was ignored when it was not.
+            if pairs or bare or named:
+                logger.warning('%s declares no release ID — ignoring',
+                               _fssafe(idfile))
+            else:
+                logger.debug('%s holds nothing this reader owns', _fssafe(idfile))
             return None, None
         if source not in self.ID_SOURCES:
             logger.warning('%s names source %r, which is not one of %s — '

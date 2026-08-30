@@ -215,3 +215,51 @@ class ExistingTagsAreAnImplicitIdFile(unittest.TestCase):
         src = inspect.getsource(cascade._try_discogs)
         head = src[:src.index('_read_existing_discogs_id_tag')]
         assert 'from_explicit=True' in head
+
+
+class KeysAnotherReaderOwns(unittest.TestCase):
+    """id.txt is read by two readers with different vocabularies.
+
+    FileUtils.read_id_file takes the release ID; MusicBrainz picks mbid= and
+    barcode= out of the same file for its own search tiers. A file holding
+    only those is perfectly valid, and warning "declares no release ID —
+    ignoring" said it had been ignored when it had not.
+    """
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.d = self.tmp.name
+
+    def _write(self, body):
+        with open(os.path.join(self.d, 'id.txt'), 'w', encoding='utf-8') as fh:
+            fh.write(body)
+
+    def test_an_mbid_only_file_is_passed_over_quietly(self):
+        self._write('mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96\n')
+        with self.assertNoLogs('massmusictagger.core.files', level='WARNING'):
+            self.assertEqual(_fu().read_id_file(self.d), (None, None))
+
+    def test_a_barcode_only_file_is_passed_over_quietly(self):
+        self._write('barcode=5099749939523\n')
+        with self.assertNoLogs('massmusictagger.core.files', level='WARNING'):
+            self.assertEqual(_fu().read_id_file(self.d), (None, None))
+
+    def test_musicbrainz_still_reads_them(self):
+        from massmusictagger.sources.musicbrainz.search import _read_id_txt
+        from massmusictagger.core.tagger_config import TaggerConfig
+        from massmusictagger import roots
+        cfg = TaggerConfig(os.path.join(roots.BUNDLED_CONF, 'config_sample.yaml'))
+        self._write('mbid=abc-123\nbarcode=5099749939523\n')
+        self.assertEqual(_read_id_txt(self.d, cfg, key='mbid'), 'abc-123')
+        self.assertEqual(_read_id_txt(self.d, cfg, key='barcode'), '5099749939523')
+
+    def test_a_release_id_beside_an_mbid_is_still_read(self):
+        self._write('4319687\nmbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96\n')
+        self.assertEqual(_fu().read_id_file(self.d), ('discogs', '4319687'))
+
+    def test_a_genuinely_broken_file_still_warns(self):
+        self._write('[source]\nname = discogs\n')
+        with self.assertLogs('massmusictagger.core.files', level='WARNING'):
+            self.assertEqual(_fu().read_id_file(self.d), (None, None))
