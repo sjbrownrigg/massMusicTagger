@@ -100,3 +100,45 @@ def test_build_map_honours_the_profile_from_config():
     m = build_map(cfg)
     assert m, 'build_map should pick up the windows profile'
     assert apply_substitutions("<<Start The Show>>", m) == "((Start The Show))"
+
+
+def test_a_commented_out_user_table_does_not_disable_substitution(tmp_path):
+    """--new-config writes this table entirely commented out.
+
+    So it defines nothing -- and the file merely existing used to mean
+    char_profile "windows" stopped applying and NTFS-illegal characters went
+    into filenames. A table you have not filled in yet is not an instruction
+    to do nothing.
+
+    Caught live: the file was written into a running deployment's config and
+    the next album would have been named without substitutions.
+    """
+    from massmusictagger.core.naming.charmap import load_substitutions
+    from massmusictagger.core.tagger_config import write_new_config
+
+    write_new_config(str(tmp_path))
+    subs = load_substitutions(str(tmp_path / 'char_substitutions.yaml'), 'windows')
+    assert subs, 'the packaged table must still apply'
+    assert subs[':'] == '-', 'the windows profile should be in force'
+
+
+def test_a_user_table_that_defines_the_profile_wins(tmp_path):
+    from massmusictagger.core.naming.charmap import load_substitutions
+    path = tmp_path / 'char_substitutions.yaml'
+    path.write_text("profiles:\n  windows:\n    ':': '_'\n", encoding='utf-8')
+    subs = load_substitutions(str(path), 'windows')
+    assert subs[':'] == '_'
+
+
+def test_a_user_table_defining_another_profile_falls_back(tmp_path):
+    """Defining "linux" says nothing about what "windows" should do."""
+    from massmusictagger.core.naming.charmap import load_substitutions
+    path = tmp_path / 'char_substitutions.yaml'
+    path.write_text("profiles:\n  linux:\n    '/': '-'\n", encoding='utf-8')
+    subs = load_substitutions(str(path), 'windows')
+    assert subs.get(':') == '-', 'packaged windows profile should apply'
+
+
+def test_the_packaged_table_is_still_authoritative_when_unset():
+    from massmusictagger.core.naming.charmap import load_substitutions
+    assert load_substitutions(None, 'windows')[':'] == '-'

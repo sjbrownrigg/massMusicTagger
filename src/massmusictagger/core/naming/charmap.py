@@ -109,9 +109,20 @@ def load_substitutions(yaml_path: str | None, profile: str) -> dict:
     profiles = (data or {}).get('profiles', {})
     subs = profiles.get(profile)
     if subs is None:
-        if profile != 'linux':
-            logger.warning('Char substitution profile "%s" not found in %s', profile, path)
-        return {}
+        if not configured:
+            if profile != 'linux':
+                logger.warning('Char substitution profile "%s" not found in %s',
+                               profile, path)
+            return {}
+        # A user's file that does not define this profile falls back to the
+        # packaged one rather than switching substitution off. --new-config
+        # writes this table entirely commented out, so it defines *nothing*
+        # -- and the file merely existing used to mean char_profile "windows"
+        # stopped applying and NTFS-illegal characters went into filenames.
+        # A table you have not filled in is not an instruction to do nothing.
+        logger.info('char_substitutions.yaml does not define profile "%s" — '
+                    'using the packaged table', profile)
+        return load_substitutions(None, profile)
 
     result = {str(k): (str(v) if v is not None else '') for k, v in subs.items()}
     logger.debug('Loaded %d substitution(s) for profile "%s" from %s',
