@@ -152,3 +152,58 @@ All 2 albums already tagged (.done present) — use --force to re-tag
 
 reserving the existing warning for a tree that genuinely holds no audio. The
 information is already in hand; only the message is missing.
+
+---
+
+## Bound CPU-heavy work with one global semaphore
+
+**Observed.** Concurrent decode threads are `batch.workers x os.cpu_count()`,
+because each worker's album spawns its own `r128gain` and `taggerutils.py`
+passes no `-c`, so r128gain falls back to `OPTIMAL_THREAD_COUNT =
+os.cpu_count()`. At `workers: 1` on an 8-core host that is 8 decodes. At
+`workers: 4` on a 4-core mini-PC it is 32.
+
+**Measured**, 12 FLAC / 345 MB, on local disk so the share could not mask it:
+
+| `r128gain -c` | wall time |
+|---|---|
+| 1 | 35.1s |
+| 2 | 19.1s |
+| 4 | 20.1s |
+| 8 | 20.6s |
+
+It saturates at **two threads**. Four and eight buy nothing and eight is
+marginally slower. Everything above 2 is pure contention.
+
+For scale, the same album read from the NAS took 33.0s against 19.1s of
+scanning — 1.7 : 1 I/O to CPU on the development machine. The deployment
+hosts are second-hand mini-PCs sharing that same link with slower cores, so
+the ratio there moves toward CPU and the oversubscription costs more, not
+less.
+
+**Why a semaphore rather than fewer workers.** Workers exist to overlap
+*waiting*, and waiting is still the dominant cost. Cutting workers to protect
+the CPU throws away the I/O overlap with it. One dial currently controls both
+concerns, multiplicatively; they want separating, so a deployment can run
+`workers: 4` for the link and `cpu_jobs: 1` for the processor.
+
+**Why one semaphore rather than a queue per stage.** The contended resource is
+the CPU itself, shared by four external programs: `r128gain`, `shntool` plus
+`flac` for CUE splitting, `ffmpeg` for `.m4a` transcoding, and `fpcalc` for
+fingerprinting. Per-stage queues would each run at their own cap
+simultaneously and rebuild the problem a level up. A single counting
+semaphore around every CPU-heavy subprocess is both smaller and correct.
+
+Workers are threads in one process (`ThreadPoolExecutor`,
+[processor.py:305]), so this is a module-level `BoundedSemaphore` rather than
+any cross-process machinery.
+
+**What to do:**
+
+1. Pass `-c` to r128gain from a config key, defaulting to 2. One line, and it
+   removes a 4x-8x oversubscription on its own.
+2. Add `batch.cpu_jobs` (default 1) and a global semaphore held across every
+   external CPU-heavy subprocess call.
+
+Aim it at the weakest deployment: the same configuration then simply runs
+faster on a stronger machine instead of needing different settings.
