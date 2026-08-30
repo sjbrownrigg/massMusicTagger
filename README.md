@@ -11,28 +11,32 @@ longer depends on. discogstagger3 continues as its own project.
 
 ---
 
-> ## ⚠ Breaking changes in 3.0.0 — read before upgrading
+> ## ⚠ Upgrading from 2.x — read before you do
 >
-> **A 2.x `config.yaml` will not work as written.** `[details]` had grown to
-> 28 keys and its contents moved to `[naming]`, `[artwork]`, `[archiving]`,
-> `[tags]` and `[source]`. The old names are **not** honoured: a setting that
-> looks present simply does not apply.
+> **Your `config.yaml` will not work as written.** In 3.0.0 the `[details]`
+> section — which had grown to 28 keys covering unrelated things — was split
+> into `[naming]`, `[artwork]`, `[archiving]`, `[tags]` and `[source]`. The old
+> names are **not** honoured, so a setting that looks present in the file
+> simply does not apply.
 >
-> Migrate in place — comments preserved, original kept as `config.yaml.bak`:
+> One command moves it, keeping every comment and leaving the original as
+> `config.yaml.bak`:
 >
 > ```bash
-> mmt --migrate-config              # the configuration directory in use
-> mmt --migrate-config /path/to/dir # or a specific one
+> mmt --migrate-config
 > ```
 >
-> It prints what it moved and what it dropped. Afterwards a clean start logs
-> no `moved to [section]` or `was removed in 3.0.0` warnings — if it does,
-> that setting is not being applied.
+> It prints what it moved and what it dropped. Run it again after any upgrade,
+> even if you have run it before: each version has taught it something new, and
+> it does nothing when there is nothing left to do.
+>
+> Afterwards a clean start should log no warnings at all. If it does, that
+> setting is not being applied.
 >
 > **3.1.0 is a security release.** `$inarray` and `$flatten` fell back to
-> `eval()` on their argument, and both are meant to be pointed at metadata,
-> so an album title could execute code during tagging. Discogs titles are
-> editable by anyone with an account. Upgrade rather than staying on 3.0.0.
+> Python's `eval()` on whatever they were given, and both exist to be pointed
+> at metadata — so an album title could run code during tagging. Anyone with a
+> Discogs account can edit a title. Do not stay on 3.0.0.
 >
 > Full detail: [docs/HISTORY.md](docs/HISTORY.md).
 
@@ -47,12 +51,16 @@ longer depends on. discogstagger3 continues as its own project.
 | [docker-mmt](https://github.com/sjbrownrigg/docker-mmt) | Docker deployment — compose files, NAS mounts, WSL2 notes (separate repo) |
 | [HISTORY.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/HISTORY.md) | Changelog |
 
-### discogstagger3 documentation (the tagging engine)
+### discogstagger3
+
+A separate project, and no longer part of this one. massMusicTagger began as a
+wrapper around it and absorbed its tagging core in 3.0.0; since then the two
+share history but no code. Its documentation describes *its* behaviour, which
+has drifted from this one's — use the pages above for massMusicTagger.
 
 | Document | Description |
 |---|---|
-| [tagging_reference.md](https://github.com/sjbrownrigg/discogstagger3/blob/master/docs/tagging_reference.md) | Complete format string variable and function reference |
-| [README](https://github.com/sjbrownrigg/discogstagger3#readme) | discogstagger3 overview, installation, and config |
+| [discogstagger3](https://github.com/sjbrownrigg/discogstagger3#readme) | The Discogs-only tagger this was forked from |
 
 ---
 
@@ -81,11 +89,29 @@ point, and everything beside it is found by name:
 
 ```
 config.yaml              your settings
-formats.ini              your file and directory naming (optional)
+formats.ini              how files and folders are named
 credentials/             API tokens — every *.yaml here is loaded
   discogs.yaml
   musicbrainz.yaml
+templates/               the templates that produce .nfo and .m3u
+  info.txt
+  m3u.txt
+format_codes.yaml        how a release's format becomes a code: CD, DM, 2xLP
+char_substitutions.yaml  characters replaced per char_profile
+source_hints.yaml        words in a folder name that identify the rip
 ```
+
+`mmt --new-config` writes all of it and never overwrites a file you already
+have, so it is safe to re-run to pick up anything new.
+
+The last four are optional and behave differently from the first two. The
+three rule tables arrive **entirely commented out** and are merged over the
+packaged ones: uncomment one line and only that line changes, while
+everything else keeps coming from the package and keeps improving with each
+upgrade. The templates arrive live — a commented-out template produces
+nothing — and shadow the packaged ones **per file**, so editing `info.txt`
+leaves `m3u.txt` alone. Delete any of them to go back to the packaged
+version.
 
 It is found via `MMT_CONFIG_DIR`, else `$XDG_CONFIG_HOME/massmusictagger`, else
 `~/.config/massmusictagger`. There is no `-c` switch — the configuration is a
@@ -95,8 +121,21 @@ directory, so it is selected by pointing `MMT_CONFIG_DIR` at one:
 MMT_CONFIG_DIR=~/configs/vinyl mmt ~/Music/incoming
 ```
 
-Create one with `mmt --new-config`. Credentials can also come from the
-environment (`DISCOGS_USER_TOKEN`), which overrides the file.
+Credentials can also come from the environment (`DISCOGS_USER_TOKEN`), which
+wins over the file — handy for containers, where a token in a file can end up
+in an image layer.
+
+Three commands look after a configuration:
+
+| Command | What it does |
+|---|---|
+| `mmt --new-config` | Creates one, or fills in files an existing one is missing |
+| `mmt --migrate-config` | Moves settings an upgrade has relocated, keeping your comments |
+| `mmt --annotate-config` | Puts the explanatory comments back, changing no values |
+
+`--annotate-config` is for a configuration that has been carried forward for
+years and holds the right settings with none of the explanation. It refuses to
+write if anything but the comments would change.
 
 Settings are grouped by what they affect:
 
@@ -154,10 +193,23 @@ source:
 
 ## Format strings
 
-massMusicTagger uses discogstagger3's format string engine plus additional
-variables. See [tagging_reference.md](https://github.com/sjbrownrigg/massMusicTagger/blob/master/docs/tagging_reference.md)
-for what massMusicTagger adds, and [discogstagger3's tagging_reference.md](https://github.com/sjbrownrigg/discogstagger3/blob/master/docs/tagging_reference.md)
-for the complete format string reference.
+File and directory names are built from format strings in the foobar2000
+style — literal text with `%variables%` and `$functions()` that nest:
+
+```ini
+dir  = %albumartist%/[%year%] %album%
+song = $num('%tracknumber%','2') $if1($neg($strcmp('%artist%','%albumartist%')),'%artist% - ')%title%%fileext%
+```
+
+That dialect is why this project exists. See
+[tagging_reference.md](docs/tagging_reference.md) for the variables and
+functions available.
+
+Preview a change before running it against your library:
+
+```bash
+python format_preview.py --conf ~/.config/massmusictagger
+```
 
 ## Fingerprinting (optional)
 

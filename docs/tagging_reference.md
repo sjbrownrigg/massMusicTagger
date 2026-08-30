@@ -1,23 +1,131 @@
 # Tagging reference — massMusicTagger
 
-> **Base reference:** the complete format string variable and function reference
-> lives in discogstagger3:
->
-> **[→ discogstagger3: tagging_reference.md](https://github.com/sjbrownrigg/discogstagger3/blob/master/docs/tagging_reference.md)**
+What massMusicTagger writes into your files, and the format strings that decide
+what those files are called.
 
-This document covers what massMusicTagger **adds or changes** relative to
-discogstagger3, with a complete combined tag mapping table for both sources.
+The tables below label one column **dt3**. That is the Discogs path as
+massMusicTagger inherited it from discogstagger3, kept as a column because it
+is a useful "this is the older behaviour" marker — not because discogstagger3
+is involved at run time. It has not been since 3.0.0.
 
 ---
 
 ## Contents
 
-1. [Additional format string variables](#additional-format-string-variables)
-2. [Changes to existing variables](#changes-to-existing-variables)
-3. [Custom variables](#custom-variables-custom-variables)
-4. [Complete tag mapping table](#complete-tag-mapping-table)
-5. [Underlying tag names by format](#underlying-tag-names-by-format)
-6. [Image handling](#image-handling)
+1. [Format string functions](#format-string-functions)
+2. [Additional format string variables](#additional-format-string-variables)
+3. [Changes to existing variables](#changes-to-existing-variables)
+4. [Custom variables](#custom-variables-custom-variables)
+5. [Complete tag mapping table](#complete-tag-mapping-table)
+6. [Underlying tag names by format](#underlying-tag-names-by-format)
+7. [Image handling](#image-handling)
+
+---
+
+## Format string functions
+
+Format strings are literal text with `%variables%` substituted in and
+`$functions()` that can nest inside each other:
+
+```ini
+song = $num('%tracknumber%','2') $if1($neg($strcmp('%artist%','%albumartist%')),'%artist% - ')%title%%fileext%
+```
+
+Read that as: the track number padded to two digits, then — only if the track
+artist differs from the album artist — that artist and a dash, then the title.
+
+Every example below is taken from the test corpus that pins this behaviour, so
+they are what the functions actually do rather than what they are meant to do.
+
+### Text
+
+| Function | Does | Example → result |
+|---|---|---|
+| `$upper(s)` | Uppercase | `$upper('abc')` → `ABC` |
+| `$lower(s)` | Lowercase | `$lower('ABC')` → `abc` |
+| `$num(s,places)` | Pad a number with leading zeros. Non-numeric values, such as vinyl positions like `A1`, pass through untouched | `$num('7','3')` → `007` |
+| `$substr(s,start,end)` | A slice. Either end may be empty, and negatives count from the right | `$substr('abcdefgh','','-3')` → `abcde` |
+| `$strchr(s,c)` | Position of the first `c`, counting from zero; `-1` when absent | `$strchr('hello','l')` → `2` |
+| `$wrap(s,before,after)` | `before + s + after`, or **nothing at all** when `s` is empty | `$wrap('x','[',']')` → `[x]`, `$wrap('','[',']')` → *(empty)* |
+
+`$wrap` is the one to reach for when a piece of punctuation should only appear
+if its content does. `$wrap('%edition%',' (',')')` adds the brackets only when
+there is an edition to put in them.
+
+### Tests
+
+These return true or false, and are meant to be used inside `$if1`.
+
+| Function | True when |
+|---|---|
+| `$valid(s)` | `s` is non-empty |
+| `$strcmp(a,b)` | `a` and `b` are identical |
+| `$stricmp(a,b)` | …ignoring case |
+| `$contains(s,part)` | `part` appears in `s` |
+| `$icontains(s,part)` | …ignoring case |
+| `$inarray(list,item)` | `item` is in a list variable such as `%format_description%` |
+| `$neg(x)` | `x` is false |
+| `$any(…)` | any argument is true |
+| `$all(…)` | every argument is true |
+
+```
+$all($valid('x'),$valid('y'))   → True
+$all($valid('x'),$valid(''))    → False
+$any($valid(''),$valid('x'))    → True
+```
+
+### Choices
+
+| Function | Does | Example → result |
+|---|---|---|
+| `$if1(test,then,else)` | `else` is optional and defaults to nothing | `$if1($valid(''),'yes','no')` → `no` |
+| `$if2(a,b)` | `a` if it is non-empty, otherwise `b` | `$if2('','fallback')` → `fallback` |
+| `$if3(a,b,c,…)` | The first non-empty argument | `$if3('','','third')` → `third` |
+| `$ifeq(a,b,then,else)` | Compare as text | `$ifeq('a','b','same','diff')` → `diff` |
+| `$ieq(a,b,then,else)` | …ignoring case | `$ieq('A','a','same','diff')` → `same` |
+| `$ifequal(a,b,then,else)` | Compare as **numbers** | `$ifequal(2,2,'eq','ne')` → `eq` |
+| `$ifgreater(a,b,then,else)` | Numeric greater-than | `$ifgreater(2,3,'gt','le')` → `le` |
+| `$switch(v,k1,r1,k2,r2,…,default)` | Match `v` against each key | `$switch('9','1','one','2','two','other')` → `other` |
+| `$iswitch(…)` | …ignoring case | `$iswitch('BOOTLEG','bootleg','B','promo','P','')` → `B` |
+
+`$ifeq` compares text and `$ifequal` compares numbers — a distinction worth
+remembering, because `$ifeq('2','02',…)` and `$ifequal(2,02,…)` disagree.
+
+### Lists
+
+Some variables hold a list rather than a single value — `%catnos%`,
+`%format_description%`, `%format_names%`. `$flatten` turns part of one back
+into text.
+
+| Function | Does | Example → result |
+|---|---|---|
+| `$flatten(list,slice,join)` | Slice, then join with `join` | `$flatten('["A","B","C"]','0','')` → `A` |
+| | The slice is Python's, so `:2` means the first two | `$flatten('["A","B","C"]',':2',' / ')` → `A / B` |
+| | and `:` means all of them | `$flatten('["A","B","C"]',':',' + ')` → `A + B + C` |
+
+### Two things worth knowing
+
+**A `+` between two functions is not concatenation at the top level.** Inside
+an argument it joins values; in ordinary text it is a plus sign. So
+`$upper('a')+' '+$upper('b')` produces `A+' '+B`, while the same expression
+*inside* an argument produces `A B`. Adjacent items concatenate on their own —
+`$upper('a')$upper('b')` gives `AB` — so a `+` is rarely what you want outside
+an argument.
+
+**An unknown function name replaces the whole expression** with
+`unknown command`, rather than being left as text. If a filename comes out
+saying that, check the spelling of every function in the string, not just the
+obvious one.
+
+### Trying a change safely
+
+`format_preview.py` renders your format strings against fixture albums, so you
+can see the effect before running the tagger over anything:
+
+```bash
+python format_preview.py --conf ~/.config/massmusictagger
+python format_preview.py --conf ~/.config/massmusictagger --watch   # re-run on save
+```
 
 ---
 
@@ -119,11 +227,11 @@ paths.
 
 | Column | Meaning |
 |---|---|
-| **dt3** | Written by discogstagger3 (Discogs path) |
+| **dt3** | The older Discogs-path behaviour, inherited from discogstagger3 |
 | **mmt/Discogs** | Written by massMusicTagger on the Discogs path |
 | **mmt/MB** | Written by massMusicTagger on the MusicBrainz path |
 | ✓ | Written |
-| ✓† | Written with this change vs dt3 |
+| ✓† | Written, but differently from that older behaviour |
 | — | Not written |
 | N | Native mediafile field |
 | C | Custom field added via `MediaFile.add_field()` in `mediafile_ext.py` |

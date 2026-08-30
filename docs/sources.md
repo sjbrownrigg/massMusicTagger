@@ -1,64 +1,84 @@
-# Metadata sources — massMusicTagger
+# Where the metadata comes from
 
-massMusicTagger supports multiple metadata sources that are tried in a
-configurable priority order. This document describes each source, its search
-strategy, and configuration.
+massMusicTagger asks several places about an album and takes the first
+confident answer. This page explains what those places are, how it decides an
+answer is confident, and how to overrule it.
+
+You do not need to read this to use the tagger. Read it when a release matched
+something you did not expect, or did not match at all.
 
 ---
 
-## Source priority
-
-Configured in `conf/config_personal.yaml`:
+## The order it asks in
 
 ```yaml
 source:
   priority:
-    - discogs          # try Discogs first
-    - musicbrainz      # fall back to MusicBrainz
-    - existing_tags    # organise from embedded tags if no API match
+    - discogs          # ask Discogs first
+    - musicbrainz      # then MusicBrainz
+    - existing_tags    # failing both, use what is already in the files
 ```
 
-Each source is tried in order. The first confident match wins. A match is
-accepted only when the release track count matches the local file count
-(within a tolerance of ±2).
+Each source is tried in turn and the first confident match wins. "Confident"
+has a specific meaning: the number of tracks on the release has to match the
+number of audio files you have, within two. A source that finds nothing, or
+finds something with the wrong number of tracks, hands over to the next one.
 
-Override the priority for a single run with `--source`:
+For one run you can ignore the list:
 
 ```bash
-mmt --source musicbrainz  # MB only
 mmt --source discogs      # Discogs only
-mmt --source auto         # use priority list (default)
+mmt --source musicbrainz  # MusicBrainz only
+mmt --source auto         # back to the priority list (the default)
 ```
+
+Leaving `existing_tags` out of the list is a deliberate choice with a real
+consequence: an album that matches nothing then **fails** and stays where it
+is, rather than being filed from its own tags. That is what you want while
+checking how well matching works, because otherwise a failure looks like a
+success. Put it back when you want everything filed regardless.
 
 ---
 
 ## Discogs
 
-> **Full reference:** [discogstagger3 README](https://github.com/sjbrownrigg/discogstagger3#readme)
+Discogs is usually the better answer for vinyl, for older releases, and for
+anything where the pressing matters.
 
-The Discogs source uses discogstagger3's search engine directly. Configuration
-lives in `conf/discogs.yaml` / `conf/discogs_personal.yaml`.
-
-### Search tiers (discogstagger3)
-
-1. `id.txt` containing a Discogs release ID
-2. Existing `discogs_id` tag in audio files (validated against track count)
-3. `DiscogsSearch` — artist + title + year + duration matching
-
-### Discogs-specific config keys
+**Credentials** go in `credentials/discogs.yaml`, or in the environment as
+`DISCOGS_USER_TOKEN`, which wins. A personal access token is the simple
+option; OAuth is there if you need it.
 
 ```yaml
 discogs:
-  user_token: ""          # personal access token (recommended)
-  consumer_key: ""        # OAuth — only needed without user_token
+  user_token: ""        # a personal access token — the easy way
+  consumer_key: ""      # OAuth, only needed if you are not using a token
   consumer_secret: ""
-  skip_auth: false
+  skip_auth: false      # no authentication at all: metadata only, no images
 ```
+
+> Discogs issues **one personal token per account**. Generating a token for a
+> second application invalidates the first, so every deployment sharing an
+> account must use the same token. massMusicTagger checks the token when it
+> starts and stops with an explanation if it has been refused — otherwise a
+> warm cache can hide a dead token for a whole run.
+
+### How it decides
+
+1. **An ID you gave it** — from `--releaseid` or an `id.txt` beside the album.
+   Used even if the track count disagrees, because you chose it; the mismatch
+   is logged.
+2. **A `discogs_id` already in the file tags.** Checked against the track
+   count, and *abandoned* if it disagrees — the tag may be left over from a
+   release that has since gained a bonus track.
+3. **A search**, by artist and title, scored on track durations. When Discogs
+   has no durations for a release it falls back to comparing track titles, and
+   `batch.title_similarity_threshold` (default 60%) decides how close counts.
 
 ```yaml
 batch:
-  searchdiscogs: true     # enable automatic search (required for tiers 2-3)
-  tracklength_tolerance: 5.0   # seconds — max avg duration difference to accept
+  searchdiscogs: true          # allow searching at all
+  tracklength_tolerance: 5.0   # seconds of average difference still accepted
   title_similarity_threshold: 60
 ```
 
@@ -66,189 +86,241 @@ batch:
 
 ## MusicBrainz
 
-Configuration lives in `conf/musicbrainz.yaml` / `conf/musicbrainz_personal.yaml`.
+MusicBrainz is often better for CDs and digital releases, and it is the source
+of the typed cover art described below.
 
-### Search tiers
-
-| Tier | Method | Dependency |
-|---|---|---|
-| 1 | `id.txt` with `mbid=<UUID>` | — |
-| 2 | Existing `musicbrainz_releaseid` tag (validated) | — |
-| 2.5 | Early AcoustID — runs before text search when `acoustid_early: true` | `pip install massmusictagger[acoustid]` + `apt install libchromaprint-tools` |
-| 3 | Text search — artist + album title + track count (with artist similarity scoring; tries parent directory name if albumartist tag absent) | — |
-| 4 | Barcode lookup via MB API | — |
-| 5 | DiscID — CD TOC hash from file durations; validated against embedded artist/title tags to prevent false matches | `pip install massmusictagger[discid]` + `apt install libdiscid0` |
-| 6 | Single-track AcoustID fingerprint (skipped when tier 2.5 fired) | `pip install massmusictagger[acoustid]` + `apt install libchromaprint-tools` |
-| 7 | Multi-track AcoustID — all tracks fingerprinted; release with most matching recordings wins (skipped when tier 2.5 fired) | same as tier 6 |
-
-### MusicBrainz-specific config keys
+**Credentials** go in `credentials/musicbrainz.yaml`. There is no API key, but
+MusicBrainz requires a user agent that identifies you and gives them a contact:
 
 ```yaml
 musicbrainz:
-  user_agent: "YourApp/1.0 (your@email.com)"   # required by MB API
-  acoustid_api_key: ""   # register at https://acoustid.org/login
-  acoustid_early: false  # run fingerprinting before text search (tier 2.5)
-  cache_directory: "~/.cache/massmusictagger/mb"
-  cache_metadata: true   # release JSON + CAA image index
-  cache_images:   true   # downloaded Cover Art Archive image files
-  cache_search:   true   # text search and barcode search result MBIDs
-  caa_request_delay: 0.5 # seconds between CAA requests (increase if rate-limited)
-  source_hints_file: "conf/source_hints.yaml"  # keyword lists for format hint warnings
+  user_agent: "YourApp/1.0 (you@example.com)"   # required
 ```
 
-### Source format hints
+### How it decides
 
-When `source_hints_file` is set, massMusicTagger checks the source folder name
-against keyword lists to infer whether the files are digital or vinyl-rip origin.
-If the inferred hint conflicts with the matched MB release's medium format, a
-`WARNING` is logged.  The match is still accepted.
+It works down these in order, stopping at the first answer.
+
+| # | Method | Needs |
+|---|---|---|
+| 1 | `mbid=` in an `id.txt` beside the album | — |
+| 2 | A `musicbrainz_releaseid` already in the file tags | — |
+| 2.5 | Fingerprint first, before searching by name — only when `acoustid_early` is on | AcoustID, below |
+| 3 | Search by artist, album title and track count | — |
+| 4 | Barcode, from `barcode=` in an `id.txt` | — |
+| 5 | Disc ID — the CD's own table of contents, worked out from track lengths | `libdiscid` |
+| 6 | Fingerprint one track | AcoustID |
+| 7 | Fingerprint every track and take the release most of them agree on | AcoustID |
+
+Tier 3 is the one that needs care, because a title is not unique. Two things
+guard it:
+
+- The album title must score at least **70%** against the candidate's title.
+- The artist must score at least **60%**.
+
+The artist floor is not a tie-break, it is a refusal: a candidate credited to
+a different artist is skipped, not ranked lower. Without it, *Pariah* by Anja
+Huwe was tagged as *Pariah* by Red Dons — same title, same two tracks, and
+fourteen years apart.
+
+### Caching
+
+MusicBrainz and the Cover Art Archive are free services, so answers are kept
+on disk and reused.
 
 ```yaml
-# conf/source_hints.yaml
-source_hints:
-  digital:
-    - "24 Bit"
-    - "Remaster"
-    - "WEB"
-    - "Hi-Res"
-  vinyl:
-    - "Vinyl Rip"
-    - "Needle Drop"
+musicbrainz:
+  cache_directory: ""      # empty: use the state directory
+  cache_metadata: true     # release data and the cover art index
+  cache_images:   true     # the image files themselves
+  cache_search:   true     # which release a search chose
+  caa_request_delay: 0.5   # seconds between cover art requests
 ```
 
-Point `source_hints_file` at a personal file (`conf/source_hints_personal.yaml`,
-gitignored) to extend or override the defaults without modifying the shipped file.
+`cache_search` stores the *decision*, not the reply — so if the matching rules
+change, old answers would otherwise stand. They are stamped with a version and
+retire themselves when the rules change.
 
-### Installing fingerprinting support
+### Fingerprinting
+
+Tiers 5 to 7 need two system libraries and one extra install:
 
 ```bash
-# System libraries
-sudo apt install libdiscid0 libchromaprint-tools   # Debian/Ubuntu
-
-# Python packages
-pip install "massmusictagger[fingerprint]"   # installs both discid + pyacoustid
+sudo apt install libdiscid0 libchromaprint-tools
+pip install "massmusictagger[fingerprint]"
 ```
 
----
-
-## Post-processing: source_action
-
-After a successful tag, `archiving.source_action` controls what happens to the
-source directory:
-
-| Value | Behaviour |
-|---|---|
-| `done_file` | Write a `.done` marker and leave the source in place (default) |
-| `remove` | Delete the source directory (verifies audio files exist in output first) |
-| `move` | Relocate the source directory into an archive tree |
+AcoustID also needs a free application key from
+[acoustid.org](https://acoustid.org/login):
 
 ```yaml
-details:
-  source_action: move
-  source_archive_dir: "~/Music/archive"
-  # Path template for source_action=move. Supports all format variables plus:
-  #   %current_folder% — original source directory basename
-  source_move_template: "%source%/%albumartist%/%current_folder%"
+musicbrainz:
+  acoustid_api_key: ""
+  acoustid_early: false    # fingerprint before searching by name
 ```
-
-The `remove` and `move` actions verify that the output directory contains at
-least one audio file before deleting or moving the source, guarding against
-data loss if the sort step failed silently.
 
 ---
 
 ## existing_tags
 
-A fallback source that requires no API calls. When all other sources fail to
-find a confident match, `existing_tags` reads metadata already embedded in
-the audio files and organises them using the configured format strings.
+The last resort, and the only source that asks nobody anything. It reads the
+metadata already in your files and uses it to name and file them.
 
-**No new tags are written** — only file names and directory structure change.
-The original metadata is preserved intact.
+**It writes no new tags.** Only filenames and folder structure change; what is
+in the files is left exactly as it is.
 
-Useful for:
-- Bootlegs and rarities not in any database
-- Partial rips / incomplete albums (where track count doesn't match any release)
-- Maintaining a consistent folder structure for untagged files
+It earns its place for bootlegs and rarities in no database, for incomplete
+rips whose track count will never match a real release, and for keeping a
+consistent shelf out of files you have already tagged by hand.
+
+One limitation worth knowing: the artist name is taken from the files
+verbatim. If your tags say `Wumpscut` and the databases say `:wumpscut:`, this
+source will not correct it, and that artist ends up in two folders.
 
 ---
 
-## Image source preference
+## Pinning a release yourself
 
-Images can be fetched from a different source than the metadata:
+When the tagger picks the wrong release — or cannot pick one — you can name it.
+
+### For one album
+
+```bash
+mmt --releaseid 14726546 ~/Music/incoming/album
+mmt --releaseid musicbrainz:4b8a0e1b-249b-4d11-8e6e-42aa23466b96 ~/Music/album
+```
+
+A bare number means Discogs. Qualify it when it is not, because the two
+databases number releases completely differently — a Discogs number handed to
+MusicBrainz is not a near miss, it is a different namespace.
+
+`--releaseid` names one release, so it is refused when the directory you point
+it at contains more than one album.
+
+### For a whole tree: id.txt
+
+Put a file called `id.txt` inside an album folder. It travels with the album,
+so one run over a large collection can pin a different release for each one.
+
+Every form below works:
+
+```ini
+# A bare Discogs release number
+4319687
+
+# The same, named
+discogs_id = 4319687
+
+# A MusicBrainz release
+musicbrainz_id = 4b8a0e1b-249b-4d11-8e6e-42aa23466b96
+
+# The older discogstagger3 layout, still accepted
+[source]
+name = discogs
+discogs_id = 4319687
+```
+
+Two further entries are read by the MusicBrainz search rather than as the
+release ID, and can sit in the same file:
+
+```ini
+mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96   # a MusicBrainz release
+barcode=5099749939523                        # looked up at MusicBrainz
+```
+
+An ID you gave is used even when the track count disagrees — you chose it, and
+the mismatch is only logged. That is the difference from a `discogs_id` found
+in the file tags, which is abandoned on a mismatch because it may be stale.
+
+### Finding the numbers
+
+**Discogs.** Open the release page and take the number from the end of the
+URL: `discogs.com/release/`**`4319687`**`-Artist-Album`. Prefer the specific
+pressing you own over a general entry — the tracklist and labels will match.
+
+**MusicBrainz.** Open the **Release** page, not the Release Group, and take the
+UUID from the URL:
+`musicbrainz.org/release/`**`4b8a0e1b-249b-4d11-8e6e-42aa23466b96`**. The
+release page also shows whether the Cover Art Archive has artwork for it.
+
+### Using both together
+
+If a release is in both databases, name both and set
+`artwork.image_source: musicbrainz`. Discogs supplies the metadata and the
+Cover Art Archive supplies typed, usually larger, artwork:
+
+```ini
+4319687
+mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
+```
+
+---
+
+## Where the artwork comes from
+
+Artwork can come from a different place than the metadata:
 
 ```yaml
-details:
-  image_source: auto         # images from the same source as metadata (default)
-  image_source: musicbrainz  # always use Cover Art Archive (typed: Front/Back/Medium/…)
-  image_source: discogs      # always use Discogs images
+artwork:
+  image_source: auto         # whichever source supplied the metadata (default)
+  # image_source: musicbrainz  # always the Cover Art Archive
+  # image_source: discogs      # always Discogs
 ```
 
-When `image_source: musicbrainz` and metadata came from Discogs, massMusicTagger
-attempts a barcode lookup to find the MBID for Cover Art Archive.
+The Cover Art Archive labels its images — Front, Back, Medium, Booklet — so
+they can be named and embedded correctly. Discogs only says which image is the
+main one, so its main image is written as `cover.jpg` rather than `front.jpg`:
+the name claims less, because Discogs told us less.
+
+With `image_source: musicbrainz` and metadata from Discogs, massMusicTagger
+looks the release up by barcode to find the MusicBrainz ID it needs.
+
+### Telling the tagger what kind of rip it has
+
+Folder names often say. `source_hints.yaml` lists the words that give it away,
+and a match becomes a hint used to reject an obviously wrong pressing — a
+vinyl release will not be matched to a download.
+
+```yaml
+source_hints:
+  digital:
+    - "24 Bit"
+    - "24B-"        # matches "[FLAC] [24B-44.1kHz]"
+    - "WEB"
+  vinyl:
+    - "Vinyl Rip"
+    - "Needle Drop"
+```
+
+Your own `source_hints.yaml` beside `config.yaml` **adds to** this list rather
+than replacing it, so a copy does not freeze at whatever shipped that day.
 
 ---
 
-## id.txt format
+## What happens to the source folder afterwards
 
-Place an `id.txt` file inside the album directory to pin a specific release.
-Explicit IDs are validated against the local track count — a mismatch logs a
-warning but still proceeds (you chose this ID deliberately).
-
-### Supported entries
-
-```
-# Discogs release ID — the number from the release URL:
-4319687
-
-# MusicBrainz release MBID — the UUID from the release URL:
-mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
-
-# Both in one file (uses Discogs for metadata, MB MBID for CAA images):
-4319687
-mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
-
-# Barcode lookup (MusicBrainz barcode search — useful when no MBID is known):
-barcode=5099749939523
-
-# Old discogstagger3 INI-style format also accepted:
-[source]
-discogs_id=4319687
+```yaml
+archiving:
+  source_action: done_file
 ```
 
-### How to find the Discogs release ID
+| Value | What it does |
+|---|---|
+| `done_file` | Leaves the folder alone and drops a marker so it is skipped next time (default) |
+| `move` | Moves the folder into an archive tree |
+| `remove` | Deletes the folder |
 
-1. Search for the release at [discogs.com](https://www.discogs.com) and open
-   the release page.
-2. The release ID is the number at the end of the URL:
-   `https://www.discogs.com/release/**4319687**-Artist-Album`
-3. It is also shown at the bottom of the release page under
-   *Release page* → *Discogs release ID*.
+`move` and `remove` both check that the tagged output actually contains audio
+before touching the original, so a silent failure earlier cannot cost you the
+files.
 
-Use the most specific pressing — e.g. the original UK first press rather than
-a generic master entry — for the most accurate tracklist and label data.
-
-### How to find the MusicBrainz release MBID
-
-1. Search for the release at [musicbrainz.org](https://musicbrainz.org) and
-   open the **Release** page (not Release Group — the Release has the specific
-   pressing details).
-2. The MBID is the UUID in the URL:
-   `https://musicbrainz.org/release/**4b8a0e1b-249b-4d11-8e6e-42aa23466b96**`
-3. It is also shown on the release page under *Release information* →
-   *MusicBrainz Release ID*.
-
-The MB release page also links to the Cover Art Archive if typed images
-(Front, Back, Medium) are available — useful to confirm before tagging.
-
-### Tip: use both IDs together
-
-When a release exists in both databases, pin both IDs and set
-`image_source: musicbrainz` in your config. massMusicTagger will use Discogs
-for metadata (often more complete for vinyl / older releases) and Cover Art
-Archive for typed, higher-resolution images:
-
+```yaml
+archiving:
+  source_action: move
+  source_archive_dir: "~/Music/archive"
+  source_move_template: "%source%/%albumartist%/%current_folder%"
 ```
-4319687
-mbid=4b8a0e1b-249b-4d11-8e6e-42aa23466b96
-```
+
+The template accepts every format-string variable, plus `%current_folder%` for
+the original folder's own name. It is sanitised with the same character
+profile as the destination, so one artist does not end up under two spellings.

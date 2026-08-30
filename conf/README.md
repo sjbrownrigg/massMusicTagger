@@ -1,69 +1,57 @@
-# conf/ — configuration layout
+# conf/ — fixtures for the format-string preview
 
-This directory contains massMusicTagger's **shipped defaults** and **personal
-overrides**. The two are kept separate so the defaults can be updated (via
-`git pull` or a Docker image rebuild) without touching your credentials or
-local path settings, and so credentials never end up in version control.
+This directory holds one thing: the example albums that `format_preview.py`
+renders your format strings against.
 
-## Shipped defaults (tracked in git)
-
-| File | Purpose |
-|---|---|
-| `config.yaml` | Baseline settings not specific to any metadata source (paths, batch, tags, logging, etc.) |
-| `discogs.yaml` | Discogs API defaults |
-| `musicbrainz.yaml` | MusicBrainz/AcoustID API defaults |
-| `formats.ini` | Default tag/path formatting templates |
-| `char_substitutions.yaml` | Default character substitution tables |
-| `format_codes.yaml` | Default Discogs format-code mappings |
-| `source_hints.yaml` | Default folder-name keyword hints (digital vs vinyl) |
-
-These files contain no credentials and are safe to overwrite on update.
-
-## Personal overrides (gitignored — never committed)
-
-| File | Purpose |
-|---|---|
-| `config_personal.yaml` | Your `source_dir`/`dest_dir`, processing options, and `extra_configs` list — entry point passed via `mmt -c conf/config_personal.yaml` |
-| `discogs_personal.yaml` | Your Discogs `user_token` (or `consumer_key`/`consumer_secret`) |
-| `musicbrainz_personal.yaml` | Your MusicBrainz `user_agent` email and optional AcoustID key |
-| `formats_personal.ini` | Your custom tag/path formatting overrides |
-
-These are matched by `conf/*_personal.yaml` and `conf/*_personal.ini` in
-`.gitignore`. Create them by copying the shipped defaults and editing as
-needed — they are loaded **on top of** the defaults, so you only need to
-specify the values you want to change.
-
-## How loading works
-
-`config_personal.yaml` lists the files to layer on top of the defaults:
-
-```yaml
-extra_configs:
-  - conf/discogs.yaml
-  - conf/musicbrainz.yaml
-  - conf/discogs_personal.yaml
-  - conf/musicbrainz_personal.yaml
-  - conf/formats_personal.ini
+```
+preview_cases.yaml    the albums, and which format strings to show
 ```
 
-Load order (later wins):
-1. `config.yaml` (baseline, loaded automatically alongside `config_personal.yaml`)
-2. Each entry in `extra_configs`, in order
-3. `config_personal.yaml` itself again, so its own values always take final precedence
+It used to describe a configuration layout of shipped defaults and personal
+overrides — `config.yaml`, `discogs.yaml`, `formats.ini` and the rest, kept
+here in the source tree. None of that is true any more, and none of those files
+exist. A configuration is now a directory you own, found by name; the reference
+copies live inside the package. See the [README](../README.md) for where it
+goes and [docs/sources.md](../docs/sources.md) for what is in it.
 
-Paths in `extra_configs` are resolved relative to the config file's own
-directory if not found relative to the current working directory — so the
-`conf/...` paths above work regardless of where `mmt` is run from.
+## Previewing a format string
 
-## Docker
+Format strings decide what your files and folders are called, and the cost of
+getting one wrong is a library named badly. This renders them against fixture
+albums so you can see the result first:
 
-The same default/override split exists in the container, under different
-paths:
+```bash
+python format_preview.py                                  # the packaged reference config
+python format_preview.py --conf ~/.config/massmusictagger # your own
+python format_preview.py --conf ~/.config/massmusictagger --watch
+```
 
-| Path | Equivalent to | Contents |
-|---|---|---|
-| `/app/conf/` | this `conf/` directory's shipped defaults | Baked into the image at build time (read-only) |
-| `/config/` | your personal overrides | Bind-mounted from the host, persists across rebuilds |
+`--watch` re-renders whenever you save, which makes editing a long format
+string a matter of seconds rather than repeated runs.
 
-See [`../docker/README.md`](../docker/README.md) for the Docker-specific
-config template and setup instructions.
+## Adding a case
+
+Each entry under `cases:` is one album. Only a few fields are required — name,
+format, artist, title, year — and the rest have sensible defaults, so a case
+for a specific awkwardness stays short:
+
+```yaml
+cases:
+  - name: "Double LP with a catalogue number"
+    format: Vinyl
+    descriptions: ["LP", "Album"]
+    artist: Test Artist
+    title: Test Album
+    year: 1985
+    catno: TEST-001
+    disctotal: 2
+```
+
+The `format_strings:` list at the top decides what is shown for every case.
+It takes section names from `[file-formatting]` — `dir`, `song`, `va_song`,
+`nfo`, `m3u` — a custom variable such as `%__format_desc__%`, or a raw format
+string in quotes.
+
+Worth adding a case whenever a release shape catches the tagger out: a box set,
+a promo, a single-track digital release. The fixtures are cheap and they make
+the next format-string change safe to reason about.
