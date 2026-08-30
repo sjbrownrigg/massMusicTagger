@@ -464,31 +464,43 @@ folder and its own copy of the image.
 
 ---
 
-## CUE splitting writes to the share, and staging does not cover it
+## Split CUE tracks belong in staging, not in the source tree
 
-`batch.staging_dir` redirects the *processor's destination*, so an album is
-assembled locally and copied out once. CUE splitting is not part of that: it
-happens in `_get_source_dirs` -> `FileUtils.prepare()`, which runs before any
-album reaches the processor and works on the source directory.
+Splitting a CUE rip writes its output into the source directory:
 
-Both intermediates land on the share:
+* `destination = cue.image_file_directory` (files.py) -- the split tracks land
+  beside the disc image and stay there
+* `tmp_wav = src_image + '_tmp_decode.wav'` -- a full WAV decode of the image,
+  written next to it and then deleted
 
-* `destination = cue.image_file_directory` (files.py) -- the split tracks are
-  written into the source tree
-* `tmp_wav = src_image + '_tmp_decode.wav'` -- a full WAV decode of the disc
-  image, beside it, then deleted
+For a three-disc rip of ~500 MB images that is roughly 4.5 GB of transient
+writes and 3.4 GB of lasting ones, all at the 9.8 MiB/s NAS-to-NAS rate that
+`batch.staging_dir` exists to avoid. It is the heaviest filesystem operation
+in the pipeline, and staging does not reach it: staging redirects the
+*processor's destination*, while splitting happens earlier, in
+`_get_source_dirs` -> `FileUtils.prepare()`.
 
-For Lovely Creatures -- three ~500 MB disc images -- that is roughly 4.5 GB of
-transient writes and 3.4 GB of lasting ones, all at the 9.8 MiB/s NAS-to-NAS
-rate that staging exists to avoid. It is the heaviest single filesystem
-operation in the pipeline and the one place staging does not reach.
+**The right framing is not "staging should cover more".** Split tracks are
+not source material at all. The source is the disc image and its sheet; the
+tracks are a decode artefact, produced to be tagged and then finished with.
+Staging is where temporary files belong, and leaving them in the source tree
+is pollution -- a CUE rip that has been through the tagger once is no longer
+the thing the user put there.
 
-**Why it is not a one-line change.** `prepare()` runs on source directories
-before a processor or an album exists, so there is no per-album staging area
-to write into yet, and whatever it produces has to remain discoverable as
-that album's source for the scan that follows. Redirecting it means either
-giving the prepare phase its own staging area and rewriting the source paths
-it returns, or moving CUE splitting into the processor, after the album is
-known.
+**The complication, and it is the whole of the work.** `sourcedir` currently
+means two things at once: where the audio is read from, and what
+`source_action` archives or deletes. `_post_process_source` calls
+`shutil.move(result.sourcedir, ...)` and `shutil.rmtree(result.sourcedir)`.
+If splitting wrote to staging and the album's `sourcedir` became that path,
+`move` would archive the temporary split and leave the disc images in
+`incoming` for ever; `remove` would delete the split and leave them too.
 
-Worth doing: a CUE rip is exactly the case where the copy cost is highest.
+So the two roles have to separate before anything else: an *origin* that
+archiving acts on -- always the directory the user put there -- and an *audio
+directory* the scan and processor read from, which for a CUE rip is the
+staging copy and for everything else is the same as the origin.
+
+With that separation the rest is small: `prepare()` splits into a staging
+directory, returns it as the audio directory, and the existing staging
+cleanup removes it afterwards -- emptied on the way out, swept on the way in,
+exactly as the finished album already is.
