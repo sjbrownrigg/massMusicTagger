@@ -651,3 +651,47 @@ def test_the_safety_net_passes_an_identical_config():
     from massmusictagger.__main__ import _settings_lost
     same = {'common': {'source_dir': '/in'}, 'naming': {'char_profile': 'linux'}}
     assert _settings_lost(same, dict(same)) == []
+
+
+def test_annotate_keeps_an_unknown_setting_in_its_own_section(tmp_path):
+    """The bug that made --annotate-config refuse on a real configuration.
+
+    Settings the reference does not describe were appended under a fresh
+    section header -- a *duplicate* key, and YAML keeps the last one, so the
+    section built from the reference was silently discarded with every other
+    setting in it. Three settings vanished that way; only the check before
+    writing caught it.
+    """
+    import yaml as _yaml
+    body = ("common:\n"
+            "  source_dir: /incoming\n"
+            "  dest_dir: /sorted\n"
+            "  watch_poll_interval: 30\n"
+            "  something_the_reference_lacks: yes\n")
+    after = _yaml.safe_load(_annotate(tmp_path, body))
+    assert after['common']['source_dir'] == '/incoming'
+    assert after['common']['dest_dir'] == '/sorted'
+    assert after['common']['watch_poll_interval'] == 30
+    assert after['common']['something_the_reference_lacks'] is True
+
+
+def test_annotate_writes_no_duplicate_section_headers(tmp_path):
+    import re as _re
+    body = ("common:\n  source_dir: /in\n  unknown_thing: 1\n"
+            "naming:\n  char_profile: windows\n  another_unknown: 2\n")
+    out = _annotate(tmp_path, body)
+    headers = _re.findall(r'^([a-z_][a-z_0-9-]*):\s*$', out, _re.M)
+    assert len(headers) == len(set(headers)), f'duplicated: {headers}'
+
+
+def test_annotate_keeps_an_unknown_section_too(tmp_path):
+    import yaml as _yaml
+    body = "common:\n  source_dir: /in\nentirely_mine:\n  a: 1\n"
+    after = _yaml.safe_load(_annotate(tmp_path, body))
+    assert after['entirely_mine']['a'] == 1
+    assert after['common']['source_dir'] == '/in'
+
+
+def test_annotate_says_which_settings_it_did_not_recognise(tmp_path):
+    out = _annotate(tmp_path, "common:\n  source_dir: /in\n  unknown_thing: 1\n")
+    assert 'Not described by the reference' in out

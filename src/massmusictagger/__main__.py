@@ -498,26 +498,57 @@ def _rebuild_from_sample(sample_path, original, original_text):
 
     extra = [(s, k) for (s, k) in user if (s, k) not in used]
     if extra:
-        out.append('\n# ── Kept from your configuration ─────────────────────'
-                   '───────────────────────\n')
-        out.append('# Settings the reference does not describe.\n\n')
-        by_section = {}
-        for s, k in extra:
-            by_section.setdefault(s, []).append(k)
-        for s in sorted(by_section):
-            out.append(f'{s}:\n')
-            for k in by_section[s]:
-                block = blocks.get((s, k))
-                if block is not None:
-                    out.extend(block)
-                else:
-                    out.append(f'  {k}: {_scalar(user[(s, k)])}\n')
-            out.append('\n')
+        out = _place_extras(out, extra, user, blocks)
 
     # A section whose every setting was commented out reads as an empty
     # mapping, which YAML loads as None -- a setting the original did not
     # have. Drop the header with it.
     return _drop_empty_sections(''.join(out))
+
+
+def _place_extras(lines, extra, user, blocks):
+    """Add settings the reference does not describe, inside their own section.
+
+    Appending a fresh "common:" header for them would be a *duplicate* key,
+    and YAML keeps the last one -- so the section built from the reference,
+    with all the user's other settings in it, was silently discarded. Three
+    settings vanished that way, and only the check before writing caught it.
+    """
+    by_section = {}
+    for s, k in extra:
+        by_section.setdefault(s, []).append(k)
+
+    def rendered(section, key):
+        block = blocks.get((section, key))
+        if block is not None:
+            return list(block)
+        return [f'  {key}: {_scalar(user[(section, key)])}\n']
+
+    out = list(lines)
+    for section in sorted(by_section):
+        body = ['  # Not described by the reference configuration.\n']
+        for key in by_section[section]:
+            body.extend(rendered(section, key))
+
+        at = None
+        for n, line in enumerate(out):
+            if re.match(rf'^{re.escape(section)}:\s*$', line):
+                at = n
+                break
+        if at is None:
+            out.extend(['\n', f'{section}:\n'] + body)
+            continue
+
+        end = len(out)
+        for n in range(at + 1, len(out)):
+            if re.match(r'^[a-z_][a-z_0-9-]*:\s*$', out[n]):
+                end = n
+                break
+        while end > at + 1 and not out[end - 1].strip():
+            end -= 1
+        out[end:end] = body
+
+    return out
 
 
 def _scalar(value):
