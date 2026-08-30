@@ -353,3 +353,125 @@ def test_a_migrated_config_loads_without_moved_key_warnings(tmp_path, caplog):
         TaggerConfig(str(tmp_path / "config.yaml"))
     assert "moved to" not in caplog.text
     assert "was removed" not in caplog.text
+
+
+# ── --new-config writes the rule tables, commented out ───────────────────────
+
+def test_new_config_writes_the_rule_tables(tmp_path):
+    """They were not written at all, so nobody could see the rules.
+
+    "I can't see in configuration where it is defined" is a fair complaint
+    about a file that decides whether a release is filed as DM or Digital
+    Media.
+    """
+    from massmusictagger.core.tagger_config import write_new_config
+    written, _ = write_new_config(str(tmp_path))
+    names = {os.path.basename(p) for p in written}
+    assert {'format_codes.yaml', 'char_substitutions.yaml',
+            'source_hints.yaml'} <= names
+
+
+def test_the_written_tables_override_nothing(tmp_path):
+    """Entirely commented out, so the packaged table is still in force."""
+    import yaml as _yaml
+    from massmusictagger.core.tagger_config import write_new_config
+    write_new_config(str(tmp_path))
+    for name in ('format_codes.yaml', 'char_substitutions.yaml',
+                 'source_hints.yaml'):
+        parsed = _yaml.safe_load((tmp_path / name).read_text(encoding='utf-8'))
+        assert parsed is None, f'{name} should be inert until edited'
+
+
+def test_the_written_table_says_what_it_is(tmp_path):
+    from massmusictagger.core.tagger_config import write_new_config
+    write_new_config(str(tmp_path))
+    text = (tmp_path / 'format_codes.yaml').read_text(encoding='utf-8')
+    assert 'merged over the packaged table' in text
+    assert 'delete' in text.lower(), 'say how to go back'
+
+
+def test_uncommenting_one_entry_overrides_only_that_entry(tmp_path):
+    """The property that makes shipping a copy safe.
+
+    A full live copy used to freeze the whole table: change one abbreviation
+    and you lost vinyl_sizes, the quantity rules, and every later addition.
+    """
+    from massmusictagger.core.tagger_config import write_new_config
+    from massmusictagger.core.naming.formatcodes import (
+        load_format_codes, compute_format_code)
+    write_new_config(str(tmp_path))
+    path = tmp_path / 'format_codes.yaml'
+    text = path.read_text(encoding='utf-8')
+    text = text.replace('# base_formats:', 'base_formats:', 1)
+    text = text.replace('#   Cassette:   MC', '  Cassette:   TAPE', 1)
+    path.write_text(text, encoding='utf-8')
+
+    rules = load_format_codes(str(path))
+    assert compute_format_code('Cassette', [], 1, rules) == 'TAPE'
+    assert compute_format_code('CD', [], 1, rules) == 'CD'
+    assert compute_format_code('Digital Media', [], 1, rules) == 'DM'
+    assert 'vinyl_sizes' in rules
+
+
+def test_an_existing_table_is_never_clobbered(tmp_path):
+    from massmusictagger.core.tagger_config import write_new_config
+    (tmp_path / 'format_codes.yaml').write_text('# mine\n', encoding='utf-8')
+    written, skipped = write_new_config(str(tmp_path))
+    assert str(tmp_path / 'format_codes.yaml') in skipped
+    assert (tmp_path / 'format_codes.yaml').read_text(encoding='utf-8') == '# mine\n'
+
+
+# ── --migrate-config retires deprecated keys ─────────────────────────────────
+
+def test_migrate_comments_out_a_deprecated_key(tmp_path):
+    out = _migrate(tmp_path, 'naming:\n  format_codes: conf/format_codes.yaml\n')
+    assert '# format_codes: conf/format_codes.yaml' in out
+    assert '\n  format_codes:' not in out
+
+
+def test_migrate_explains_why(tmp_path):
+    out = _migrate(tmp_path, 'naming:\n  format_codes: conf/format_codes.yaml\n')
+    assert 'found beside config.yaml' in out
+
+
+def test_a_key_that_moves_into_deprecation_is_retired_not_moved(tmp_path):
+    """details.char_substitutions moved to [naming] and is deprecated there.
+
+    Moving it live would only make it warn from its new home.
+    """
+    out = _migrate(tmp_path,
+                   'details:\n  char_substitutions: conf/char_substitutions.yaml\n')
+    assert '# char_substitutions: conf/char_substitutions.yaml' in out
+    assert '\n  char_substitutions:' not in out
+
+
+def test_a_migrated_config_loads_with_no_warnings_at_all(tmp_path, caplog):
+    from massmusictagger.core.tagger_config import TaggerConfig
+    _migrate(tmp_path,
+             'details:\n'
+             '  char_profile: windows\n'
+             '  char_substitutions: conf/char_substitutions.yaml\n'
+             '  format_codes: conf/format_codes.yaml\n'
+             '  source_hints_file: conf/source_hints.yaml\n'
+             '  split_discs: false\n')
+    with caplog.at_level('WARNING'):
+        TaggerConfig(str(tmp_path / 'config.yaml'))
+    assert caplog.text.strip() == '', f'still warns: {caplog.text}'
+
+
+def test_migrating_twice_is_a_no_op(tmp_path, capsys):
+    body = 'naming:\n  format_codes: conf/format_codes.yaml\n'
+    _migrate(tmp_path, body)
+    capsys.readouterr()
+    from massmusictagger import __main__ as mmt_main
+
+    class _Opts:
+        migrate_config = str(tmp_path)
+
+    class _Parser:
+        @staticmethod
+        def error(msg):
+            raise AssertionError(msg)
+
+    mmt_main._migrate_config(_Parser(), _Opts())
+    assert 'needs no changes' in capsys.readouterr().out

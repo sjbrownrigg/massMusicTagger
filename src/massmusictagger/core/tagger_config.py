@@ -282,15 +282,56 @@ def extract_sample_section(section: str, sample_path: str | None = None) -> str:
 
 # ── Scaffolding a fresh configuration ────────────────────────────────────────
 
-# What --new-config writes. Rule tables and templates are deliberately not
-# copied: leaving them unset means the bundled defaults are used, so they keep
-# improving with each upgrade instead of freezing at the version that happened
-# to be installed on the day the config was made. Copy them out by hand only
-# when you actually want to change one -- write_new_config() says how.
+# What --new-config writes as live files: the two a configuration cannot work
+# without.
 _NEW_CONFIG_FILES = (
     ('config_sample.yaml', 'config.yaml'),
     ('formats_sample.ini', 'formats.ini'),
 )
+
+# The rule tables, written **entirely commented out**.
+#
+# They were not written at all, on the grounds that an unset table means the
+# packaged one is used and so keeps improving with each upgrade. True, and it
+# left nobody able to find out what the rules were: "I can't see in
+# configuration where it is defined" is a fair complaint about a file that
+# decides whether a release is filed as DM or Digital Media.
+#
+# A commented template answers both. The file is there to read and edit, and
+# until a line is uncommented it overrides nothing. What a user does uncomment
+# is merged over the packaged table rather than replacing it, so a single
+# changed abbreviation neither discards the rest nor opts out of later
+# additions -- which is what made copying the whole file a trap before.
+_NEW_CONFIG_TEMPLATES = (
+    ('format_codes.yaml', 'format_codes.yaml'),
+    ('char_substitutions.yaml', 'char_substitutions.yaml'),
+    ('source_hints.yaml', 'source_hints.yaml'),
+)
+
+
+def _commented_template(source_path: str, name: str) -> str:
+    """The packaged table, commented out, with a header saying what it is."""
+    with open(source_path, encoding='utf-8') as fh:
+        body = fh.read()
+    header = (
+        f'# {name} -- your copy of the packaged rule table.\n'
+        '#\n'
+        '# Everything below is commented out, so this file currently changes\n'
+        '# nothing: massMusicTagger uses the table shipped inside the package.\n'
+        '#\n'
+        '# Uncomment an entry to override just that one. What you uncomment is\n'
+        '# merged over the packaged table, so the rest keeps working and keeps\n'
+        '# gaining whatever later versions add.\n'
+        '#\n'
+        f'# The packaged table this was copied from is the reference; delete\n'
+        f'# this file at any time to go back to it entirely.\n'
+        '\n'
+    )
+    commented = ''.join(
+        line if not line.strip() else ('#' + line if line.startswith('#') else '# ' + line)
+        for line in body.splitlines(keepends=True)
+    )
+    return header + commented
 
 
 def write_new_config(dest_dir, force=False):
@@ -327,6 +368,18 @@ def write_new_config(dest_dir, force=False):
 
         with open(target, 'w', encoding='utf-8') as fh:
             fh.write(text)
+        written.append(target)
+
+    for sample_name, out_name in _NEW_CONFIG_TEMPLATES:
+        source = os.path.join(roots.BUNDLED_CONF, sample_name)
+        target = os.path.join(dest_dir, out_name)
+        if not os.path.exists(source):
+            continue
+        if os.path.exists(target) and not force:
+            skipped.append(target)
+            continue
+        with open(target, 'w', encoding='utf-8') as fh:
+            fh.write(_commented_template(source, out_name))
         written.append(target)
 
     return written, skipped

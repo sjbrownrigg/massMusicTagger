@@ -311,6 +311,13 @@ def _merge_config_file(cfg, path: str) -> None:
     except Exception as exc:
         logger.warning('config: failed to load %s: %s', path, exc)
 
+def _wrap_comment(text: str, indent: str, width: int = 74) -> list:
+    """The deprecation note as comment lines, so the file explains itself."""
+    import textwrap
+    return [f'{indent}# {line}\n'
+            for line in textwrap.wrap(text, width=width - len(indent))]
+
+
 def _drop_empty_sections(text: str) -> str:
     """Remove a section header with no settings under it.
 
@@ -346,7 +353,8 @@ def _migrate_config(parser, opts):
     heavily commented -- that is most of their value.
     """
     from massmusictagger import roots
-    from massmusictagger.config_schema import MOVED, REMOVED
+    from massmusictagger.config_schema import (
+        MOVED, REMOVED, DEPRECATED, DEPRECATION_NOTES)
 
     target = opts.migrate_config or roots.config_dir()
     path = os.path.join(os.path.abspath(os.path.expanduser(target)),
@@ -357,7 +365,7 @@ def _migrate_config(parser, opts):
     with open(path, encoding='utf-8') as fh:
         lines = fh.readlines()
 
-    moved, removed, new_lines, section = [], [], [], None
+    moved, removed, retired, new_lines, section = [], [], [], [], None
     buckets = {}
     pending = []          # comment lines that belong to the next setting
 
@@ -376,12 +384,38 @@ def _migrate_config(parser, opts):
                 removed.append(f'{section}.{key}')
                 pending = []
                 continue
+            # Where this setting ends up decides what happens to it: a key
+            # can both move section and be deprecated there, and then moving
+            # it live would only make it warn from its new home.
             dest = MOVED.get((section, key))
+            target = (dest or section, key)
+            value = (line.split(':', 1)[1] or '').strip()
+
+            if target in DEPRECATED:
+                if value and not value.startswith('#'):
+                    # Commented out, not deleted: deprecated keys still work,
+                    # so the value stays readable if it was doing something.
+                    # Left live they warn on every run -- and the ones this
+                    # deployment carried named conf/ paths that resolve to
+                    # nothing, so they warned about a file nobody meant to have.
+                    retired.append(f'{target[0]}.{key}')
+                    indent = setting.group(1)
+                    note = DEPRECATION_NOTES.get(target, '')
+                    new_lines.extend(pending)
+                    pending = []
+                    if note:
+                        new_lines.extend(_wrap_comment(note, indent))
+                    new_lines.append(f'{indent}# {key}: {value}\n')
+                    continue
+                pending = []          # empty and deprecated: drop it silently
+                continue
+
             if dest:
                 moved.append(f'{section}.{key} -> {dest}.{key}')
                 buckets.setdefault(dest, []).extend(pending + [line])
                 pending = []
                 continue
+
             new_lines.extend(pending); pending = []
             new_lines.append(line)
             continue
@@ -392,7 +426,7 @@ def _migrate_config(parser, opts):
         new_lines.append(line)
     new_lines.extend(pending)
 
-    if not moved and not removed:
+    if not moved and not removed and not retired:
         print(f'{path} needs no changes.')
         return
 
@@ -419,6 +453,8 @@ def _migrate_config(parser, opts):
         print(f'  moved   {m}')
     for r in removed:
         print(f'  removed {r} -- {REMOVED[tuple(r.split(".", 1))]}')
+    for d in retired:
+        print(f'  commented out {d} -- deprecated; it was warning on every run')
     print('\nRun massMusicTagger once to confirm it loads without warnings.')
 
 
