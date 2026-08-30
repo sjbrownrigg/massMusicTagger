@@ -519,12 +519,23 @@ class MassProcessor:
                     from massmusictagger.image_utils import download_typed_images
                     download_typed_images(album, connector, cfg)
 
+                # Fetched before embedding and placed after the move: the
+                # artist folder only exists at the real destination, and with
+                # staging the album's parent during processing is a temporary
+                # directory.
+                artist_image = None
+                try:
+                    from massmusictagger.image_utils import fetch_artist_image
+                    artist_image = fetch_artist_image(album, connector, cfg)
+                except Exception as exc:
+                    logger.debug('No artist image: %s', exc)
+
                 # Embed cover art
                 embed_coverart = (cfg.getboolean('artwork', 'embed_coverart')
                                   if cfg.has_option('artwork', 'embed_coverart') else True)
                 if embed_coverart:
                     from massmusictagger.image_utils import embed_typed_images
-                    embed_typed_images(album, cfg)
+                    embed_typed_images(album, cfg, artist_image=artist_image)
             else:
                 logger.info('existing_tags: skipping tag write for %r', album.title)
 
@@ -553,6 +564,10 @@ class MassProcessor:
                 album.target_dir = _move_staged(
                     album.target_dir, staging_dest, final_destdir)
                 result.target_dir = album.target_dir
+
+            if artist_image:
+                from massmusictagger.image_utils import place_artist_image
+                place_artist_image(artist_image, album.target_dir)
 
             # Only now, with the album at its real destination, is it safe to
             # touch the source: _post_process_source verifies result.target_dir

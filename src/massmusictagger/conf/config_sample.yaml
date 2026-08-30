@@ -216,6 +216,19 @@ artwork:
   #   • Often higher resolution (no size cap like Discogs)
   #   • Community-curated; approved flag filters out poor submissions
   image_source: auto
+
+  # Fetch the artist's picture and write it as artist.jpg in the artist
+  # folder -- the directory above the album -- as well as embedding it in
+  # every track as picture type 8 ("Artist/performer").
+  #
+  # Only Discogs has artist images; MusicBrainz stores none. An album matched
+  # on MusicBrainz therefore costs one extra Discogs artist lookup, cached per
+  # artist so a discography fetches it once.
+  #
+  # Most useful alongside %albumartist_primary% in your directory format
+  # string: without it a guest credit gets its own folder, and each one
+  # collects a copy of the same picture.
+  artist_image: false
   download_only_cover: true
 
 # ─────────────────────────────────────────────────────────────────────────────

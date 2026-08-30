@@ -279,6 +279,7 @@ DEFAULTS = {
     ('batch', 'cpu_jobs'): '1',
     ('batch', 'staging_dir'): '',
     ('artwork', 'image_source'): 'auto',
+    ('artwork', 'artist_image'): 'False',
     ('archiving', 'source_action'): 'done_file',
     ('archiving', 'source_archive_dir'): '',
     ('archiving', 'source_move_template'): '%source%/%albumartist%/%current_folder%',

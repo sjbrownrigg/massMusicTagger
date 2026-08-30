@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -522,7 +523,8 @@ def _copy_to(src: str, dest: str) -> None:
 
 # ── Embed ───────────────────────────────────────────────────────────────────
 
-def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
+def embed_typed_images(album, cfg: 'TaggerConfig',
+                       artist_image: 'Optional[str]' = None) -> None:
     """Embed all downloaded typed images into every audio file.
 
     Each image is tagged with its correct picture type so media players
@@ -590,6 +592,25 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
         except Exception as exc:
             logger.warning('Could not read %s for embedding: %s', local_filename, exc)
 
+    # The artist picture, as ID3/FLAC picture type 8. It is not one of the
+    # release's attachments -- it belongs to the artist -- so it is appended
+    # here rather than coming through the sorted attachment list.
+    if artist_image and os.path.exists(artist_image):
+        try:
+            with open(artist_image, 'rb') as f:
+                data = f.read()
+            if len(data) > MAX_EMBEDDED_IMAGE_SIZE:
+                logger.warning('Skipping the artist image for embedding — '
+                               '%d bytes exceeds the metadata block limit',
+                               len(data))
+            elif data[:2] != b'\xff\xd8' and data[:4] != b'\x89PNG':
+                logger.warning('Skipping a non-JPEG/PNG artist image')
+            else:
+                images.append(MFImage(data=data, type=ImageType.artist,
+                                      desc='artist'))
+        except Exception as exc:
+            logger.warning('Could not read the artist image: %s', exc)
+
     if not images:
         logger.debug('No typed images to embed')
         return
@@ -608,3 +629,138 @@ def embed_typed_images(album, cfg: 'TaggerConfig') -> None:
                 mf.save()
             except Exception as exc:
                 logger.error('Failed to embed images in %s: %s', track_file, exc)
+
+
+# ── Artist images ────────────────────────────────────────────────────────────
+#
+# An artist picture belongs to the artist, not to any one release, so it is
+# fetched once per artist and cached. Only Discogs has them -- MusicBrainz
+# stores no artist images at all, only release cover art through the Cover Art
+# Archive -- so an album matched on MusicBrainz needs a Discogs artist lookup
+# of its own.
+#
+# This only became worth doing alongside %albumartist_primary%. Without it a
+# guest credit gets its own folder, so "David Bowie Featuring Al B. Sure!"
+# would collect a second copy of the same picture.
+
+ARTIST_IMAGE_NAME = 'artist.jpg'
+
+
+def _artist_cache_path(artist_id) -> str:
+    """Where a fetched artist image is kept between albums."""
+    from massmusictagger import roots
+    directory = os.path.join(roots.state_root(), 'artist-images')
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, f'{artist_id}.jpg')
+
+
+def _discogs_artist_id(album, connector):
+    """The Discogs artist id for this album's primary artist, or None.
+
+    A Discogs-matched album already carries the id. A MusicBrainz-matched one
+    does not, so the artist is searched for by name -- the reason the lookup
+    is cached by id further down rather than repeated per album.
+    """
+    ids = [i for i in (getattr(album, 'artist_ids', None) or []) if i]
+    if ids and getattr(album, 'source', '') == 'discogs':
+        return ids[0]
+
+    name = (getattr(album, 'artists', None) or [None])[0]
+    if not name:
+        return None
+    try:
+        results = connector.discogs_client.search(name, type='artist')
+        for result in results:
+            if (getattr(result, 'name', '') or '').lower() == name.lower():
+                return result.id
+        first = next(iter(results), None)
+        return getattr(first, 'id', None) if first else None
+    except Exception as exc:
+        logger.debug('Discogs artist search failed for %r: %s', name, exc)
+        return None
+
+
+def fetch_artist_image(album, connector, cfg) -> 'Optional[str]':
+    """Download this album's artist image once, returning a local path.
+
+    Returns None when the feature is off, no artist can be resolved, or the
+    artist has no images -- all ordinary outcomes rather than failures.
+    """
+    if not cfg.getboolean('artwork', 'artist_image'):
+        return None
+    if connector is None:
+        return None
+
+    artist_id = _discogs_artist_id(album, connector)
+    if not artist_id:
+        logger.debug('No Discogs artist id for %r — no artist image',
+                     getattr(album, 'artist', '?'))
+        return None
+
+    cached = _artist_cache_path(artist_id)
+    if os.path.exists(cached) and os.path.getsize(cached) > 0:
+        logger.debug('Artist image for %s already fetched', artist_id)
+        return cached
+
+    try:
+        artist = connector.discogs_client.artist(int(artist_id))
+        images = artist.images or []
+    except Exception as exc:
+        logger.info('Could not read Discogs artist %s: %s', artist_id, exc)
+        return None
+    if not images:
+        logger.info('Discogs artist %s has no images', artist_id)
+        return None
+
+    # 'primary' is the picture Discogs itself leads with; fall back to the
+    # first of whatever is there.
+    chosen = next((i for i in images if i.get('type') == 'primary'), images[0])
+    uri = chosen.get('uri') or chosen.get('resource_url')
+    if not uri:
+        return None
+
+    try:
+        connector.fetch_image(cached, uri)
+    except Exception as exc:
+        logger.info('Could not download the artist image for %s: %s',
+                    artist_id, exc)
+        return None
+
+    if not os.path.exists(cached) or os.path.getsize(cached) == 0:
+        _discard(cached)
+        logger.info('Artist image for %s downloaded empty — ignoring', artist_id)
+        return None
+
+    logger.info('Fetched artist image for %s (%dx%d)', artist_id,
+                chosen.get('width') or 0, chosen.get('height') or 0)
+    return cached
+
+
+def place_artist_image(image_path: str, album_dir: str) -> 'Optional[str]':
+    """Copy the artist image into the artist folder beside the album.
+
+    Called after the album has reached its real destination -- with staging
+    enabled the album's parent during processing is a temporary directory, not
+    the artist folder, so doing this earlier would file the picture nowhere
+    useful.
+
+    An existing file is left alone: the folder is shared by every album by
+    that artist, and the first one to arrive has already done the work.
+    """
+    if not image_path or not os.path.isdir(album_dir):
+        return None
+    artist_dir = os.path.dirname(os.path.normpath(album_dir))
+    if not artist_dir or not os.path.isdir(artist_dir):
+        return None
+
+    target = os.path.join(artist_dir, ARTIST_IMAGE_NAME)
+    if os.path.exists(target):
+        return target
+    try:
+        shutil.copy2(image_path, target)
+        logger.info('Wrote %s', target)
+        return target
+    except Exception as exc:
+        logger.warning('Could not write the artist image to %s: %s',
+                       artist_dir, exc)
+        return None
