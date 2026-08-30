@@ -122,3 +122,33 @@ deciding rather than assuming.
 
 Running on a host that mounts the share natively, rather than through WSL2's
 drvfs to the Windows SMB client, may be a bigger win for less work.
+
+---
+
+## An already-finished tree reports "No audio source directories found"
+
+**Observed.** Two albums in a re-tag run logged:
+
+```
+WARN No audio source directories found
+```
+
+Both were fine. Each held a `.done` marker from an earlier run, so
+`get_audio_dirs` skipped them, and with nothing left the caller reported the
+empty result as a warning — the same message an empty or unreadable directory
+produces.
+
+The two cases deserve different words. Nothing to do is a success; nothing
+*found* is a problem, and reading the first as the second sends you looking
+for a fault that is not there. It cost real time during the bulk re-tag,
+because the warning appears in exactly the same place as a genuine failure.
+
+**What would improve it.** `scan()` already knows how many directories it
+skipped for a done marker. Carry that count out and say so:
+
+```
+All 2 albums already tagged (.done present) — use --force to re-tag
+```
+
+reserving the existing warning for a tree that genuinely holds no audio. The
+information is already in hand; only the message is missing.
