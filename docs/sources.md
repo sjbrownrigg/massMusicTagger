@@ -143,12 +143,15 @@ retire themselves when the rules change.
 
 ### Fingerprinting
 
-Tiers 5 to 7 need two system libraries and one extra install:
+Tiers 5 to 7 need two system libraries — `libdiscid` and `chromaprint`, whose
+package names vary by distribution — and one extra install:
 
 ```bash
-sudo apt install libdiscid0 libchromaprint-tools
 pip install "massmusictagger[fingerprint]"
 ```
+
+The [README's Installing section](../README.md#installing) lists the package
+names for Debian/Ubuntu, Fedora, RHEL, Arch, openSUSE, Alpine and macOS.
 
 AcoustID also needs a free application key from
 [acoustid.org](https://acoustid.org/login):

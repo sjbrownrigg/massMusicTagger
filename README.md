@@ -64,23 +64,282 @@ has drifted from this one's — use the pages above for massMusicTagger.
 
 ---
 
-## Quick start
+## Installing
+
+Two supported routes. **Docker** keeps the tool and everything it needs inside
+one image and is the maintainer's own deployment. A **virtual environment**
+runs it as an ordinary program on the machine. Both end at the same place: an
+`mmt` command and a configuration directory you own.
+
+### What it needs, either way
+
+Python **3.10 or newer**, and a handful of external programs that the tagger
+runs as commands:
+
+| Program | Needed for | Required? |
+|---|---|---|
+| `ffmpeg` | ReplayGain scanning, `.m4a` conversion, single-track CUE albums | **Yes** |
+| `shntool` and `flac` | Splitting a multi-track CUE album into separate tracks | Only if you have CUE rips |
+| `libdiscid` | MusicBrainz Disc ID lookup — search tier 5 | Optional |
+| `fpcalc` (chromaprint) | AcoustID fingerprinting — search tiers 6 and 7 | Optional |
+
+`flac` also supplies `metaflac`, which matters only if you set
+`replaygain.application: metaflac` instead of the default `r128gain`.
+
+Everything else — mutagen, Mako, Pillow, rapidfuzz and the rest — is a Python
+dependency and installs itself.
+
+---
+
+### Route 1 — Docker
+
+The deployment lives in its own repository,
+[docker-mmt](https://github.com/sjbrownrigg/docker-mmt): compose file, NAS
+mount examples, and scheduling.
 
 ```bash
-pip install "massmusictagger[fingerprint] @ git+https://github.com/sjbrownrigg/massMusicTagger.git@master"
+git clone https://github.com/sjbrownrigg/docker-mmt.git
+cd docker-mmt
+cp .env.example .env          # your Discogs token goes in here
+docker compose build
+docker compose run --rm mmt --new-config
+```
 
-# Create a configuration (once)
+Its README covers mounts, upgrading and unattended running. One ordering trap
+is worth repeating here: **build first, migrate second.** Running
+`--migrate-config` before `docker compose build` migrates your configuration
+using last month's tool, which does not know about this month's settings.
+
+---
+
+### Route 2 — a virtual environment
+
+#### 1. System packages
+
+Package names differ between distributions; the four programs do not. Pick
+yours:
+
+**Debian, Ubuntu, Mint, Raspberry Pi OS** — verified on Ubuntu 24.04:
+
+```bash
+sudo apt update
+sudo apt install python3-venv ffmpeg shntool flac libdiscid0 libchromaprint-tools
+```
+
+**Fedora** — `ffmpeg` and `shntool` come from RPM Fusion, not the main repository:
+
+```bash
+sudo dnf install \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+sudo dnf install python3 ffmpeg shntool flac libdiscid chromaprint-tools
+```
+
+**RHEL, Rocky, AlmaLinux** — EPEL and RPM Fusion first, then as Fedora. On
+RHEL 8 the system Python is 3.6, which is too old: install `python3.11` (or
+newer) and use that interpreter to build the environment below.
+
+**Arch, Manjaro, EndeavourOS** — `shntool` is in the AUR rather than the
+official repositories:
+
+```bash
+sudo pacman -S python ffmpeg flac libdiscid chromaprint
+paru -S shntool          # or yay, or build it by hand
+```
+
+**openSUSE** — a full `ffmpeg` comes from Packman:
+
+```bash
+sudo zypper install python3 ffmpeg-7 shntool flac libdiscid0 chromaprint-fpcalc
+```
+
+**Alpine** — `shntool` is not packaged, so CUE splitting is unavailable:
+
+```bash
+doas apk add python3 py3-virtualenv ffmpeg flac libdiscid chromaprint
+```
+
+Now check what you actually got. This matters more than the list above,
+because a name that differs on your distribution shows up here rather than
+halfway through a run:
+
+```bash
+for b in ffmpeg shntool flac metaflac fpcalc; do
+  printf '%-10s %s\n' "$b" "$(command -v $b || echo MISSING)"
+done
+```
+
+`ffmpeg` must be found. The others may say `MISSING` without harm — the table
+above says what each one costs you.
+
+#### 2. The environment
+
+Keep it **outside** the source tree. A virtual environment inside a project
+directory gets swept up by backups, syncs and recursive scans, and rebuilding
+it means touching the checkout:
+
+```bash
+python3 -m venv ~/.venvs/massmusictagger
+~/.venvs/massmusictagger/bin/pip install \
+  "massmusictagger[fingerprint] @ git+https://github.com/sjbrownrigg/massMusicTagger.git@master"
+```
+
+Drop `[fingerprint]` if you skipped `libdiscid` and `fpcalc` — it pulls in the
+Python bindings for both, and they fail to build without the libraries there.
+
+Put the command on your `PATH`:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s ~/.venvs/massmusictagger/bin/mmt ~/.local/bin/mmt
+mmt --version
+```
+
+If that last line is not found, `~/.local/bin` is not on your `PATH`; add it in
+`~/.bashrc` or call the full path `~/.venvs/massmusictagger/bin/mmt` instead.
+
+#### 3. A configuration
+
+```bash
 mmt --new-config
+```
 
-# Tag a single album (tries Discogs then MusicBrainz automatically)
+That fills `~/.config/massmusictagger` — or `$XDG_CONFIG_HOME/massmusictagger`,
+or wherever `MMT_CONFIG_DIR` points — with every file the tagger looks for by
+name:
+
+```
+config.yaml                  settings, commented throughout
+formats.ini                  the format strings that name your files
+format_codes.yaml            format abbreviations (Digital Media -> DM)
+char_substitutions.yaml      per-profile illegal-character replacements
+source_hints.yaml            folder words that identify a rip's source
+credentials/discogs.yaml     your Discogs token
+credentials/musicbrainz.yaml your MusicBrainz user agent
+templates/info.txt           the per-album info file
+templates/m3u.txt            the playlist
+```
+
+**Existing files are never overwritten**, so run it again after an upgrade to
+pick up anything newly added — it will leave everything you have edited alone.
+The three rule tables and the two templates are all optional: delete any of
+them and the packaged version is used instead, so keep only what you have
+actually changed.
+
+Then put your Discogs token in `credentials/discogs.yaml`, or in the
+environment as `DISCOGS_USER_TOKEN`, and give MusicBrainz a user agent that
+identifies you. See [docs/sources.md](docs/sources.md).
+
+#### 4. Upgrading later
+
+```bash
+~/.venvs/massmusictagger/bin/pip install --upgrade \
+  "massmusictagger[fingerprint] @ git+https://github.com/sjbrownrigg/massMusicTagger.git@master"
+mmt --migrate-config      # moves settings that changed section
+mmt --new-config          # adds any new files, overwrites nothing
+```
+
+Upgrade the code **before** migrating, for the reason given under Docker above.
+
+---
+
+### macOS
+
+> **Untested.** Neither the maintainer nor CI runs macOS, so this route is
+> reasoned from the dependencies rather than verified on a machine. It should
+> work — nothing here is Linux-specific — but if it does not, please open an
+> issue and it will be corrected.
+
+[Homebrew](https://brew.sh) has all four programs:
+
+```bash
+brew install python ffmpeg shntool flac libdiscid chromaprint
+```
+
+Then follow **Route 2** from step 2 onwards unchanged; `python3 -m venv` and
+the `pip install` line behave the same way.
+
+Two things to suspect first if something misbehaves:
+
+- On Apple Silicon, Homebrew installs into `/opt/homebrew`, and the `discid`
+  Python module locates the library through `ctypes.util.find_library`, which
+  does not always search there. `export DYLD_LIBRARY_PATH=/opt/homebrew/lib`
+  is the usual fix. Only Disc ID lookup is affected.
+- The configuration goes to `~/.config/massmusictagger`, following the XDG
+  convention rather than `~/Library/Application Support`.
+
+---
+
+### WSL
+
+WSL runs a real distribution, so use the Linux instructions above for whichever
+one you installed — Ubuntu unless you chose otherwise. Four differences are
+worth knowing, and the first two are the ones that will actually bite:
+
+**Work on the Linux filesystem, not `/mnt/c`.** Windows drives are reached
+through a translation layer, and per-file operations on them are slow enough to
+dominate a run. Keep the incoming and destination trees on the WSL side, or on
+a share mounted as below.
+
+**Mount a NAS share inside Linux rather than through Windows.** Reaching a
+share via `/mnt/c` means WSL → Windows → SMB, and tagging copies each album
+twice. Measured on this setup:
+
+| Path | Throughput |
+|---|---|
+| NAS → local disk | 31 MiB/s |
+| local disk → NAS | 21 MiB/s |
+| **NAS → NAS (what tagging does)** | **9.8 MiB/s** |
+| local → local | 1280 MiB/s |
+
+Tagging is bound by that link, not by the processor — raising `batch.workers`
+from 1 to 4 changed a 313 MiB album from 145 to 139 seconds, with the container
+at 1.5% CPU throughout. If a run feels slow, this is why, and more workers will
+not help.
+
+**Keep `char_profile: windows` if the library will be read from Windows.** NTFS
+forbids characters that Linux allows — a colon in `:wumpscut:` among them — and
+the profile substitutes them at naming time. Without it you get filenames that
+Linux writes happily and Windows cannot open.
+
+**Watch mode needs systemd.** `mmt --watch` runs until stopped, and by default
+WSL ends everything when the last terminal closes. On Windows 11, or Windows 10
+with a recent WSL, enable it:
+
+```ini
+# /etc/wsl.conf
+[boot]
+systemd=true
+```
+
+Then `wsl --shutdown` from PowerShell, reopen, and a user service with
+`loginctl enable-linger $USER` will survive the terminal closing.
+
+---
+
+## First run
+
+```bash
+# Tag a single album — tries Discogs, then MusicBrainz
 mmt ~/Music/incoming/Artist/Album
 
-# Tag a whole incoming directory
+# See what would happen, writing nothing
+mmt --dry-run ~/Music/incoming
+
+# Tag a whole incoming tree
 mmt ~/Music/incoming
 
-# Dry run (shows what would happen without writing)
-mmt --dry-run ~/Music/incoming
+# Confirm each album before it is written
+mmt --review ~/Music/incoming
+
+# Watch for new albums and tag them as they arrive
+mmt --watch
 ```
+
+Start with `--dry-run` on a handful of albums, and read what it says it will
+name them. Format strings decide the entire shape of your library, and the
+cheapest time to change one is before the first run rather than after.
+
+---
 
 ## Configuration
 
@@ -213,9 +472,23 @@ python format_preview.py --conf ~/.config/massmusictagger
 
 ## Fingerprinting (optional)
 
+Disc ID (search tier 5) and AcoustID (tiers 6 and 7) let MusicBrainz identify a
+release from the audio itself when a search by name has failed. They need the
+`libdiscid` and `chromaprint` system packages — see [Installing](#installing)
+for your distribution — and the extra Python bindings:
+
 ```bash
-sudo apt install libdiscid0 libchromaprint-tools
 pip install "massmusictagger[fingerprint]"
 ```
 
-Enables tier 5 (DiscID) and tiers 6–7 (AcoustID) in the MusicBrainz search.
+AcoustID additionally needs a free application key from
+[acoustid.org](https://acoustid.org/login):
+
+```yaml
+musicbrainz:
+  acoustid_api_key: ""
+  acoustid_early: false    # fingerprint before searching by name
+```
+
+Disc ID needs no key. Details of when each tier runs are in
+[docs/sources.md](docs/sources.md).
