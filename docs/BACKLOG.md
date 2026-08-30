@@ -461,3 +461,34 @@ folder and its own copy of the image.
   download want caching per artist id, not per album.
 * *What happens on a MusicBrainz match* -- accept no image, or look the
   artist up on Discogs anyway.
+
+---
+
+## CUE splitting writes to the share, and staging does not cover it
+
+`batch.staging_dir` redirects the *processor's destination*, so an album is
+assembled locally and copied out once. CUE splitting is not part of that: it
+happens in `_get_source_dirs` -> `FileUtils.prepare()`, which runs before any
+album reaches the processor and works on the source directory.
+
+Both intermediates land on the share:
+
+* `destination = cue.image_file_directory` (files.py) -- the split tracks are
+  written into the source tree
+* `tmp_wav = src_image + '_tmp_decode.wav'` -- a full WAV decode of the disc
+  image, beside it, then deleted
+
+For Lovely Creatures -- three ~500 MB disc images -- that is roughly 4.5 GB of
+transient writes and 3.4 GB of lasting ones, all at the 9.8 MiB/s NAS-to-NAS
+rate that staging exists to avoid. It is the heaviest single filesystem
+operation in the pipeline and the one place staging does not reach.
+
+**Why it is not a one-line change.** `prepare()` runs on source directories
+before a processor or an album exists, so there is no per-album staging area
+to write into yet, and whatever it produces has to remain discoverable as
+that album's source for the scan that follows. Redirecting it means either
+giving the prepare phase its own staging area and rewriting the source paths
+it returns, or moving CUE splitting into the processor, after the album is
+known.
+
+Worth doing: a CUE rip is exactly the case where the copy cost is highest.
