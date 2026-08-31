@@ -613,3 +613,47 @@ Worth measuring first: how often a match arrives *late* in the candidate list.
 If matches essentially always land early, the cap can be tight and the saving
 is large. That is a cheap thing to count from a cached corpus and would settle
 the number rather than guessing it.
+
+---
+
+## An unsplit disc image counted as a track
+
+**Rare, but it produced the worst pathology of a 107-unit run.** One album
+held a worker for **50 minutes** and 2374 candidate comparisons before giving
+up. David Bowie's *Hours*, in a directory that looks like this:
+
+```
+01 Thursday's Child.flac                    39 MB
+...  (15 genuine tracks, 11-49 MB each)
+15 We All Go Through ....flac               32 MB
+16 David Bowie - Hours.flac.flac           494 MB   <- the whole album
+   David Bowie - Hours.cue
+   David Bowie - Hours.log
+```
+
+Some tool renamed the disc image as though it were track 16, doubling the
+extension into `.flac.flac`. The album therefore presents as 16 tracks when
+it is 15 plus a copy of the whole thing, and no release can match that: the
+candidates it kept rejecting had 9, 11 and 2 tracks. It searched exhaustively
+for something that was never there.
+
+**The cue fix does not help, and should not.** The sheet names
+`David Bowie - Hours.flac`, which no longer exists, so it is correctly judged
+unusable and dropped. The problem is not the sheet; it is the file the sheet
+points at masquerading as a track.
+
+**Two signals, both already to hand:**
+
+*Size.* A 494 MB file among 30 MB neighbours is not a track. A file several
+times the median in a directory of otherwise-consistent audio is a
+whole-album image whatever it is called. That alone would catch this.
+
+*The orphaned sheet's stem.* `David Bowie - Hours.cue` and
+`16 David Bowie - Hours.flac.flac` share a stem once a track-number prefix
+and the doubled extension are stripped. Weaker than size, but it confirms it
+-- and a doubled `.flac.flac` is itself a tell that something renamed a file
+without understanding it.
+
+Excluding such a file from the track count would let this album match as 15
+tracks, and would have saved 50 minutes on one album. Worth pairing with the
+search budget entry above: this is the case that motivates both.
