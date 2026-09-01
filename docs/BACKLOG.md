@@ -657,3 +657,59 @@ without understanding it.
 Excluding such a file from the track count would let this album match as 15
 tracks, and would have saved 50 minutes on one album. Worth pairing with the
 search budget entry above: this is the case that motivates both.
+
+## "No match found" hides the difference between absent and rejected
+
+**The report is the defect, not the matching.** Jean-Michel Jarre's *Planet
+Jarre* failed a batch with `No match found`, which reads as "Discogs does not
+hold this release". Discogs holds it eight times over. The search compared 52
+releases and rejected every one for a single reason:
+
+```
+[12530658] rejected — local has 36 tracks, Discogs has 41 (41 audio, 0 non-audio)
+[12522642] rejected — local has 36 tracks, Discogs has 41 (41 audio, 0 non-audio)
+[12523403] rejected — local has 36 tracks, Discogs has 136 (136 audio, 0 non-audio)
+```
+
+Every version on master 1423126 is 41 tracks, bar the 136-track box set. The
+local copy is 36, split 6/9/9/12 across four disc folders, against a released
+layout of 20/21 across two. **Five tracks are missing**, and the four-way split
+matches no edition anyone has catalogued. That is a defect in the rip, and by
+the standing rule that the library holds whole releases it is exactly the kind
+of thing a run should be telling us.
+
+Instead the run said the same three words it says for a white-label bootleg
+that genuinely is not in any database. One is source material to re-acquire;
+the other is nothing to be done. The log cannot tell them apart, so neither can
+the person reading it, and a real gap in the library stays invisible behind a
+message that sounds like a shrug.
+
+**What the run already knows.** By the time it gives up it is holding the
+closest release, the field that disqualified it, and the size of the gap. All
+three are discarded. The information cost of reporting them is zero -- it is a
+formatting change, not new work:
+
+```
+✗  Planet Jarre   No match — closest 12530658 (41 tracks, local 36); 5 short
+✗  Copy Steal     No match — no candidates returned
+```
+
+**Three outcomes, not one.** Worth separating in the summary as well as the
+line:
+
+*No candidates.* Nothing came back from either source. Genuinely absent --
+bootlegs, promos, single-track remix releases. Nothing to do.
+
+*Rejected on track count.* Candidates found, all disqualified on length.
+Almost always an incomplete or mis-split rip, and actionable: re-rip, or pin
+the right release with `id.txt` once the files are right.
+
+*Rejected on everything else.* Duration, catalog number, artist. Worth reading
+individually; this is where genuine matching defects will surface.
+
+**Why this outranks a matching fix.** The rejections above are correct -- a
+36-track directory is not a 41-track release and should not be tagged as one.
+The failure is that a run over 57 albums produces one undifferentiated pile of
+`No match found`, and the only way to learn which kind each is, is to re-run it
+by hand with `-v` and reassemble the wrapped log lines. That is the loop this
+entry exists to close: every no-match should arrive already classified.
