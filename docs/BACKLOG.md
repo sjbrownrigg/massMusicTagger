@@ -941,3 +941,48 @@ matcher had it in reach and preferred a cassette.
 
 Related to the disc layout entry above: both are cases where the ranking
 compares tracklists but ignores what the release physically is.
+
+## An averaged duration lets one wrong track reject the whole release
+
+*Fifteen Feet Of Pure White Snow* failed to match. The correct release was
+found, compared, and thrown out:
+
+```
+[35448229] rejected — avg track length diff 18.0s exceeds tolerance 10.0
+```
+
+Five local tracks against a five-track release, same titles, same order:
+
+```
+  #  track                              local  discogs   diff
+  1  Fifteen Feet Of Pure White Snow      336      247    +89
+  2  God Is in the House                  353      353      0
+  3  We Came Along This Road              337      337      0
+  4  And No More Shall We Part            254      255     -1
+  5  Fifteen Feet of Pure White Snow      345      346     -1
+                            mean absolute difference: 18.2s
+```
+
+**Four of five agree to within a second.** One track is 89s out -- Discogs
+lists a 4:07 "Single Version" where the rip holds something longer. The mean
+carries that one disagreement across the other four and the release is refused
+at 18.2s against a 10.0s tolerance.
+
+**The average is the wrong statistic.** It cannot tell "every track is
+moderately wrong", which means a different release, from "one track is very
+wrong", which usually means one mis-entered duration or one substituted
+version. Those need opposite verdicts and the mean gives them the same one.
+The median here is 1s.
+
+**What to use instead.** Count agreement rather than averaging error: the
+fraction of tracks within tolerance, needing most of them to agree. 4/5 accepts
+this release; five tracks each 18s adrift scores 0/5 and is still refused. It
+also degrades sensibly when Discogs lists no duration for some tracks, which
+the mean currently handles by quietly shrinking its own sample. Keep a bound on
+the worst single outlier if one is wanted, but do not let one track veto four.
+
+**It is invisible, too.** The rejection is logged at debug; the run reports
+`No match found`, indistinguishable from a release nobody catalogued. That is
+the classification entry above, and this is its best worked example: an exact
+title-and-order match on the right release, discarded on an averaged number,
+reported as if nothing had been found.
