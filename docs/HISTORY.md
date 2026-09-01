@@ -2,6 +2,48 @@
 
 ---
 
+## Version 3.11.0 (2026-09-01)
+
+### Fixed
+
+**One badly-timed track could reject the whole release.** Track lengths were
+compared by averaging the absolute difference across the release and refusing
+anything over `batch.tracklength_tolerance`. An average cannot separate "every
+track is moderately wrong", which means a different release, from "one track is
+very wrong", which usually means one mis-entered duration or one substituted
+version — and those deserve opposite verdicts.
+
+Nick Cave's *Fifteen Feet Of Pure White Snow* is the case that forced it.
+Release 35448229 carries the same five titles in the same order, four of them
+within a second, but Discogs lists a 4:07 single version where the rip holds
+something 89s longer. The mean came to 18.2s, over tolerance, so the correct
+release was refused and the run reported `No match found` — indistinguishable
+from a release nobody had catalogued.
+
+Agreement is now counted per track. A release is accepted when at least
+`batch.tracklength_agreement` of its comparable tracks fall within
+`batch.tracklength_tolerance` of the local files, and the median difference
+becomes the score, so a release still ranks by how well it agrees rather than
+merely passing. *Fifteen Feet* scores 4/5 with a median of 1s; a release whose
+tracks are each 18s adrift scores 0/5 and is still refused.
+
+### Added
+
+`batch.tracklength_agreement`, default `0.75` — the share of tracks that must
+agree. Raise it towards 1.0 to insist on near-exact agreement; lower it for a
+collection whose durations are known to be patchy.
+
+`batch.tracklength_tolerance` keeps its name, units and default, but now bounds
+a single track rather than the average across a release.
+
+### Changed
+
+`SEARCH_LOGIC_VERSION` is now 3, retiring stored search decisions: releases
+refused under the old rule are accepted under this one, and replaying the old
+answers would hide the fix.
+
+---
+
 ## Version 3.10.0 (2026-09-01)
 
 ### Fixed
