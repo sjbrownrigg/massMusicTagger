@@ -77,6 +77,7 @@ def search_and_map(
     mb_search=None,
     release_id_override: Optional[str] = None,
     release_id_source: Optional[str] = None,
+    notes: Optional[list] = None,
 ) -> Optional[tuple['Album', Optional['SourceConnector']]]:
     """Try each source in priority order; return (Album, connector) on first match.
 
@@ -89,6 +90,10 @@ def search_and_map(
     release_id_override
         Skip source-specific search and use this release ID directly.
         Applied to the first source in the priority list that accepts IDs.
+    notes
+        Optional list. A source that fails may append one line describing what
+        it compared, so a failed run can say whether nothing was found or the
+        right release was refused over one field.
     """
     ctx = _Attempt(
         sourcedir=sourcedir, cfg=cfg,
@@ -98,6 +103,7 @@ def search_and_map(
         mb_connector=mb_connector, mb_search=mb_search,
         release_id_override=release_id_override,
         release_id_source=release_id_source,
+        notes=notes,
     )
 
     priority = _get_priority(cfg)
@@ -144,6 +150,10 @@ class _Attempt(NamedTuple):
     #: release number and a MusicBrainz MBID are not interchangeable and
     #: handing one to the other wastes a lookup at best.
     release_id_source: Optional[str] = None
+    #: Caller-owned list a source may append one diagnosis line to when it
+    #: fails. Per attempt, never on a shared searcher: the searcher object is
+    #: reused across worker threads.
+    notes: Optional[list] = None
 
 
 def _override_for(source: str, ctx: '_Attempt') -> Optional[str]:
@@ -170,7 +180,8 @@ def _resolve_discogs(source: str, ctx: '_Attempt'):
     conn = (ctx.discogs_local_connector if source == 'local'
             else ctx.discogs_connector)
     found = _try_discogs(ctx.sourcedir, ctx.cfg, conn, ctx.discogs_search,
-                         release_id_override=_override_for(source, ctx))
+                         release_id_override=_override_for(source, ctx),
+                         notes=ctx.notes)
     if found is None:
         return None
     raw, release_id = found
@@ -238,7 +249,7 @@ _SOURCES = {
 
 
 def _try_discogs(sourcedir, cfg, connector, searcher,
-                 release_id_override=None) -> Optional[tuple]:
+                 release_id_override=None, notes=None) -> Optional[tuple]:
     """Return (raw_release, release_id) or None.
 
     Lookup order:
@@ -284,7 +295,7 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
             searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                              if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
-                relid = searcher.search(sourcedir)
+                relid = searcher.search(sourcedir, notes=notes)
                 raw = connector.fetch_release(relid) if relid else None
                 if raw is not None:
                     try:

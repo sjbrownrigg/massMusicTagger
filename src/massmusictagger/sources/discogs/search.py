@@ -61,13 +61,49 @@ class SearchState:
     on the instance, which is what sharing the object was for.
     """
 
-    __slots__ = ('params', 'candidates', 'no_duration', 'sifted_masters')
+    __slots__ = ('params', 'candidates', 'no_duration', 'sifted_masters',
+                 'rejections')
 
     def __init__(self):
         self.params = {}
         self.candidates = {}
         self.no_duration = {}
         self.sifted_masters = set()
+        #: Why each compared release was refused, so a failed search can say
+        #: what it saw instead of only that it saw nothing. One dict per
+        #: rejection: kind, rid, detail, and distance (lower = closer).
+        self.rejections = []
+
+    def diagnosis(self):
+        """One line saying what the search saw, for a run that found nothing.
+
+        "No match found" is the same three words whether Discogs holds nothing
+        at all -- a white-label bootleg, a single-track remix release -- or
+        holds the right album and refused it over one field. The first is
+        nothing to be done; the second is usually an incomplete or mis-split
+        rip, and is actionable. Reading the log to tell them apart means
+        re-running the album with -v and reassembling wrapped lines, which is
+        why a pile of failures stays a pile.
+
+        Everything needed is already in hand when the search gives up: the
+        closest release, the field that disqualified it, and the size of the
+        gap.
+        """
+        if not self.rejections:
+            return 'no candidates returned'
+
+        # Rank by kind first: a track-count miss is what the user can act on,
+        # and a medium veto says nothing useful about closeness.
+        order = {'track_count': 0, 'duration': 1, 'titles': 2, 'medium': 3}
+        closest = min(self.rejections,
+                      key=lambda r: (order.get(r['kind'], 9), r['distance']))
+        counts = {}
+        for r in self.rejections:
+            counts[r['kind']] = counts.get(r['kind'], 0) + 1
+        tally = ', '.join('%d on %s' % (n, k.replace('_', ' '))
+                          for k, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+        return 'closest %s — %s (%d compared: %s)' % (
+            closest['rid'], closest['detail'], len(self.rejections), tally)
 
 
 class DiscogsSearch(DiscogsConnector):
@@ -311,7 +347,7 @@ class DiscogsSearch(DiscogsConnector):
         else:
             s['artistRelease'] = self.normalize(' '.join((s['artist'], s['release'])).strip())
 
-    def search(self, sourcedir: str) -> 'str | None':
+    def search(self, sourcedir: str, notes: 'list | None' = None) -> 'str | None':
         """Return a Discogs release ID for *sourcedir*, or None.
 
         The SourceSearch entry point, matching MBSearch.search(). Everything
@@ -324,6 +360,13 @@ class DiscogsSearch(DiscogsConnector):
         know to touch .tracklist to force a lazy fetch that could 404. None of
         that is the cascade's business, and none of it applied to MusicBrainz,
         which is why the two branches looked nothing alike.
+
+        *notes* is an optional caller-owned list. On a failed search one line
+        describing what was compared is appended to it, so the run can say
+        whether nothing was found or the right release was refused. It is a
+        parameter rather than an attribute because the searcher is shared
+        between worker threads and per-album state on the instance is exactly
+        the bug SearchState exists to prevent.
         """
         from massmusictagger.sources.hints import (
             _load_source_hints, _folder_format_hint, _folder_descriptor_hints)
@@ -353,6 +396,8 @@ class DiscogsSearch(DiscogsConnector):
 
         release = self.search_discogs(state)
         if release is None:
+            if notes is not None:
+                notes.append(state.diagnosis())
             return None
 
         try:
@@ -768,6 +813,12 @@ class DiscogsSearch(DiscogsConnector):
                             rid, local_count, len(trackInfo),
                             len(trackInfo_audio), non_audio_count,
                         )
+                        state.rejections.append({
+                            'kind': 'track_count', 'rid': rid,
+                            'distance': abs(local_count - len(trackInfo)),
+                            'detail': '%d tracks, local has %d' % (
+                                len(trackInfo), local_count),
+                        })
                         return False
 
         # Format hint: reject releases whose medium type conflicts with the
@@ -811,6 +862,10 @@ class DiscogsSearch(DiscogsConnector):
             if rel_fmt in _CD_ONLY_FMTS:
                 logger.info('  [%s] rejected — %d-bit source cannot be a %s '
                             '(CD audio is 16-bit)', rid, local_depth, rel_fmt)
+                state.rejections.append({
+                    'kind': 'medium', 'rid': rid, 'distance': 1000.0,
+                    'detail': '%d-bit source cannot be a %s' % (local_depth, rel_fmt),
+                })
                 return False
 
         has_duration = any(t['duration'] is not None for t in trackInfo)
@@ -819,6 +874,11 @@ class DiscogsSearch(DiscogsConnector):
             if similarity > 0 and similarity < self.title_similarity_threshold:
                 logger.info('  [%s] rejected — title similarity %.0f%% below threshold %.0f%%',
                             rid, similarity, self.title_similarity_threshold)
+                state.rejections.append({
+                    'kind': 'titles', 'rid': rid,
+                    'distance': 100.0 - similarity,
+                    'detail': 'titles %.0f%% similar' % similarity,
+                })
                 return False
             logger.info('  [%s] tier-2 candidate — track count %d, title similarity %.0f%%',
                         rid, local_count, similarity)
@@ -840,6 +900,10 @@ class DiscogsSearch(DiscogsConnector):
                     '(need %.0f%%), median diff %.1fs',
                     rid, agreed, compared, self.tracklength_tolerance,
                     self.tracklength_agreement * 100, median)
+        state.rejections.append({
+            'kind': 'duration', 'rid': rid, 'distance': median,
+            'detail': 'only %d of %d tracks agree on length' % (agreed, compared),
+        })
         return False
 
     def _compareTrackLengths(self, current, imported):

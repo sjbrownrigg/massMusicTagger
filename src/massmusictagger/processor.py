@@ -463,6 +463,9 @@ class MassProcessor:
                 override_source, override_id = self._id_file_override(origin)
 
             from massmusictagger.cascade import search_and_map
+            # Owned by this album, not the searcher: the searcher is shared
+            # between workers.
+            notes: list = []
             match = search_and_map(
                 sourcedir, cfg,
                 discogs_connector=self._discogs_conn,
@@ -472,11 +475,16 @@ class MassProcessor:
                 mb_search=self._mb_search,
                 release_id_override=override_id,
                 release_id_source=override_source,
+                notes=notes,
             )
 
             if match is None:
                 result.outcome = OUTCOME_FAILED
-                result.error = 'No match found'
+                # Say what was seen. Bare "No match found" reads the same for a
+                # release nobody catalogued and for the right release refused
+                # over one field, and only the second is actionable.
+                result.error = ('No match — %s' % notes[0] if notes
+                                else 'No match found')
                 result.elapsed = time.monotonic() - t0
                 return result
 
