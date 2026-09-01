@@ -915,3 +915,29 @@ two days without anything in the log suggesting the discs had been separated --
 which is why it took a manual read of the audit trail to find. A rule this
 conservative will refuse sometimes; refusing silently is how it becomes the
 next invisible defect.
+
+## A cassette can win a match against a CD rip
+
+*Dig, Lazarus, Dig!!!*, a FLAC 16bit-44.1kHz rip, matched release 13741187 --
+`1 x Cassette / Album | Mute CDSTUMM277 | Indonesia 2008`. Nothing in the
+ranking weighs the release medium against the provenance the rip declares.
+
+**16/44.1 is CD provenance.** Not proof -- a needle-drop or a tape transfer can
+be resampled to it -- but it is what a CD rip always is, and the existing bit
+depth gate already reasons this way in the other direction: `_CD_ONLY_FMTS`
+rules out a CD when the audio is 24-bit, because no CD carries 24-bit audio. The
+converse deserves the same treatment as a preference rather than a veto: at
+16/44.1, prefer CD over Cassette, Vinyl and File, and let a strong signal such
+as a catalogue number override it.
+
+**Discogs data quality is part of it and cannot be relied on.** This very entry
+is a "Cassette" carrying `CDSTUMM277`, a CD catalogue number. So the format
+field alone should tilt the score rather than decide it -- a mis-catalogued
+release must not be able to win outright, nor be excluded outright.
+
+**The user had already found the better answer.** 3270382 -- `1 x CD / Album |
+Mute LCD STUMM 277 | Russia 2008` -- is an 11-track CD, the obvious fit. The
+matcher had it in reach and preferred a cassette.
+
+Related to the disc layout entry above: both are cases where the ranking
+compares tracklists but ignores what the release physically is.
