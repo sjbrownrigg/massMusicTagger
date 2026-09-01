@@ -825,3 +825,93 @@ should run `scan()`/`prepare()` first and take the early exit afterwards, when
 
 Worth pairing with the multi-disc grouping entry above: both come from the same
 album, and both are about a decision made before the sheets have been read.
+
+## Design: grouping CUE sheets into one multi-disc release
+
+Requirements, from the B-Sides case and the ones around it:
+
+* sheets may sit together in the album root **or** one per subfolder;
+* the disc number may be absent from the sheet and have to come from the folder
+  or file name;
+* and the whole thing must not sweep unrelated releases into one set.
+
+The third is the hard one, and it sets the bias: **over-grouping is much worse
+than under-grouping.** Under-grouping is today's behaviour -- correct albums at
+the wrong granularity, visible as duplicates, recoverable by re-running.
+Over-grouping merges unrelated audio into one release, tags it from a tracklist
+that does not describe it, and looks fine afterwards. Every rule below is
+therefore written to refuse when uncertain.
+
+### Stage 1 -- collect
+
+Walk the album subtree for CUE sheets, skipping `cue_done_dir`, `m4a_done_dir`
+and `ignored_source_dirs`. Keep only sheets whose `FILE` resolves against
+their own directory -- the existing usability test, which already drops the
+scratch sheets EAC leaves behind.
+
+### Stage 2 -- decide whether they are one release
+
+Group only when **every** one of these holds:
+
+*Shape is uniform.* Either all sheets are in the album root, or every sheet is
+alone in its own sibling subdirectory. A mixture is not a layout anyone
+produces on purpose, and is the shape most likely to be two releases sharing a
+folder.
+
+*Depth is one.* No sheet more than one directory below the album root. This is
+what stops an artist folder of separate CUE albums being read as a box set --
+the failure this whole entry exists to prevent.
+
+*The credit agrees.* `PERFORMER` matches across sheets once normalised. A
+differing performer means separate releases, or a various-artists set that
+should not be assembled this way regardless.
+
+*The title agrees once the disc marker is stripped.* `B-Sides & Rarities
+(Disc 1)`, `(Disc 2)`, `(Disc 3)` reduce to the same stem; `Heathen` and
+`Reality` do not. This is the single strongest signal available and the one
+that most reliably separates a box set from a folder of albums.
+
+*The date agrees*, where present. Differing `REM DATE` is a strong negative.
+
+*The numbers come out clean.* Derived disc numbers must be exactly 1..N, no
+duplicates, no gaps.
+
+Any failure: treat each sheet as its own album, as today. Log which test
+failed.
+
+### Stage 3 -- derive the disc number
+
+First hit wins:
+
+1. `REM DISCNUMBER` in the sheet.
+2. A trailing disc marker in the sheet's `TITLE` -- `(Disc 2)`, `CD2`,
+   `- Disc 2`. `_processCueFiles` already strips exactly this to clean the
+   title; read it before discarding it.
+3. The containing folder name: bare `2`, `CD 2`, `Disc 2`, or a trailing
+   `… CD 2` -- note the current scan regex is anchored at the start and so
+   misses the trailing form.
+4. The sheet's filename, same patterns.
+5. Sorted order.
+
+**All or nothing.** Either every sheet gets its number from evidence (1-4), or
+they all fall back to order (5). Mixing a derived `3` with a positional `1`
+produces collisions, and a collision here means one disc silently overwriting
+another.
+
+### The volume trap
+
+Only `cd`/`disc`/`disk` count as disc markers. `Vol. 1` and `Vol. 2` are as
+often two releases as two discs of one -- and this very album proves the
+ambiguity runs both ways: Discogs labels 429074's three discs
+`Volume I`, `Volume II`, `Volume III` in their `discsubtitle`, while the sheets
+call them `Disc 1..3`. Read volumes on the release side, never as a grouping
+signal on the source side.
+
+### Make the decision visible
+
+One line per album: the shape detected, where each disc number came from, and
+the failing test when grouping is refused. The B-Sides set ran five times over
+two days without anything in the log suggesting the discs had been separated --
+which is why it took a manual read of the audit trail to find. A rule this
+conservative will refuse sometimes; refusing silently is how it becomes the
+next invisible defect.
