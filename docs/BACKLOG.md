@@ -784,3 +784,44 @@ its own, every audio-bearing subdirectory is digits only, and there are at
 least two numbered consecutively from 1. A folder called `1` alone means
 nothing; three of them, sibling and consecutive under an empty parent, is a
 disc layout and nothing else.
+
+## An id.txt beside a disc image suppresses CUE splitting
+
+Pinning *B-Sides & Rarities* to release 429074 with an `id.txt` stopped the
+three CUE sheets from being split at all. The album reached the tagger as three
+audio files -- the disc images themselves -- and died:
+
+```
+TaggerError: 'Flat multi-disc layout: 3 audio files found but Discogs lists
+56 tracks across 3 discs. Check the release or arrange files into per-disc
+subdirectories.'
+```
+
+**One early return does it.** `__main__.py`:
+
+```python
+if has_audio_here and has_id_here:
+    return [source_dir], 0, {}
+```
+
+`has_audio_here` is true for any CUE album whose image sits in the album root,
+which is the normal shape. The return happens before `scan()` and `prepare()`,
+so the sheets are never seen, never split, and never reported as skipped. The
+same album without the `id.txt` splits correctly.
+
+**The two features are worth most together.** An `id.txt` is what a user
+reaches for when the search picked the wrong release -- and a multi-disc CUE
+set, whose disc layout the ranking does not compare, is exactly the case where
+the search is most likely to pick the wrong release. The pin is unavailable
+precisely where it is most needed.
+
+**The early return is right for what it was written for**: a single-album run
+on an already-split directory, where walking is pointless. It just tests the
+wrong thing. Audio in the root does not mean the album is ready; a disc image
+is audio, and it needs splitting before anything can be tagged. The condition
+should exclude a directory that also holds usable CUE sheets, or -- cleaner --
+should run `scan()`/`prepare()` first and take the early exit afterwards, when
+"has audio here" has a settled meaning.
+
+Worth pairing with the multi-disc grouping entry above: both come from the same
+album, and both are about a decision made before the sheets have been read.
