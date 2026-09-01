@@ -124,7 +124,22 @@ batch:
 
   id_file: id.txt
   searchdiscogs: false
+  # How close a single track's length must be to the release's, in seconds,
+  # to count as agreeing.
   tracklength_tolerance: 5.0
+
+  # What share of a release's tracks must agree before it is accepted.
+  #
+  # Agreement is counted per track rather than averaged across the release. An
+  # average cannot tell "every track is moderately wrong" -- a different
+  # release -- from "one track is very wrong", which is usually one mis-entered
+  # duration or one substituted version, and those need opposite verdicts.
+  #
+  # At 0.75 a five-track release is accepted when four agree. Raise it towards
+  # 1.0 to insist on near-exact agreement; lower it for a collection whose
+  # durations are known to be patchy.
+  tracklength_agreement: 0.75
+
   title_similarity_threshold: 60
 
   # Number of concurrent worker threads for mass processing.

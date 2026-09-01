@@ -226,6 +226,7 @@ DEFAULTS = {
     ('batch', 'id_file'): 'id.txt',
     ('batch', 'searchdiscogs'): 'False',
     ('batch', 'tracklength_tolerance'): '5.0',
+    ('batch', 'tracklength_agreement'): '0.75',
     ('batch', 'title_similarity_threshold'): '60',
 
     # ── [cue] ─────────────────────────────────────────────────────────

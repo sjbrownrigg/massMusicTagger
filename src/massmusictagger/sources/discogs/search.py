@@ -824,32 +824,65 @@ class DiscogsSearch(DiscogsConnector):
                         rid, local_count, similarity)
             return -(similarity / 100.0)
 
-        difference = self._compareTrackLengths(searchParams['tracks'], trackInfo)
-        if difference < self.tracklength_tolerance:
-            logger.info('  [%s] accepted — avg track length diff %.1fs', rid, difference)
-            return difference
+        agreed, compared, median = self._compareTrackLengths(
+            searchParams['tracks'], trackInfo)
+        if compared == 0:
+            logger.info('  [%s] rejected — no track pair had both durations', rid)
+            return False
 
-        logger.info('  [%s] rejected — avg track length diff %.1fs exceeds tolerance %s',
-                    rid, difference, self.tracklength_tolerance)
+        share = agreed / compared
+        if share >= self.tracklength_agreement:
+            logger.info('  [%s] accepted — %d/%d tracks within %ss, median diff %.1fs',
+                        rid, agreed, compared, self.tracklength_tolerance, median)
+            return median
+
+        logger.info('  [%s] rejected — only %d/%d tracks within %ss '
+                    '(need %.0f%%), median diff %.1fs',
+                    rid, agreed, compared, self.tracklength_tolerance,
+                    self.tracklength_agreement * 100, median)
         return False
 
     def _compareTrackLengths(self, current, imported):
-        """Average absolute track-length difference in seconds (duration-having tracks only)."""
-        total = 0.0
-        count = 0
+        """How many tracks agree on length, and by how much they typically differ.
+
+        Returns ``(agreed, compared, median_difference)`` over the track pairs
+        where both sides state a duration.
+
+        This counts agreement rather than averaging error, because the two
+        answer different questions and only the first one is useful here. An
+        average cannot separate "every track is moderately wrong", which means
+        a different release, from "one track is very wrong", which usually
+        means one mis-entered duration or one substituted version -- and those
+        deserve opposite verdicts.
+
+        Nick Cave's *Fifteen Feet Of Pure White Snow* is the case that forced
+        it. Release 35448229 has the same five titles in the same order, four
+        of them within a second; track 1 is 89s out because Discogs lists a
+        4:07 single version. The mean was 18.2s, over a 10s tolerance, so the
+        right release was refused and the run reported "No match found".
+
+        The median is returned as the score because it is the robust summary of
+        the same numbers: 1s here rather than 18.2s, so a release that agrees
+        on most tracks still ranks by how well it agrees.
+        """
+        diffs = []
         for i, track in enumerate(current):
             local_dur = track.get('duration') or ''
             discogs_dur = imported[i]['duration']
             if not local_dur or discogs_dur is None:
                 continue
-            diff = self._compareTimeDifference(local_dur, discogs_dur)
-            total += diff.total_seconds()
-            count += 1
-        if count == 0:
-            return float('inf')
-        avg = total / count
-        logger.info('avg track length diff: %.1fs over %d track(s)', avg, count)
-        return avg
+            diffs.append(
+                self._compareTimeDifference(local_dur, discogs_dur).total_seconds())
+        if not diffs:
+            return 0, 0, float('inf')
+        agreed = sum(1 for d in diffs if d <= self.tracklength_tolerance)
+        ordered = sorted(diffs)
+        mid = len(ordered) // 2
+        median = (ordered[mid] if len(ordered) % 2
+                  else (ordered[mid - 1] + ordered[mid]) / 2)
+        logger.info('track lengths: %d/%d within %ss, median diff %.1fs',
+                    agreed, len(diffs), self.tracklength_tolerance, median)
+        return agreed, len(diffs), median
 
     def _compareTimeDifference(self, current, imported):
         if current and imported:

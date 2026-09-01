@@ -160,7 +160,9 @@ class SearchCache:
     #: 1 -- original.
     #: 2 -- catalog hints taken from the catalognum tag and from
     #:      space-separated numbers, changing which candidate wins.
-    SEARCH_LOGIC_VERSION = 2
+    #: 3 -- track lengths compared by agreement rather than by average, so
+    #:      releases refused under the old rule are now accepted.
+    SEARCH_LOGIC_VERSION = 3
 
     def __init__(self, cache_dir: str):
         self._dir = Path(cache_dir) / 'searches'
