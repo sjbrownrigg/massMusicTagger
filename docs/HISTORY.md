@@ -2,6 +2,40 @@
 
 ---
 
+## Version 3.12.0 (2026-09-01)
+
+### Changed
+
+**A failed search now says what it compared.** `No match found` read exactly
+the same whether Discogs held nothing at all — a white-label bootleg, a
+single-track remix release — or held the right album and refused it over one
+field. The first is nothing to be done; the second is usually an incomplete or
+mis-split rip, and is actionable. Telling them apart meant re-running the album
+with `-v` and reassembling wrapped log lines, so a batch of failures stayed one
+undifferentiated pile.
+
+Everything needed was already in hand when the search gave up: the closest
+release, the field that disqualified it, and the size of the gap. All three
+were discarded. Failures now read:
+
+```
+No match — closest 12530658 — 41 tracks, local has 36 (52 compared: 52 on track count)
+No match — no candidates returned
+```
+
+The first is Jean-Michel Jarre's *Planet Jarre*: five tracks missing from the
+rip, which no amount of matching work would fix and which the old message hid
+behind a shrug. The second is a remix single nothing catalogues.
+
+Rejections are ranked so the most actionable is named: track count first, then
+duration, then titles, then a medium veto — which says nothing about how close
+a release was and so should never be reported as the closest.
+
+The diagnosis travels on a caller-owned list rather than an attribute of the
+searcher, which is shared between worker threads.
+
+---
+
 ## Version 3.11.0 (2026-09-01)
 
 ### Fixed
