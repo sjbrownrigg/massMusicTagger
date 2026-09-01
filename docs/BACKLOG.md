@@ -714,10 +714,10 @@ The failure is that a run over 57 albums produces one undifferentiated pile of
 by hand with `-v` and reassemble the wrapped log lines. That is the loop this
 entry exists to close: every no-match should arrive already classified.
 
-## Disc folders named as bare numbers are read as separate albums
+## A multi-disc set with one CUE sheet per disc folder loses its disc identity
 
-Nick Cave & The Bad Seeds' *B-Sides & Rarities* arrived as three folders named
-`1`, `2` and `3`, and was filed as three albums:
+Nick Cave & The Bad Seeds' *B-Sides & Rarities* -- an EAC rip of the physical
+3xCD, three disc images with three sheets -- was filed as three albums:
 
 ```
 /sorted/…/[2005] B-Sides & Rarities (Disc 1) [CDr …]              19 tracks  → 13855891
@@ -725,39 +725,62 @@ Nick Cave & The Bad Seeds' *B-Sides & Rarities* arrived as three folders named
 /sorted/…/[2005] B-Sides & Rarities (Disc 3) (CDMUTEL11) [CDr …]  19 tracks  → 11397681
 ```
 
-**The detector wants a word.** `files.py`:
+**The disc grouping is decided per directory.** `_processCueFiles` sets disc
+identity only when a single directory holds more than one sheet:
 
 ```python
-if re.search(r'(?i)^(cd|disc|disk)\s*\d+', dir):
+if len(files) > 1:
+    cue.discnumber = str(idx + 1)
+    cue.disctotal  = str(len(files))
 ```
 
-`CD 01` matches, `Disc 2` matches, `1` does not. With no match the walker
-descends and each folder becomes its own album, which is the right default for
-an artist directory and the wrong one here.
+and `_splitCueFile` groups the output only when that ran:
 
-**Nothing looked wrong, which is the interesting part.** Discogs catalogues the
-Mute promo CDrs as three separate single-disc releases under master 323438,
-with 19, 18 and 19 tracks. Each folder therefore found a real release whose
-track count fitted exactly, was accepted at full confidence, and passed without
-a warning. A near-miss report would not have caught this: there was no near
-miss. Three correct matches to the wrong three releases.
+```python
+if cue.disctotal is not None and int(cue.disctotal) > 1:
+    destination = os.path.join(destination, 'cd' + str(cue.discnumber))
+```
 
-**The right release was there all along.** 429074 -- 3×CD, 56 tracks, split
-19/18/19 -- fits the rip exactly, as do 1390744 and 12899192. The album had
-only to be presented as one album to find it.
+Three sheets side by side in one folder are handled correctly -- they become
+`cd1`, `cd2`, `cd3`, which the scan's `^(cd|disc|disk)\s*\d+` test then reads
+back as one multi-disc album. The same three discs in folders `1/`, `2/`, `3/`,
+one sheet each, are three separate single-sheet directories. `len(files) > 1`
+is false in each, so no disc number is assigned, the tracks split in place, and
+the images are stashed to `1/.cue/`, `2/.cue/`, `3/.cue/`.
+
+**The scan then has nothing left to group by.** `1` does not match the disc
+pattern -- it wants a `cd`/`disc`/`disk` word -- so the walker descends and
+treats each as its own album. The sheets knew: each `TITLE` reads
+`B-Sides & Rarities (Disc N)`, and `_processCueFiles` strips exactly that
+suffix before splitting. The disc number is read, used to clean the title, and
+discarded.
+
+**Nothing looked wrong, which is the part worth dwelling on.** Discogs
+catalogues the Mute promo CDrs as three separate single-disc releases under
+master 323438, at 19, 18 and 19 tracks. Each orphaned folder therefore found a
+real release whose track count fitted exactly, was accepted at full confidence,
+and passed without a warning. The near-miss reporting proposed above would not
+have caught this: there was no near miss. Three correct matches to the wrong
+three releases.
+
+**The right release was there.** 429074 -- 3xCD, 56 tracks, 19/18/19 -- fits
+the rip exactly, as do 1390744 and 12899192.
 
 **The cost is a duplicate.** `sorted` already held
-`[2017-01-03] B-Sides & Rarities [56xDM …]` at 56 tracks, so the library now
-carries this compilation twice, once whole and once in pieces.
+`[2017-01-03] B-Sides & Rarities [56xDM …]` at 56 tracks, so the library
+carried the compilation twice, once whole and once in pieces.
 
-**The signal is available and safe to read.** Bare numeric siblings are discs
-when all of these hold:
+**Two fixes, and the first is the real one.**
 
-* the parent directory has no audio files of its own;
-* every subdirectory that contains audio is named only with digits;
-* there are at least two of them, numbered from 1 without gaps.
+*Decide disc identity for the album, not the directory.* Gather the sheets
+across an album's subdirectories before assigning numbers, so three folders
+holding one sheet each are the same case as one folder holding three. The disc
+number is already parsed out of each `TITLE`; use it instead of throwing it
+away, and fall back to sorted order as now.
 
-A folder called `1` on its own means nothing. Three of them, sibling, numbered
-consecutively, each full of audio and their parent empty, is a disc layout and
-nothing else. Worth also accepting the `disc_distribution` check already used
-in ranking as confirmation once the candidate is in hand.
+*Recognise bare numeric disc folders in the scan.* Narrower, and worth having
+anyway for rips that arrive already split. Safe when the parent has no audio of
+its own, every audio-bearing subdirectory is digits only, and there are at
+least two numbered consecutively from 1. A folder called `1` alone means
+nothing; three of them, sibling and consecutive under an empty parent, is a
+disc layout and nothing else.
