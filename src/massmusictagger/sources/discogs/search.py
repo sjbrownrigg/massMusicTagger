@@ -43,33 +43,59 @@ logger = logging.getLogger(__name__)
 _CD_ONLY_FMTS = frozenset(('cd', 'cdr', 'cd-r', 'hdcd', 'minidisc'))
 
 
+
+class SearchState:
+    """One album's working set for a single search.
+
+    These four used to be attributes of DiscogsSearch, which the processor
+    builds **once per session** because the object also holds caches. With
+    batch.workers above 1 that meant every worker searched through one shared
+    set of candidates: four albums overwriting each other's results mid-search.
+
+    Measured on two albums, same cache, same code -- workers=1 accepted 10
+    candidates and matched both; workers=4 accepted 0 and matched neither.
+    Missed matches are the visible symptom; the worse one is invisible, an
+    album selecting from another album's candidate pool.
+
+    So the working set is created per search and passed down. The caches stay
+    on the instance, which is what sharing the object was for.
+    """
+
+    __slots__ = ('params', 'candidates', 'no_duration', 'sifted_masters')
+
+    def __init__(self):
+        self.params = {}
+        self.candidates = {}
+        self.no_duration = {}
+        self.sifted_masters = set()
+
+
 class DiscogsSearch(DiscogsConnector):
     """Search for a Discogs release using metadata extracted from local files."""
 
     def __init__(self, tagger_config):
         DiscogsConnector.__init__(self, tagger_config)
-        self.candidates = {}
-        self.no_duration_candidates = {}
-        self.search_params = {}
+        # Caches only. Anything belonging to one album's search lives in a
+        # SearchState created per search -- this object is built once per
+        # session and shared by every worker thread.
         self._artist_name_cache = {}
-        self._sifted_masters = set()
 
     # ------------------------------------------------------------------
     # Metadata extraction
     # ------------------------------------------------------------------
 
-    def getSearchParams(self, source_dir):
-        """Read file metadata from source_dir and populate self.search_params."""
+    def getSearchParams(self, source_dir, state):
+        """Read file metadata from source_dir and populate state.params."""
         logger.info('Retrieving original metadata for search purposes')
-        self.search_params = {}
-        self.candidates = {}
-        self.no_duration_candidates = {}
-        self._sifted_masters = set()
+        state.params = {}
+        state.candidates = {}
+        state.no_duration = {}
+        state.sifted_masters = set()
 
         files = self._getMusicFiles(source_dir)
         files.sort(key=natural_sort_key)
         subdirectories = self._fetchSubdirectories(source_dir, files)
-        searchParams = self.search_params
+        searchParams = state.params
         searchParams['sourcedir'] = source_dir
 
         trackcount = 0
@@ -173,13 +199,13 @@ class DiscogsSearch(DiscogsConnector):
                 and not searchParams.get('albumartist')
                 and not searchParams.get('album')):
             logger.warning('No metadata available in the audio files')
-            self.metadataFromFileNaming(source_dir, files)
+            self.metadataFromFileNaming(source_dir, files, state)
             return None
 
-    def metadataFromFileNaming(self, source_dir, files):
+    def metadataFromFileNaming(self, source_dir, files, state):
         """Fall back: derive artist/album/track info from directory and file names."""
         logger.info('Fetching metadata from file & directory naming')
-        searchParams = self.search_params
+        searchParams = state.params
         # source_dir lives in [common]. Reading it from [details] returned
         # None rather than raising -- TaggerConfig.get swallows a missing
         # section -- so base_dir was always '', the except never fired, and
@@ -251,14 +277,14 @@ class DiscogsSearch(DiscogsConnector):
     # Search orchestration
     # ------------------------------------------------------------------
 
-    def search_strings(self):
-        """Build normalised search strings from self.search_params.
+    def search_strings(self, state):
+        """Build normalised search strings from state.params.
 
         searchParams['artist'] is already the Discogs canonical name and has
         albumartist priority — both resolved in getSearchParams.  This method
         only normalises the strings and handles the VA compilation special case.
         """
-        searchParams = self.search_params
+        searchParams = state.params
         searchParams['search'] = {}
         s = searchParams['search']
         va = VARIOUS_ARTIST_NAMES
@@ -292,7 +318,7 @@ class DiscogsSearch(DiscogsConnector):
         Discogs needs to run a search now happens in here.
 
         The caller used to have to do this itself: call getSearchParams, work
-        out the folder hints, reach into self.search_params to inject them,
+        out the folder hints, reach into state.params to inject them,
         conditionally pop the year, call search_discogs() -- a differently
         named method returning a release object rather than an ID -- and then
         know to touch .tracklist to force a lazy fetch that could 404. None of
@@ -302,7 +328,8 @@ class DiscogsSearch(DiscogsConnector):
         from massmusictagger.sources.hints import (
             _load_source_hints, _folder_format_hint, _folder_descriptor_hints)
 
-        self.getSearchParams(sourcedir)
+        state = SearchState()
+        self.getSearchParams(sourcedir, state)
 
         # Folder-name signals. The format hint gates candidates whose medium
         # conflicts with the folder (a vinyl LP for a 24-bit remaster), and the
@@ -310,11 +337,11 @@ class DiscogsSearch(DiscogsConnector):
         hints = _load_source_hints(self.config)
         fmt_hint = _folder_format_hint(sourcedir, hints)
         if fmt_hint:
-            self.search_params['format_hint'] = fmt_hint
+            state.params['format_hint'] = fmt_hint
             if fmt_hint == 'digital':
                 # The original album year would restrict results to that year's
                 # pressings -- all vinyl -- and hide the digital remaster.
-                year = self.search_params.pop('year', None)
+                year = state.params.pop('year', None)
                 if year:
                     logger.debug(
                         'Format hint "digital": suppressed year %s from the '
@@ -322,9 +349,9 @@ class DiscogsSearch(DiscogsConnector):
                         year, os.path.basename(sourcedir))
         desc_hints = _folder_descriptor_hints(sourcedir, hints)
         if desc_hints:
-            self.search_params['descriptor_hints'] = desc_hints
+            state.params['descriptor_hints'] = desc_hints
 
-        release = self.search_discogs()
+        release = self.search_discogs(state)
         if release is None:
             return None
 
@@ -339,69 +366,69 @@ class DiscogsSearch(DiscogsConnector):
                 'match', getattr(release, 'id', '?'), exc)
             return None
 
-    def search_discogs(self):
+    def search_discogs(self, state):
         """Search Discogs for a matching release — four-tier strategy."""
-        searchParams = self.search_params
+        searchParams = state.params
 
-        self.candidates = {}
-        self.no_duration_candidates = {}
-        self._sifted_masters = set()
+        state.candidates = {}
+        state.no_duration = {}
+        state.sifted_masters = set()
 
-        self.search_strings()
+        self.search_strings(state)
         s = searchParams.get('search', {})
         logger.info('Searching Discogs for: artist="%s" album="%s"',
                     s.get('artist', '?'), searchParams.get('album', '?'))
 
         # Tier 1 — structured fields with year (most precise)
         if searchParams.get('year'):
-            self._search_release_fields(include_year=True)
-            if self.candidates or self.no_duration_candidates:
+            self._search_release_fields(state, include_year=True)
+            if state.candidates or state.no_duration:
                 logger.info('Tier 1 (artist+title+year) found candidates')
 
         # Tier 2 — structured fields without year
-        if not self.candidates and not self.no_duration_candidates:
-            self._search_release_fields(include_year=False)
-            if self.candidates or self.no_duration_candidates:
+        if not state.candidates and not state.no_duration:
+            self._search_release_fields(state, include_year=False)
+            if state.candidates or state.no_duration:
                 logger.info('Tier 2 (artist+title) found candidates')
 
         # Tier 3 — artist-browse: follow the artist entity → scan their releases
         # More targeted than a free-text search when structured fields have failed.
-        if not self.candidates and not self.no_duration_candidates:
-            self.search_artist()
-            if self.candidates or self.no_duration_candidates:
+        if not state.candidates and not state.no_duration:
+            self.search_artist(state)
+            if state.candidates or state.no_duration:
                 logger.info('Tier 3 (artist browse) found candidates')
 
         # Tier 4 — free-text search, first 5 results only.
         # Anything beyond this is unlikely to surface a better match than the
         # structured tiers already tried; it exists purely as a safety net.
-        if not self.candidates and not self.no_duration_candidates:
-            self._search_text(['all', 'master'], max_results=5)
-            if self.candidates or self.no_duration_candidates:
+        if not state.candidates and not state.no_duration:
+            self._search_text(state, ['all', 'master'], max_results=5)
+            if state.candidates or state.no_duration:
                 logger.info('Tier 4 (text search, first 5 results) found candidates')
 
-        return self._pick_best()
+        return self._pick_best(state)
 
-    def _pick_best(self):
+    def _pick_best(self, state):
         """Select and return the best candidate, or None."""
-        if not self.candidates and not self.no_duration_candidates:
+        if not state.candidates and not state.no_duration:
             logger.warning('No matching release found on Discogs')
             return None
 
-        if not self.candidates:
+        if not state.candidates:
             logger.info('No duration-matched candidates; falling back to %d no-duration candidate(s)',
-                        len(self.no_duration_candidates))
-            return self._select_by_metadata(self.no_duration_candidates)
+                        len(state.no_duration))
+            return self._select_by_metadata(state.no_duration, state)
 
-        if len(self.candidates) == 1:
-            result = list(self.candidates.values())[0]
+        if len(state.candidates) == 1:
+            result = list(state.candidates.values())[0]
             logger.info('Found 1 tier-1 candidate: [%s] — %s',
                         result.id, getattr(result, 'title', '?'))
             return result
 
-        logger.info('Found %d tier-1 candidates, selecting best match', len(self.candidates))
+        logger.info('Found %d tier-1 candidates, selecting best match', len(state.candidates))
         scored = [
-            (self._candidate_score(release, base_score=diff), release)
-            for diff, release in self.candidates.items()
+            (self._candidate_score(release, state, base_score=diff), release)
+            for diff, release in state.candidates.items()
         ]
         scored.sort(key=lambda x: x[0])
         best_score, best = scored[0]
@@ -412,7 +439,7 @@ class DiscogsSearch(DiscogsConnector):
     # Tier 1 / 2 — structured field search
     # ------------------------------------------------------------------
 
-    def _search_release_fields(self, include_year=True):
+    def _search_release_fields(self, state, include_year=True):
         """Search using Discogs structured fields: artist, release_title[, year].
 
         Every release returned by the API is compared directly.  Its master's
@@ -420,10 +447,10 @@ class DiscogsSearch(DiscogsConnector):
         This avoids the bug where a release returned by the search API was
         silently replaced by its parent master and never directly compared.
         """
-        s = self.search_params.get('search', {})
+        s = state.params.get('search', {})
         artist = s.get('artist', '')
         release_title = s.get('release', '')
-        year = str(self.search_params.get('year') or '') if include_year else ''
+        year = str(state.params.get('year') or '') if include_year else ''
 
         if not artist and not release_title:
             return
@@ -435,7 +462,7 @@ class DiscogsSearch(DiscogsConnector):
         cached = self._search_cache.get(cache_key, cache_type) if self._search_cache else None
         if cached is not None:
             logger.info('Field search cache hit (%s): %s', label, cache_key)
-            self._replay_search_results(cached)
+            self._replay_search_results(cached, state)
             return
 
         kwargs = {}
@@ -455,7 +482,7 @@ class DiscogsSearch(DiscogsConnector):
 
         collected = []
         for idx, result in enumerate(results):
-            if self.candidates:
+            if state.candidates:
                 break
             if idx >= 25:
                 break
@@ -463,15 +490,15 @@ class DiscogsSearch(DiscogsConnector):
                 continue
 
             # Compare this release directly — key fix for the "swallowed release" bug
-            self._siftReleases([result])
+            self._siftReleases([result], state)
             collected.append({'id': result.id, 'is_master': False})
             logger.debug('  Field search direct compare: [%s]', result.id)
 
             # Also sift master versions (once per master)
             master = self.get_master_release(result)
-            if hasattr(master, 'versions') and master.id not in self._sifted_masters:
-                self._sift_master_versions(master)
-                self._sifted_masters.add(master.id)
+            if hasattr(master, 'versions') and master.id not in state.sifted_masters:
+                self._sift_master_versions(master, state)
+                state.sifted_masters.add(master.id)
                 collected.append({'id': master.id, 'is_master': True})
 
         if self._search_cache and collected:
@@ -481,17 +508,17 @@ class DiscogsSearch(DiscogsConnector):
     # Text search — used as Tier 4 fallback
     # ------------------------------------------------------------------
 
-    def _search_text(self, types, max_results=25):
+    def _search_text(self, state, types, max_results=25):
         """Run the combined-text search for each type in the list."""
         for type_ in types:
-            if self.candidates:
+            if state.candidates:
                 break
             try:
-                self._search_artist_title(type_, max_results=max_results)
+                self._search_artist_title(state, type_, max_results=max_results)
             except Exception as e:
                 logger.warning('Text search error (%s): %s', type_, e)
 
-    def _search_artist_title(self, type_, max_results=25):
+    def _search_artist_title(self, state, type_, max_results=25):
         """Combined text search using artistRelease string.
 
         max_results caps how many API results are examined before giving up.
@@ -502,13 +529,13 @@ class DiscogsSearch(DiscogsConnector):
         (not a Master) as a search result, compare it directly *and* sift
         its master's versions.  Previously only the master was sifted.
         """
-        s = self.search_params['search']
+        s = state.params['search']
         query = s['artistRelease']
 
         cached = self._search_cache.get(query, type_) if self._search_cache else None
         if cached is not None:
             logger.info('Search cache hit: "%s" (%s)', query, type_)
-            self._replay_search_results(cached)
+            self._replay_search_results(cached, state)
             return
 
         logger.info('Searching by artist and title (%s, max %d): %s', type_, max_results, query)
@@ -516,7 +543,7 @@ class DiscogsSearch(DiscogsConnector):
 
         collected = []
         for idx, result in enumerate(results):
-            if self.candidates:
+            if state.candidates:
                 break
             if idx >= max_results:
                 break
@@ -529,20 +556,20 @@ class DiscogsSearch(DiscogsConnector):
             # Its master is not a reliable proxy — it may include hundreds of
             # versions, none of which are this exact reissue if the cache is stale.
             if result_is_release:
-                self._siftReleases([result])
+                self._siftReleases([result], state)
                 collected.append({'id': result.id, 'is_master': False})
 
             # Sift master versions — once per master across all tiers
             master = self.get_master_release(result)
-            if hasattr(master, 'versions') and master.id not in self._sifted_masters:
-                self._sift_master_versions(master)
-                self._sifted_masters.add(master.id)
+            if hasattr(master, 'versions') and master.id not in state.sifted_masters:
+                self._sift_master_versions(master, state)
+                state.sifted_masters.add(master.id)
                 collected.append({'id': master.id, 'is_master': True})
             elif not result_is_release:
                 # result is a master itself and was already sifted (or IS the master)
-                if master.id not in self._sifted_masters:
-                    self._sift_master_versions(master)
-                    self._sifted_masters.add(master.id)
+                if master.id not in state.sifted_masters:
+                    self._sift_master_versions(master, state)
+                    state.sifted_masters.add(master.id)
                     collected.append({'id': master.id, 'is_master': True})
 
         if self._search_cache and collected:
@@ -552,9 +579,9 @@ class DiscogsSearch(DiscogsConnector):
     # Artist browse — Tier 3
     # ------------------------------------------------------------------
 
-    def search_artist(self):
-        searchParams = self.search_params
-        artist = self.search_params['search']['artist']
+    def search_artist(self, state):
+        searchParams = state.params
+        artist = state.params['search']['artist']
 
         logger.info('Searching by artist: %s', artist)
         results = self.discogs_client.search(artist, type='artist')
@@ -564,7 +591,7 @@ class DiscogsSearch(DiscogsConnector):
 
         releases = None
         for result in results:
-            if self.candidates:
+            if state.candidates:
                 break
             canonical = strip_discogs_id_suffix(result.name)
             if self.normalize(artist).lower() == self.normalize(canonical).lower():
@@ -572,40 +599,40 @@ class DiscogsSearch(DiscogsConnector):
             if releases is None:
                 continue
             for i, release in enumerate(releases):
-                if self.candidates or i > 25:
+                if state.candidates or i > 25:
                     return
                 if searchParams['album'].lower() in release.title.lower() or \
                         release.title.lower() in searchParams['album'].lower():
                     if hasattr(release, 'versions'):
-                        self._siftReleases(list(release.versions))
+                        self._siftReleases(list(release.versions), state)
                     else:
-                        self._siftReleases([release])
+                        self._siftReleases([release], state)
 
-    def search_album_title(self):
-        searchParams = self.search_params
-        release_title = self.search_params['search']['release']
+    def search_album_title(self, state):
+        searchParams = state.params
+        release_title = state.params['search']['release']
         logger.info('Searching by title: %s', release_title)
         results = self.discogs_client.search(release_title, type='release')
         for i, result in enumerate(results):
-            if self.candidates or i > 25:
+            if state.candidates or i > 25:
                 break
             master = self.get_master_release(result)
             if hasattr(master, 'versions'):
-                self._siftReleases(list(master.versions))
+                self._siftReleases(list(master.versions), state)
             else:
-                self._siftReleases([result])
+                self._siftReleases([result], state)
 
     # ------------------------------------------------------------------
     # Candidate management
     # ------------------------------------------------------------------
 
-    def _siftReleases(self, releases):
+    def _siftReleases(self, releases, state):
         """Evaluate each release into tier-1 or tier-2 candidate buckets.
 
         Evaluates every release in the batch (even once a candidate exists)
         so _pick_best() can later choose the best among several tier-1
         matches — callers that want to stop after the first hit already
-        check self.candidates between batches themselves.
+        check state.candidates between batches themselves.
 
         Comparing a release can trigger a lazy API fetch of its tracklist
         (master.versions returns lightweight stubs); a single deleted/404
@@ -617,7 +644,7 @@ class DiscogsSearch(DiscogsConnector):
         """
         for release in releases:
             try:
-                difference = self._compareRelease(release)
+                difference = self._compareRelease(release, state)
             except Exception as e:
                 logger.warning('Skipping release %s — fetch/compare failed: %s',
                                 getattr(release, 'id', '?'), e)
@@ -625,13 +652,13 @@ class DiscogsSearch(DiscogsConnector):
             if difference is False:
                 continue
             elif difference < 0:
-                self.no_duration_candidates[release.id] = (release, abs(difference) * 100)
+                state.no_duration[release.id] = (release, abs(difference) * 100)
             else:
-                while difference in self.candidates:
+                while difference in state.candidates:
                     difference += 0.001
-                self.candidates[difference] = release
+                state.candidates[difference] = release
 
-    def _sift_master_versions(self, master):
+    def _sift_master_versions(self, master, state):
         """Sift all versions of a master, using the master-versions cache."""
         cached_ids = (self._master_versions_cache.get(master.id)
                       if self._master_versions_cache else None)
@@ -644,32 +671,32 @@ class DiscogsSearch(DiscogsConnector):
             if self._master_versions_cache and version_ids:
                 self._master_versions_cache.put(master.id, version_ids)
             logger.info('Master %s: %d version(s) fetched from API', master.id, len(versions))
-        self._siftReleases(versions)
+        self._siftReleases(versions, state)
 
-    def _replay_search_results(self, cached_results):
+    def _replay_search_results(self, cached_results, state):
         """Replay a cached search result list without hitting the search API."""
         for item in cached_results:
-            if self.candidates:
+            if state.candidates:
                 break
             rid = item['id']
             if item.get('is_master'):
-                if rid not in self._sifted_masters:
+                if rid not in state.sifted_masters:
                     master = self.discogs_client.master(rid)
-                    self._sift_master_versions(master)
-                    self._sifted_masters.add(rid)
+                    self._sift_master_versions(master, state)
+                    state.sifted_masters.add(rid)
             else:
                 release = self._release_obj_from_cache(rid)
-                diff = self._compareRelease(release)
+                diff = self._compareRelease(release, state)
                 if diff is False:
                     continue
                 elif diff < 0:
-                    self.no_duration_candidates[release.id] = (release, abs(diff) * 100)
+                    state.no_duration[release.id] = (release, abs(diff) * 100)
                 else:
-                    while diff in self.candidates:
+                    while diff in state.candidates:
                         diff += 0.001
-                    self.candidates[diff] = release
+                    state.candidates[diff] = release
 
-    def _compareRelease(self, release):
+    def _compareRelease(self, release, state):
         """Compare local files against a single Discogs release.
 
         Return convention (lower is always better for the caller):
@@ -677,7 +704,7 @@ class DiscogsSearch(DiscogsConnector):
           float < 0   — tier-2: -(similarity/100)
           False       — rejected
         """
-        searchParams = self.search_params
+        searchParams = state.params
         rid = release.id
 
         # Fetch the full tracklist first (including non-audio like DVD/Blu-ray).
@@ -906,10 +933,10 @@ class DiscogsSearch(DiscogsConnector):
 
         return trackinfo
 
-    def _candidate_score(self, release, base_score=50.0):
+    def _candidate_score(self, release, state, base_score=50.0):
         """Composite score for ranking candidates (lower is better)."""
         score = float(base_score)
-        searchParams = self.search_params
+        searchParams = state.params
         try:
             data = release.data
             fmt_name = data.get('formats', [{}])[0].get('name', '').lower()
@@ -996,11 +1023,11 @@ class DiscogsSearch(DiscogsConnector):
 
         return score
 
-    def _select_by_metadata(self, no_duration_candidates):
+    def _select_by_metadata(self, no_duration_candidates, state):
         """Rank tier-2 candidates: primary by title similarity, secondary by metadata."""
         scored = []
         for release, similarity in no_duration_candidates.values():
-            metadata_bonus = self._candidate_score(release, base_score=0.0)
+            metadata_bonus = self._candidate_score(release, state, base_score=0.0)
             scored.append((-similarity, metadata_bonus, release))
         scored.sort(key=lambda x: (x[0], x[1]))
         best_similarity, _, best = scored[0]

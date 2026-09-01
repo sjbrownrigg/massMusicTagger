@@ -52,8 +52,16 @@ class DiscogsSearchContract(unittest.TestCase):
         with patch.object(DiscogsSearch, '__init__', lambda self, c: None):
             s = DiscogsSearch(cfg)
         s.config = cfg
-        s.search_params = {'year': '1974', 'tracks': []}
-        s.getSearchParams = MagicMock()
+        s._artist_name_cache = {}
+
+        # getSearchParams populates the SearchState it is given -- an album's
+        # working set is per-search now, not an instance attribute, because
+        # the processor shares one searcher across worker threads. Seeding
+        # s.search_params here would set a field nothing reads.
+        def _seed(source_dir, state):
+            state.params.update({'year': '1974', 'tracks': []})
+
+        s.getSearchParams = MagicMock(side_effect=_seed)
         return s
 
     def _folder(self, name):
@@ -88,27 +96,36 @@ class DiscogsSearchContract(unittest.TestCase):
 
     # ── the hint behaviour, now owned by Discogs ────────────────────────────
 
-    def test_digital_hint_injected_and_year_suppressed(self):
+    def _params_for(self, folder_name):
+        """Run a search and return the params it actually used.
+
+        Read from the SearchState handed to search_discogs rather than from
+        the searcher: an album's working set is per-search now, because the
+        processor shares one searcher across worker threads and instance
+        attributes let concurrent albums overwrite each other.
+        """
         s = self._searcher()
         s.search_discogs = MagicMock(return_value=None)
-        s.search(self._folder('1974 - Album (24 Bit Remaster)'))
-        self.assertEqual(s.search_params.get('format_hint'), 'digital')
-        self.assertNotIn('year', s.search_params,
+        s.search(self._folder(folder_name))
+        self.assertTrue(s.search_discogs.called, 'search_discogs was not reached')
+        state = s.search_discogs.call_args.args[0]
+        return state.params
+
+    def test_digital_hint_injected_and_year_suppressed(self):
+        params = self._params_for('1974 - Album (24 Bit Remaster)')
+        self.assertEqual(params.get('format_hint'), 'digital')
+        self.assertNotIn('year', params,
                          'the album year hides the digital remaster')
 
     def test_no_hint_leaves_the_year_intact(self):
-        s = self._searcher()
-        s.search_discogs = MagicMock(return_value=None)
-        s.search(self._folder('1974 - Plain Album'))
-        self.assertNotIn('format_hint', s.search_params)
-        self.assertEqual(s.search_params.get('year'), '1974')
+        params = self._params_for('1974 - Plain Album')
+        self.assertNotIn('format_hint', params)
+        self.assertEqual(params.get('year'), '1974')
 
     def test_vinyl_hint_does_not_suppress_the_year(self):
-        s = self._searcher()
-        s.search_discogs = MagicMock(return_value=None)
-        s.search(self._folder('1974 - Album LP'))
-        self.assertEqual(s.search_params.get('format_hint'), 'vinyl')
-        self.assertEqual(s.search_params.get('year'), '1974')
+        params = self._params_for('1974 - Album LP')
+        self.assertEqual(params.get('format_hint'), 'vinyl')
+        self.assertEqual(params.get('year'), '1974')
 
 
 class BothSourcesPresentTheSameSearch(unittest.TestCase):
