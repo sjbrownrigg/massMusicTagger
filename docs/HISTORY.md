@@ -2,6 +2,44 @@
 
 ---
 
+## Version 3.10.0 (2026-09-01)
+
+### Fixed
+
+**Concurrent searches shared one set of candidates, so albums in a batch
+failed to match.** `MassProcessor` builds `DiscogsSearch` once per session
+because the object holds caches — but it also held one album's working set as
+instance attributes: `candidates`, `no_duration_candidates`, `search_params`
+and `_sifted_masters`. With `batch.workers` above 1, every worker searched
+through the same four containers and overwrote each other mid-search.
+
+Measured on one directory of two albums, same cache, same code, with only
+concurrency varying:
+
+| run | comparisons | accepted | outcome |
+|---|---|---|---|
+| `workers: 4` (before) | 40 | 0 | both failed |
+| `workers: 1` (before) | 38 | 10 | both matched |
+| `workers: 4` (after) | 38 | 10 | both matched |
+
+Concurrency now produces results identical to serial, down to the comparison
+count and the release ids chosen.
+
+A `SearchState` carries the four fields, is created in `search()`, and is
+passed explicitly through the sixteen methods that touch them. The searcher
+keeps its caches, which is what sharing the instance was for.
+
+**Missed matches are only the visible symptom.** An album could also select
+from another album's candidate pool, so wrong matches were possible and
+nothing in the output would have said so. Anyone who has run batches with
+`workers` above 1 should treat both their failures and their matches as
+worth re-checking.
+
+Raised as a minor rather than a patch release because matching results change
+materially for any concurrent run.
+
+---
+
 ## Version 3.9.1 (2026-08-30)
 
 ### Fixed
