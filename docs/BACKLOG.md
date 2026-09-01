@@ -713,3 +713,51 @@ The failure is that a run over 57 albums produces one undifferentiated pile of
 `No match found`, and the only way to learn which kind each is, is to re-run it
 by hand with `-v` and reassemble the wrapped log lines. That is the loop this
 entry exists to close: every no-match should arrive already classified.
+
+## Disc folders named as bare numbers are read as separate albums
+
+Nick Cave & The Bad Seeds' *B-Sides & Rarities* arrived as three folders named
+`1`, `2` and `3`, and was filed as three albums:
+
+```
+/sorted/…/[2005] B-Sides & Rarities (Disc 1) [CDr …]              19 tracks  → 13855891
+/sorted/…/[2005] B-Sides & Rarities (Disc 2) (CDMUTEL11) [CDr …]  18 tracks  → 11397434
+/sorted/…/[2005] B-Sides & Rarities (Disc 3) (CDMUTEL11) [CDr …]  19 tracks  → 11397681
+```
+
+**The detector wants a word.** `files.py`:
+
+```python
+if re.search(r'(?i)^(cd|disc|disk)\s*\d+', dir):
+```
+
+`CD 01` matches, `Disc 2` matches, `1` does not. With no match the walker
+descends and each folder becomes its own album, which is the right default for
+an artist directory and the wrong one here.
+
+**Nothing looked wrong, which is the interesting part.** Discogs catalogues the
+Mute promo CDrs as three separate single-disc releases under master 323438,
+with 19, 18 and 19 tracks. Each folder therefore found a real release whose
+track count fitted exactly, was accepted at full confidence, and passed without
+a warning. A near-miss report would not have caught this: there was no near
+miss. Three correct matches to the wrong three releases.
+
+**The right release was there all along.** 429074 -- 3×CD, 56 tracks, split
+19/18/19 -- fits the rip exactly, as do 1390744 and 12899192. The album had
+only to be presented as one album to find it.
+
+**The cost is a duplicate.** `sorted` already held
+`[2017-01-03] B-Sides & Rarities [56xDM …]` at 56 tracks, so the library now
+carries this compilation twice, once whole and once in pieces.
+
+**The signal is available and safe to read.** Bare numeric siblings are discs
+when all of these hold:
+
+* the parent directory has no audio files of its own;
+* every subdirectory that contains audio is named only with digits;
+* there are at least two of them, numbered from 1 without gaps.
+
+A folder called `1` on its own means nothing. Three of them, sibling, numbered
+consecutively, each full of audio and their parent empty, is a disc layout and
+nothing else. Worth also accepting the `disc_distribution` check already used
+in ranking as confirmation once the candidate is in hand.
