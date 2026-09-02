@@ -1034,3 +1034,43 @@ tracks -- the artist may be credited differently on Discogs"*.
 The compilations already carry a related warning (`Compilation credited to
 "Nick Cave & The Bad Seeds" rather than to a various-artist entry`), which is
 the same disagreement seen from the other end.
+
+## A single-track release has almost no evidence, and can be filed under anyone
+
+The first confirmed wrong match in the library:
+
+```
+source : /incoming/Nick Cave/Thomas Feiner - The Ship Song (2022) [24B-48kHz]
+matched: musicbrainz b7e6e4c9-701a-4e1d-b6f2-9bed3e9c2e51
+filed as: Thomas Anders / [2010-12-10] The Christmas Song
+```
+
+One track, filed under a different artist's different song. It has sat in
+`sorted` looking entirely normal ever since.
+
+**Every check we have is satisfied trivially by one track.** Track count is
+1 == 1. Duration agreement is a single comparison, so the 75% threshold is met
+by one number falling within tolerance. What is left is fuzzy text: `Thomas
+Feiner` against `Thomas Anders` scores well above threshold, and `The Ship
+Song` against `The Christmas Song` shares two words of three. Nothing in the
+pipeline was in a position to object.
+
+**This is the largest category in the library.** The Trentemøller, Red Cell and
+Snog singles are almost all one track, and every one of them is matched on this
+evidence.
+
+**What would help, in rough order of value.** Require more of a single-track
+match than of an album: a tighter duration tolerance, since one track either is
+or is not the same recording; a higher artist-similarity floor, since there is
+no tracklist to corroborate it; and preference for an ISRC or DiscID match,
+which identify a recording outright — tier 4.5 already does this and would have
+refused here.
+
+**Finding the rest is a separate job.** A first pass comparing the folder
+artist against the artist we filed under turned up 15 disagreements, of which
+roughly half look real -- `FabrikC` filed as `j:dead`, `Nick Cave` as `Gary
+Lucas`, `Lunar Paths` as `Marianne Faithfull`. It did **not** catch the
+Thomas Feiner case, because `thomasfeiner` and `thomasanders` are similar
+enough to pass a 0.55 similarity floor. The near-name collisions are both the
+most dangerous and the hardest to detect this way, so the true count is higher
+than fifteen.
