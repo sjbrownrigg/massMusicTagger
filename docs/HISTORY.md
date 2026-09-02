@@ -2,6 +2,39 @@
 
 ---
 
+## Version 3.18.0 (2026-09-02)
+
+### Fixed
+
+**A single-track release could be filed under anyone.** Thomas Feiner's *The
+Ship Song* was filed as Thomas Anders' *The Christmas Song*, and had sat in the
+library looking entirely normal. One track satisfies every other check
+trivially — the count is 1 == 1, and duration agreement is a single comparison
+— so the artist carries the whole match.
+
+Raising the fuzzy thresholds could not fix it. Measured with rapidfuzz, the
+wrong match scores **title 86, artist 76**, while a legitimate variation scores
+as low as **62** (`Anja Huwe` against the collaboration credit `Anja Huwe &
+Mona Mur`). Any floor high enough to reject 76 rejects 62 as well; the scores
+genuinely overlap.
+
+The discriminator is kind rather than degree. A real variation is one name
+contained in the other, or the same name spelled with different punctuation or
+diacritics; a wrong match is two different names that merely resemble each
+other. A single-track candidate must now be credited to an artist *related* to
+ours by containment after folding — including the letters NFKD leaves alone,
+which is what `Trentemøller` against `Trentemoller` needs.
+
+Applied on both sides. Of six albums an audit flagged as filed under an
+unrelated artist, three are single-track covers filed under the artist of the
+original, and two of those came from Discogs — so guarding MusicBrainz alone
+would have left most of the pattern in place. It matters more since 3.13.0's
+tier 3b, which deliberately searches under other names for an artist: widening
+what is retrieved widens what can be wrongly accepted, unless the artist is
+checked again at the point of acceptance.
+
+---
+
 ## Version 3.17.0 (2026-09-02)
 
 ### Added
