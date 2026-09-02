@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import unicodedata
 from typing import Optional, TYPE_CHECKING
 
 import musicbrainzngs
@@ -54,6 +56,48 @@ _TRACK_TOLERANCE = 2
 
 # Multi-track AcoustID: minimum proportion of tracks that must match a release
 _MULTI_ACOUSTID_MIN_SCORE = 0.85   # per-track confidence threshold
+
+# A one-track release satisfies every other check trivially: the track count is
+# 1 == 1, and duration agreement is a single comparison. All that is left is
+# fuzzy text, and fuzzy text is not up to the job. Thomas Feiner's "The Ship
+# Song" was filed as Thomas Anders' "The Christmas Song" on scores of
+# title 86, artist 76 -- both comfortably above the thresholds above.
+#
+# Raising those thresholds cannot fix it: a legitimate variation scores as low
+# as 62 ("Anja Huwe" against the collaboration credit "Anja Huwe & Mona Mur"),
+# so any floor high enough to reject 76 rejects real matches too. The scores
+# genuinely overlap.
+#
+# What separates them is not degree but kind. A legitimate variation is almost
+# always one name contained in the other, or the same name spelled with
+# different punctuation or diacritics. A wrong match is two different names
+# that merely resemble each other. So for a single track the credited artist
+# must be *related* to ours, not merely similar to it.
+_ARTIST_FOLD = str.maketrans({
+    'ø': 'o', 'æ': 'ae', 'ß': 'ss', 'đ': 'd', 'ł': 'l', 'þ': 'th',
+    'ð': 'd', 'œ': 'oe',
+})
+
+
+def _fold_artist(name: str) -> str:
+    """Lowercase, strip diacritics and punctuation, for comparison only."""
+    folded = (name or '').lower().translate(_ARTIST_FOLD)
+    folded = unicodedata.normalize('NFKD', folded)
+    folded = ''.join(c for c in folded if not unicodedata.combining(c))
+    return re.sub(r'[^a-z0-9]', '', folded)
+
+
+def artists_are_related(ours: str, theirs: str) -> bool:
+    """Is the credited artist a variation of ours, rather than a lookalike?
+
+    "Anja Huwe" and "Anja Huwe & Mona Mur" are the same act billed two ways;
+    "Trentemøller" and "Trentemoller" are the same name spelled two ways.
+    "Thomas Feiner" and "Thomas Anders" are two people who share a first name.
+    Containment after folding tells the first two from the third; a similarity
+    score does not.
+    """
+    a, b = _fold_artist(ours), _fold_artist(theirs)
+    return bool(a and b and (a in b or b in a))
 _MULTI_ACOUSTID_COVERAGE  = 0.5    # at least half the tracks must agree
 
 # DiscID validation: at least one of title/artist must reach this score against
@@ -287,6 +331,15 @@ class MBSearch:
                 logger.info('  MB tier 3: rejecting %r by %r — artist '
                             'similarity %d%% below %d%%', candidate_title,
                             candidate_artist, artist_score, _MIN_ARTIST_SCORE)
+                continue
+            # One track corroborates nothing, so the artist has to carry the
+            # whole match and a resemblance is not enough.
+            if (track_count == 1 and artist and candidate_artist
+                    and not artists_are_related(artist, candidate_artist)):
+                logger.info('  MB tier 3: rejecting %r by %r — single track, '
+                            'and %r is not a variation of %r',
+                            candidate_title, candidate_artist,
+                            candidate_artist, artist)
                 continue
             has_date = 1 if rel.get('date', '') else 0
             rank = (title_score, artist_score, has_date)
