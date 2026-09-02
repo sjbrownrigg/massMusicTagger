@@ -2,6 +2,44 @@
 
 ---
 
+## Version 3.16.0 (2026-09-02)
+
+### Fixed
+
+**A cassette could outrank the CD it was issued alongside.** Track counts and
+durations cannot separate the two — the tracklists are identical, so both
+scored the same and either could win. Observed three times: a 16/44.1 FLAC rip
+of *Dig, Lazarus, Dig!!!* matched an Indonesian cassette, a `Cass` folder
+matched a CD, and the Music On Vinyl pressing of *Ultra* matched a CD carrying
+a different catalogue number.
+
+The audio is the evidence. 44.1kHz/16-bit is CD spec, so a CD is the likeliest
+origin and a needle drop or tape rip at that resolution is unusual; above
+16-bit or 48kHz cannot be a CD at all and is most likely a download. Sample
+rate and codec are now collected alongside bit depth to support this.
+
+Scored rather than vetoed: Discogs miscatalogues mediums — one entry in this
+library is a `Cassette` carrying the CD catalogue number `CDSTUMM277` — so a
+hard gate would make correct releases unmatchable. The adjustments stay small
+against a base score of 50, breaking ties without outweighing agreement on
+tracks and durations. Positive evidence for vinyl still wins outright, since
+A1/B2 track numbers are a fact about the rip rather than an inference from it,
+and a lossy file is left alone because a transcode says nothing about what it
+was transcoded from.
+
+**An artist's groups are searched too.** `members` finds a solo record filed
+under the band; the reverse — a collaboration filed under the person — needs
+`groups`, and it was missing. *The Assassination Of Jesse James* is credited on
+Discogs to `Nick Cave & Warren Ellis` while the rip says `Nick Cave`, and the
+search returned no candidates at all.
+
+Names are now taken one from each source in turn rather than one list at a
+time. Nick Cave the person carries ten-plus name variations, nearly all
+initialisms — `Cave`, `N. Cave`, `N.E.Cave` — so draining that list first spent
+the whole budget on noise and never reached `groups`.
+
+---
+
 ## Version 3.15.0 (2026-09-02)
 
 ### Added
