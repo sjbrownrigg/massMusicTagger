@@ -504,6 +504,46 @@ class DiscogsSearch(DiscogsConnector):
     # Tier 1 / 2 — structured field search
     # ------------------------------------------------------------------
 
+    #: Where an edition qualifier starts. Cutting at the *earliest* of these
+    #: removes the whole tail, including the words leading into it: the local
+    #: title has already had stopwords stripped, so it reads "Music From
+    #: Original Motion Picture Soundtrack" and cutting at "motion picture"
+    #: would leave "Music From Original" behind.
+    _TITLE_TAIL_MARKERS = (
+        'music from', 'original motion picture', 'motion picture',
+        'original soundtrack', 'soundtrack',
+        'deluxe edition', 'special edition', 'expanded edition',
+        'anniversary edition', 'remastered', 'remaster',
+        'bonus tracks', 'bonus track',
+    )
+
+    def _title_variants(self, release_title):
+        """The title as given, then with an edition qualifier trimmed off.
+
+        *The Assassination Of Jesse James* is the case. The rip calls it
+        "... (Music From The Original Motion Picture Soundtrack)"; Discogs
+        calls it "... (Music From The Motion Picture)". Searched in full the
+        field search returns nothing at all. Cut at the qualifier it returns
+        fifteen results with the right release first.
+
+        Only a trailing qualifier is removed, and only when enough of the title
+        survives to still identify it, so this narrows the query rather than
+        abandoning it -- the artist anchor stays, which is what keeps it from
+        behaving like a bare title search.
+        """
+        variants = [release_title]
+        low = (release_title or '').lower()
+        cut = min((low.find(m) for m in self._TITLE_TAIL_MARKERS
+                   if low.find(m) > 0), default=-1)
+        if cut > 0:
+            trimmed = release_title[:cut].strip(' -(),:[]')
+            # No length floor beyond "not empty": Low, Pop and IV are real
+            # albums, and the artist anchor keeps even a short title a
+            # constrained query rather than a fishing trip.
+            if trimmed and trimmed.lower() != low:
+                variants.append(trimmed)
+        return variants
+
     def _search_release_fields(self, state, include_year=True):
         """Search using Discogs structured fields: artist, release_title[, year].
 
@@ -519,6 +559,33 @@ class DiscogsSearch(DiscogsConnector):
 
         if not artist and not release_title:
             return
+
+        # An edition qualifier the rip carries and Discogs does not makes the
+        # whole query miss. Try the title as given first, then once more with
+        # the qualifier cut off.
+        variants = self._title_variants(release_title)
+        if len(variants) > 1:
+            for variant in variants:
+                if state.candidates or state.no_duration:
+                    return
+                if variant != release_title:
+                    logger.info('Retrying without the edition qualifier: %r',
+                                variant)
+                s['release'] = variant
+                try:
+                    self._search_release_fields_once(state, include_year)
+                finally:
+                    s['release'] = release_title
+            return
+
+        return self._search_release_fields_once(state, include_year)
+
+    def _search_release_fields_once(self, state, include_year=True):
+        """One field search, for exactly the title currently in the params."""
+        s = state.params.get('search', {})
+        artist = s.get('artist', '')
+        release_title = s.get('release', '')
+        year = str(state.params.get('year') or '') if include_year else ''
 
         cache_key = '|'.join(filter(None, [artist, release_title, year]))
         cache_type = 'fields_year' if include_year else 'fields'
