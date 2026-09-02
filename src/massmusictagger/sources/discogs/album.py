@@ -714,11 +714,21 @@ class DiscogsAlbum(object):
                 continue
 
             # ── Pattern B: index entry that is one file containing sub-movements ─
-            # Identified by: type=index, has a parent duration, sub_tracks lack
-            # individual durations (they are CD index markers, not separate files).
-            # Example: "Mighty Mix (Part 1)" with 4 named movements 9a–9d.
+            # Identified by: type=index whose sub_tracks lack individual
+            # durations -- they are CD index markers, not separate files.
+            # Example: "Mighty Mix (Part 1)" with 4 named movements 9a-9d.
             # Treated as a single track; movements stored in the comments tag.
-            if (_type == 'index' and real_subs and t.duration
+            #
+            # The parent duration used to be required too, which left a gap: an
+            # index entry with no duration on the parent *or* the sub_tracks is
+            # exactly the `_ambiguous` shape tested above, and when
+            # expand_ambiguous_index is off (the default) Pattern A declines it.
+            # It then fell past both patterns into the branch below and raised
+            # NameError. Einstürzende Neubauten's "Haus Der Luege" (release
+            # 23821019) is the case: "Fiat Lux" carries sub_tracks 6a/6b/6c with
+            # no durations anywhere, and the rip holds it as one file, which is
+            # what collapsing produces.
+            if (_type == 'index' and real_subs
                     and not any(s.get('duration', '') for s in real_subs)):
                 logger.debug('Pattern B: collapsing %d sub-movements of %r into one track',
                              len(real_subs), t.title)
@@ -726,10 +736,14 @@ class DiscogsAlbum(object):
 
             # ── Bare entries with no position (older Discogs style) ───────────
             # Entries with title+no-position+no-duration and no sub_tracks were
-            # already caught above.  Those with sub_tracks reach here as Pattern B.
-            # Any remaining no-position entry with no duration: skip.
+            # already caught above, and index entries with sub_tracks are caught
+            # by Pattern A or B. What is left is a positionless, durationless
+            # entry that is not an index -- structural noise with no track to
+            # make from it. Skip it, as the comment here always said; the line
+            # that used to be here appended to a name that did not exist.
             elif not t.position and not t.duration:
-                discsubtitle.append(t.title.strip())
+                logger.debug('Skipping positionless entry %r with no duration',
+                             t.title)
                 continue
 
             # ── Normal track / Pattern B: create one Track object ─────────────
