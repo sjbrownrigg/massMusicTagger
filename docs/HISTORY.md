@@ -2,6 +2,30 @@
 
 ---
 
+## Version 3.12.1 (2026-09-02)
+
+### Fixed
+
+**An index entry with no durations anywhere crashed the album.** Einstürzende
+Neubauten's *Haus Der Luege* (release 23821019) holds "Fiat Lux" as an `index`
+entry with sub_tracks 6a/6b/6c and no duration on the parent or on any sub.
+Three branches could have claimed it and none did — Pattern A expands only when
+every sub carries a duration, `_ambiguous` recognises the shape but expands
+only when `expand_ambiguous_index` is set (off by default), and Pattern B
+required a parent duration. The entry fell through to a branch referencing a
+name that had never been defined:
+
+```
+NameError: name 'discsubtitle' is not defined
+```
+
+Pattern B no longer requires the parent duration, so an index whose sub_tracks
+carry no durations collapses into a single track whether or not the parent is
+timed. That is how the rip holds it — 11 files against 11 tracks. Skipping the
+entry instead would have offered 10 and been refused on track count.
+
+---
+
 ## Version 3.12.0 (2026-09-01)
 
 ### Changed
