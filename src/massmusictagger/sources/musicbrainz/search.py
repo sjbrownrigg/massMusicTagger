@@ -6,6 +6,7 @@ Seven-tier strategy (most-certain to least-certain):
   Tier 2  — Existing musicbrainz_releaseid tag in audio files
   Tier 3  — Text search (artist + album title + track count)
   Tier 4  — Barcode lookup (from existing tag or id.txt barcode= key)
+  Tier 4.5— ISRC agreement (the release carrying several of these recordings)
   Tier 5  — DiscID (CD TOC hash computed from file durations)
   Tier 6  — Single-track AcoustID (optional; requires pyacoustid + fpcalc)
   Tier 7  — Multi-track AcoustID (fingerprints all tracks; most reliable
@@ -171,6 +172,13 @@ class MBSearch:
 
         # ── Tier 4: Barcode lookup ─────────────────────────────────────────
         mbid = self._barcode_search(sourcedir)
+        if mbid:
+            return mbid
+
+        # ── Tier 4.5: ISRC ────────────────────────────────────────────────
+        # An identifier tier like the barcode above, so it belongs beside it
+        # and ahead of the TOC hash: an ISRC names a recording outright.
+        mbid = self._isrc_search(audio_files)
         if mbid:
             return mbid
 
@@ -353,6 +361,102 @@ class MBSearch:
         except Exception:
             pass
         return None
+
+    # ── Tier 4.5: ISRC ────────────────────────────────────────────────────
+
+    #: ISRCs to look up before deciding. Each is one API call, and the point
+    #: is corroboration rather than coverage: two agreeing recordings identify
+    #: a release, and a third rarely changes the answer.
+    _ISRC_LOOKUPS = 4
+
+    #: How many of the looked-up ISRCs a release must carry to win. One is not
+    #: enough -- a single recording appears on every compilation that ever
+    #: licensed it, so one ISRC frequently names dozens of releases and picking
+    #: among them would be a guess.
+    _ISRC_MIN_AGREEMENT = 2
+
+    def _isrc_search(self, audio_files: list[str]) -> Optional[str]:
+        """Tier 4.5: find the release these recordings appear on together.
+
+        An ISRC identifies a recording, not a release, so no single code can
+        answer the question on its own -- the same recording is on the album,
+        the single, and every compilation since. What does answer it is
+        agreement: the release that carries several of this directory's
+        recordings is the release this directory is.
+
+        Worth having because the codes are already there. 55% of the files in
+        a sample of /incoming carry one, and EAC writes them into CUE sheets
+        as well, so a rip that has never been near a metadata service still
+        arrives with identifiers attached.
+        """
+        isrcs = self._collect_isrcs(audio_files, limit=self._ISRC_LOOKUPS)
+        if len(isrcs) < self._ISRC_MIN_AGREEMENT:
+            logger.debug('MB tier 4.5: %d ISRC(s) available, need %d',
+                         len(isrcs), self._ISRC_MIN_AGREEMENT)
+            return None
+
+        cache_key = 'isrc:' + ','.join(sorted(isrcs))
+        if self._conn is not None and self._conn._cache_search:
+            raw = self._conn._load_json(self._conn._search_path(cache_key))
+            if raw is not None:
+                logger.debug('MB tier 4.5: ISRC cache hit')
+                return raw.get('mbid')
+
+        logger.info('MB tier 4.5: ISRC search — %s', ', '.join(isrcs))
+        tally: dict[str, int] = {}
+        for isrc in isrcs:
+            try:
+                result = musicbrainzngs.get_recordings_by_isrc(
+                    isrc, includes=['releases'])
+            except Exception as exc:
+                # A code nothing has heard of is the ordinary case, not a fault.
+                logger.debug('MB tier 4.5: ISRC %s not found (%s)', isrc, exc)
+                continue
+            seen_here = set()
+            for rec in (result.get('isrc', {}).get('recording-list') or []):
+                for rel in (rec.get('release-list') or []):
+                    rid = rel.get('id')
+                    if rid:
+                        seen_here.add(rid)
+            for rid in seen_here:
+                tally[rid] = tally.get(rid, 0) + 1
+
+        mbid = None
+        if tally:
+            best, count = max(tally.items(), key=lambda kv: kv[1])
+            if count >= self._ISRC_MIN_AGREEMENT:
+                mbid = best
+                logger.info('MB tier 4.5: %d of %d ISRCs agree on release %s',
+                            count, len(isrcs), mbid)
+            else:
+                logger.info('MB tier 4.5: no release carried more than one of '
+                            'the %d ISRCs — not guessing', len(isrcs))
+
+        if self._conn is not None and self._conn._cache_search:
+            self._conn.save_search(cache_key, mbid)
+        return mbid
+
+    @staticmethod
+    def _collect_isrcs(audio_files: list[str], limit: int) -> list[str]:
+        """Distinct ISRCs from the first files that carry one.
+
+        Distinct matters: two tracks sharing a code means one recording used
+        twice, which corroborates nothing.
+        """
+        found: list[str] = []
+        for path in audio_files:
+            if len(found) >= limit:
+                break
+            try:
+                isrc = getattr(MediaFile(path), 'isrc', None)
+            except Exception:
+                continue
+            if not isrc:
+                continue
+            isrc = str(isrc).strip().upper().replace('-', '').replace(' ', '')
+            if len(isrc) == 12 and isrc not in found:
+                found.append(isrc)
+        return found
 
     # ── Tier 5: DiscID ────────────────────────────────────────────────────
 

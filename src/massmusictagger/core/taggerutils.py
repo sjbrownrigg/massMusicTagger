@@ -187,6 +187,14 @@ class TagHandler(object):
 
         metadata = MediaFile(os.path.join(target_folder, track.new_file))
 
+        # The ISRC is the rip's own, not the metadata source's: it identifies
+        # the recording and was written by whoever made the file. Discogs does
+        # not carry ISRCs at all, so tagging a Discogs match used to destroy
+        # them -- 55% of files in /incoming carry one against 9% of those
+        # already tagged, which is that loss measured. Read it before the wipe
+        # below and put it back afterwards.
+        _existing_isrc = getattr(metadata, 'isrc', None)
+
         # read already existing (and still wanted) properties
         keepTags = {}
         if self.keep_tags is not None:
@@ -278,6 +286,12 @@ class TagHandler(object):
             _rg_id = getattr(self.album, 'master_id', None)
             if _rg_id:
                 _set('musicbrainz_releasegroupid', str(_rg_id))
+
+        # Prefer the source's ISRC where it has one -- MusicBrainz models
+        # recordings and so knows them -- and otherwise keep the file's.
+        _isrc = getattr(track, 'isrc', None) or _existing_isrc
+        if _isrc:
+            _set('isrc', _isrc)
 
         _set('disctitle', track.discsubtitle)
         _set('disc', track.discnumber)
