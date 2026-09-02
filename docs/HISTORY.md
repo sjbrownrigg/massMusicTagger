@@ -2,6 +2,34 @@
 
 ---
 
+## Version 3.15.0 (2026-09-02)
+
+### Added
+
+**Follow the Discogs link MusicBrainz already carries.** MusicBrainz editors
+curate a URL relation to the equivalent Discogs release, and it was being
+fetched and discarded.
+
+Measured on this library: of 32 sampled albums that had fallen through to
+MusicBrainz, **11 carried a Discogs link** — roughly a third, and not obscure
+records. *Henry's Dream*, *Station to Station*, *Music For A Slaughtering
+Tribe*. Every one is an album Discogs holds and our Discogs search failed to
+find, so the fallback was returning second-choice metadata for a release the
+preferred source had all along.
+
+`url-rels` now joins the includes on the release fetch, so the relations
+arrive on a call already being made and cost no extra request. When
+`source.priority` puts Discogs first, the linked release is fetched and
+validated against the local track count before it is used — a stale or wrong
+link falls through to the MusicBrainz mapping rather than replacing it. A
+configuration that asks for MusicBrainz first is left alone; it asked for
+MusicBrainz metadata.
+
+Note this treats the symptom. Each followed link is also a Discogs search that
+should have succeeded, and those are worth diagnosing separately.
+
+---
+
 ## Version 3.14.0 (2026-09-02)
 
 ### Added
