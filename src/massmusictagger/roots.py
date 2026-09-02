@@ -158,6 +158,12 @@ LAYOUT = {
     # that decides which folder an album lands in, so it belongs where the user
     # can change it. Merged over the bundled table like the others.
     "artist_joins": "artist_joins.yaml",
+    # How much the medium a release was issued on counts when ranking
+    # candidates. Here because the right weights depend on the collection: a
+    # library of needle drops wants vinyl preferred at 16/44.1, not penalised,
+    # and only its owner knows that. Merged over the bundled table like the
+    # others.
+    "medium_preference": "medium_preference.yaml",
 }
 
 

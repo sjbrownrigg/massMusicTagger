@@ -1186,24 +1186,29 @@ class DiscogsSearch(DiscogsConnector):
 
         return trackinfo
 
-    #: What the audio itself says about the medium it came from, as a score
-    #: adjustment. Lower is better, so a negative number is a preference and a
-    #: positive one a penalty. Small against a base of 50: this breaks ties
-    #: between releases that already agree on tracks and durations, and must
-    #: never outweigh that agreement.
-    #:
-    #: A veto was the wrong tool. Discogs miscatalogues mediums -- one entry
-    #: in this library is a "Cassette" carrying a CD catalogue number -- so a
-    #: hard gate would make correct releases unmatchable. These are nudges.
-    _MEDIUM_CD_SPEC = {
-        'cd': -1.5, 'cdr': -1.2, 'file': -0.5,
-        'vinyl': 2.0, 'lp': 2.0, 'cassette': 3.0, '8-track cartridge': 3.0,
-    }
-    _MEDIUM_HI_RES = {
-        'file': -1.5, 'vinyl': -0.5, 'lp': -0.5,
-        'cassette': 1.0, '8-track cartridge': 1.0,
-    }
     _VINYL_FMTS = ('lp', 'vinyl', '12"', '7"', '10"')
+
+    @property
+    def medium_preference(self):
+        """The medium weights, from conf/medium_preference.yaml.
+
+        Read once per searcher rather than per candidate: this is consulted for
+        every release compared, and a search can compare hundreds.
+        """
+        table = getattr(self, '_medium_preference', None)
+        if table is None:
+            from massmusictagger.sources.medium import load_medium_preference
+            from massmusictagger import roots
+            path = None
+            try:
+                path = roots.discover(
+                    roots.config_root(getattr(self.config, 'config_file', '')),
+                    'medium_preference')
+            except Exception:
+                path = None
+            table = load_medium_preference(path)
+            self._medium_preference = table
+        return table
 
     def _medium_adjustment(self, fmt_name, searchParams):
         """Prefer the medium the rip could plausibly have come from.
@@ -1236,10 +1241,11 @@ class DiscogsSearch(DiscogsConnector):
         if (searchParams.get('codec') or '') in ('mp3', 'aac', 'ogg', 'opus'):
             return 0.0
 
+        table = self.medium_preference
         if depth > 16 or rate > 48000:
-            return self._MEDIUM_HI_RES.get(fmt_name, 0.0)
+            return table.get('hi_res', {}).get(fmt_name, 0.0)
         if depth == 16 and rate == 44100:
-            return self._MEDIUM_CD_SPEC.get(fmt_name, 0.0)
+            return table.get('cd_spec', {}).get(fmt_name, 0.0)
         return 0.0
 
     def _candidate_score(self, release, state, base_score=50.0):

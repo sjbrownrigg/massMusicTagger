@@ -1,0 +1,59 @@
+# How much the medium a release was issued on counts when ranking candidates.
+#
+# Track counts and durations cannot separate a CD from the cassette issued
+# alongside it: the tracklists are identical, so both score the same and either
+# can win. This library has been filed against an Indonesian cassette, and the
+# Music On Vinyl pressing of Ultra was matched to a CD with a different
+# catalogue number.
+#
+# The audio is the evidence. 44.1kHz/16-bit is CD spec, so a CD is the likeliest
+# origin and a needle drop or tape rip at that resolution is unusual. Above
+# 16-bit or 48kHz cannot have come off a CD at all and is most likely a
+# download.
+#
+# ── How to read the numbers ──────────────────────────────────────────────────
+#
+# Lower is better. A negative number is a preference, a positive one a penalty,
+# and the scale is a base score of 50 -- so these are tie-breakers between
+# releases that already agree on tracks and durations, never a way to overrule
+# that agreement. Keep them small. A value above about 5 stops being a nudge
+# and starts deciding matches on its own.
+#
+# These are preferences and not filters on purpose. Discogs miscatalogues
+# mediums -- one entry in this library is a "Cassette" carrying the CD
+# catalogue number CDSTUMM277 -- so a hard rule would make correct releases
+# impossible to match rather than merely harder to rank.
+#
+# Keys are Discogs format names, lowercased, exactly as they appear in the
+# release: cd, cdr, vinyl, lp, cassette, file, box set, 8-track cartridge.
+# A medium not listed scores 0 and is left alone.
+#
+# What is NOT decided here: positive evidence for vinyl always wins. Side and
+# position track numbers (A1, B2) are a fact about the rip rather than an
+# inference from it, so a release on vinyl is preferred outright when they are
+# present. A lossy file is also left alone -- it has been through a transcode,
+# and its sample rate says nothing about what it was transcoded from.
+#
+# Override by dropping a medium_preference.yaml beside config.yaml. What it
+# contains is merged over this table, so changing one number neither discards
+# the rest nor opts out of later additions.
+
+medium_preference:
+
+  # The rip is 16-bit / 44.1kHz -- CD specification.
+  cd_spec:
+    cd: -1.5
+    cdr: -1.2
+    file: -0.5            # a lossless download is an ordinary way to hold it
+    vinyl: 2.0
+    lp: 2.0
+    cassette: 3.0
+    8-track cartridge: 3.0
+
+  # The rip is above 16-bit or above 48kHz -- it did not come off a CD.
+  hi_res:
+    file: -1.5
+    vinyl: -0.5           # needle drops are usually captured at high resolution
+    lp: -0.5
+    cassette: 1.0
+    8-track cartridge: 1.0

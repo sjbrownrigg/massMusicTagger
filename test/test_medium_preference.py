@@ -21,8 +21,12 @@ import unittest
 from massmusictagger.sources.discogs.search import DiscogsSearch
 
 
-def _adj(fmt, **params):
+def _adj(fmt, table=None, **params):
     s = DiscogsSearch.__new__(DiscogsSearch)
+    if table is None:
+        from massmusictagger.sources.medium import load_medium_preference
+        table = load_medium_preference()
+    s._medium_preference = table
     params.setdefault('tracks', [])
     return s._medium_adjustment(fmt, params)
 
@@ -98,14 +102,82 @@ class EvidenceTest(unittest.TestCase):
 
 
 class ProportionTest(unittest.TestCase):
+    """Against a base score of 50, every weight stays a tie-breaker."""
 
-    def test_the_nudge_cannot_outweigh_real_agreement(self):
-        """Against a base of 50, every adjustment stays a tie-breaker."""
-        worst = max(abs(v) for v in
-                    list(DiscogsSearch._MEDIUM_CD_SPEC.values())
-                    + list(DiscogsSearch._MEDIUM_HI_RES.values()))
-        self.assertLess(worst, 5.0)
+    def test_the_packaged_table_stays_within_bounds(self):
+        from massmusictagger.sources.medium import load_medium_preference
+        table = load_medium_preference()
+        worst = max(abs(v) for section in table.values() for v in section.values())
+        self.assertLessEqual(worst, 5.0)
+
+    def test_an_overreaching_user_weight_is_clamped(self):
+        """A typo should cost a warning, not a run."""
+        from massmusictagger.sources.medium import _clean
+        cleaned = _clean({'cd_spec': {'cd': -500.0}, 'hi_res': {}})
+        self.assertEqual(cleaned['cd_spec']['cd'], -5.0)
+
+    def test_a_non_numeric_weight_is_dropped(self):
+        from massmusictagger.sources.medium import _clean
+        cleaned = _clean({'cd_spec': {'cd': 'very much'}, 'hi_res': {}})
+        self.assertNotIn('cd', cleaned['cd_spec'])
+
+    def test_medium_names_are_matched_case_insensitively(self):
+        from massmusictagger.sources.medium import _clean
+        cleaned = _clean({'cd_spec': {'Cassette': 3.0}, 'hi_res': {}})
+        self.assertIn('cassette', cleaned['cd_spec'])
 
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class OverrideTest(unittest.TestCase):
+    """A user's table adds to the packaged one rather than replacing it.
+
+    The trap this avoids: copying a whole table into a config directory freezes
+    it at whatever shipped that day, so later additions never reach anyone who
+    customised a single line.
+    """
+
+    def setUp(self):
+        import shutil, tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def _write(self, body):
+        import os
+        p = os.path.join(self.tmp, 'medium_preference.yaml')
+        with open(p, 'w', encoding='utf-8') as f:
+            f.write(body)
+        return p
+
+    def test_one_changed_weight_keeps_the_rest(self):
+        from massmusictagger.sources.medium import load_medium_preference
+        path = self._write('medium_preference:\n  cd_spec:\n    vinyl: -2.0\n')
+        table = load_medium_preference(path)
+        self.assertEqual(table['cd_spec']['vinyl'], -2.0, 'the override applies')
+        self.assertEqual(table['cd_spec']['cd'], -1.5, 'the rest survives')
+        self.assertIn('file', table['hi_res'], 'so does the other section')
+
+    def test_a_needle_drop_library_can_invert_the_default(self):
+        """The case the table exists for: someone whose rips are vinyl."""
+        from massmusictagger.sources.medium import load_medium_preference
+        path = self._write(
+            'medium_preference:\n  cd_spec:\n    vinyl: -2.0\n    cd: 1.0\n')
+        table = load_medium_preference(path)
+        self.assertLess(_adj('vinyl', table=table, **CD_SPEC),
+                        _adj('cd', table=table, **CD_SPEC))
+
+    def test_a_missing_named_file_warns_and_falls_back(self):
+        """Silence here is how char_profile: windows went a library unnoticed."""
+        import os
+        from massmusictagger.sources.medium import load_medium_preference
+        with self.assertLogs('massmusictagger.sources.medium', 'WARNING'):
+            table = load_medium_preference(os.path.join(self.tmp, 'nope.yaml'))
+        self.assertEqual(table['cd_spec']['cd'], -1.5)
+
+    def test_the_table_is_discoverable_by_name(self):
+        from massmusictagger import roots
+        self.assertIn('medium_preference', roots.LAYOUT)
+        self.assertEqual(roots.LAYOUT['medium_preference'],
+                         'medium_preference.yaml')
