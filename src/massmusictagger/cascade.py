@@ -193,6 +193,45 @@ def _resolve_discogs(source: str, ctx: '_Attempt'):
     return album, conn
 
 
+def _prefers_discogs(cfg) -> bool:
+    """Does this configuration want Discogs metadata over MusicBrainz?
+
+    Following the link is only right for someone whose priority list puts
+    Discogs first. Someone who asked for MusicBrainz first asked for
+    MusicBrainz metadata, and should not be handed Discogs by a side door.
+    """
+    priority = _get_priority(cfg)
+    if 'discogs' not in priority or 'musicbrainz' not in priority:
+        return 'discogs' in priority
+    return priority.index('discogs') < priority.index('musicbrainz')
+
+
+_DISCOGS_RELEASE_URL = re.compile(r'discogs\.com/(?:[a-z]{2}/)?release/(\d+)')
+
+
+def discogs_release_from_mb(raw: dict) -> Optional[str]:
+    """The Discogs release a MusicBrainz release is linked to, if any.
+
+    MusicBrainz editors curate these links, so the identifier is as trustworthy
+    as a hand-written id.txt and far more available: about a third of the
+    albums in this library that fell through to MusicBrainz carry one --
+    Henry's Dream, Station to Station, Music For A Slaughtering Tribe. Every
+    one of those is an album Discogs holds and our Discogs search failed to
+    find.
+
+    The relations ride along on the release fetch (`url-rels` in _INCLUDES),
+    so reading them costs no additional request.
+    """
+    for rel in (raw.get('url-relation-list') or []):
+        target = (rel.get('target') or '')
+        if not target and isinstance(rel.get('url'), dict):
+            target = rel['url'].get('resource') or ''
+        m = _DISCOGS_RELEASE_URL.search(target or '')
+        if m:
+            return m.group(1)
+    return None
+
+
 def _resolve_musicbrainz(source: str, ctx: '_Attempt'):
     found = _try_musicbrainz(ctx.sourcedir, ctx.cfg, ctx.mb_connector,
                              ctx.mb_search,
@@ -200,6 +239,31 @@ def _resolve_musicbrainz(source: str, ctx: '_Attempt'):
     if found is None:
         return None
     raw, mbid = found
+
+    # MusicBrainz found it; Discogs may hold it too and simply not have been
+    # found. When the priority list prefers Discogs, follow the curated link
+    # rather than handing back second-choice metadata. The release still has
+    # to validate against the local track count, so a stale or wrong link
+    # falls through to the MusicBrainz mapping below rather than replacing it.
+    if _prefers_discogs(ctx.cfg) and ctx.discogs_connector is not None:
+        drid = discogs_release_from_mb(raw)
+        if drid:
+            logger.info('MusicBrainz release %s links to Discogs release %s — '
+                        'following it', mbid, drid)
+            via_link = _fetch_discogs_with_validation(
+                drid, ctx.discogs_connector, ctx.sourcedir,
+                _local_audio_count(ctx.sourcedir), from_explicit=False)
+            if via_link is not None:
+                from massmusictagger.source_factory import make_discogs_mapper
+                d_raw, d_id = via_link
+                album = make_discogs_mapper(
+                    ctx.cfg, connector=ctx.discogs_connector,
+                    local_count=_local_audio_count(ctx.sourcedir)).map(d_raw)
+                album.release_id_str = d_id
+                return album, ctx.discogs_connector
+            logger.info('Discogs release %s did not validate — keeping the '
+                        'MusicBrainz match', drid)
+
     from massmusictagger.source_factory import make_mb_mapper
     album = make_mb_mapper(ctx.cfg).map(raw)
     album.release_id_str = mbid

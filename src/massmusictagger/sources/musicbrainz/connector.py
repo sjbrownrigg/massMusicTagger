@@ -44,6 +44,7 @@ _INCLUDES = [
     'artists', 'recordings', 'labels', 'media',
     'artist-credits', 'isrcs', 'release-groups',
     'tags',       # release-group.tag-list → genres
+    'url-rels',   # relation-list → the Discogs release this one is linked to
 ]
 
 _CAA_FRONT  = 'https://coverartarchive.org/release/{mbid}/front'
