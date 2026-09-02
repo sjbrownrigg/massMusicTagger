@@ -2,6 +2,37 @@
 
 ---
 
+## Version 3.14.0 (2026-09-02)
+
+### Added
+
+**MusicBrainz tier 4.5 — ISRC agreement.** An ISRC identifies a recording, not
+a release, so no single code answers the question: the same recording sits on
+the album, the single, and every compilation that ever licensed it. Agreement
+does answer it — the release carrying several of a directory's recordings is
+the release that directory is.
+
+Up to four codes are looked up, and at least two must name the same release
+before it is accepted; one match is refused rather than guessed at, since a
+lone shared recording names every compilation it ever reached. One API call
+per code, and only for an album that text search and barcode have already
+failed on.
+
+### Fixed
+
+**Tagging destroyed the ISRCs it found.** `tag_single_track` wipes the tag set
+and rewrites it from the metadata source, and Discogs carries no ISRCs at all,
+so every Discogs match stripped them. The scale of it: **55%** of a sample of
+files in `/incoming` carry an ISRC, against **9%** of those already tagged.
+
+Besides losing a genuine identifier the rip arrived with, this removed the
+input to the new tier from every album the tagger had touched. The ISRC is now
+read before the tag set is wiped and written back afterwards, preferring the
+value the metadata source supplies — MusicBrainz models recordings and so
+knows them — and otherwise keeping the file's own.
+
+---
+
 ## Version 3.13.0 (2026-09-02)
 
 ### Fixed
