@@ -2,6 +2,40 @@
 
 ---
 
+## Version 3.17.0 (2026-09-02)
+
+### Added
+
+**A field search is retried with the edition qualifier trimmed off the title.**
+*The Assassination Of Jesse James By The Coward Robert Ford* is the case. The
+rip calls it "... Music From Original Motion Picture Soundtrack"; Discogs calls
+it "... (Music From The Motion Picture)". Measured against the live API with
+the artist held constant at `Nick Cave & Warren Ellis`:
+
+```
+full title       0 results
+title trimmed   15 results, the right release first
+```
+
+The title is searched as given and then, only if that found nothing, once more
+cut at the earliest edition marker. Earliest rather than latest because the
+local title has already had stopwords stripped — it reads "Music From Original
+Motion Picture Soundtrack", so cutting at "motion picture" would leave "Music
+From Original" behind.
+
+The artist anchor stays, which keeps this from behaving like a bare title
+search: it narrows a query rather than abandoning one.
+
+### Note
+
+Three earlier releases blamed this album's failure on its artist credit and
+changed the artist tiers accordingly. That was a real problem — the album is
+credited to the duo while the rip says `Nick Cave` — but it was not the binding
+one, and only replaying the album against 3.16.2 showed the tier trying the
+right credit and still finding nothing.
+
+---
+
 ## Version 3.16.2 (2026-09-02)
 
 ### Fixed
