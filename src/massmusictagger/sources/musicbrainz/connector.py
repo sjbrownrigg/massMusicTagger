@@ -354,7 +354,15 @@ class MBConnector:
     #: "Pariah" by Anja Huwe kept resolving to Red Dons from cache, and the
     #: fix looked broken. Including the version in the key retires the old
     #: answers instead of requiring anyone to remember to delete them.
-    SEARCH_LOGIC_VERSION = 2
+    #:
+    #: It happened again, the same way. The single-track artist rule was added
+    #: in 3.18.0 and Thomas Feiner's "The Ship Song" kept resolving to Thomas
+    #: Anders from a cached decision, so the fix looked broken when it was not.
+    #: Bump this whenever a rule changes which release is accepted.
+    #:
+    #: 2 -- minimum artist similarity.
+    #: 3 -- a single-track candidate must be credited to a related artist.
+    SEARCH_LOGIC_VERSION = 3
 
     def _search_path(self, query_key: str) -> Path:
         versioned = f'v{self.SEARCH_LOGIC_VERSION}:{query_key}'
