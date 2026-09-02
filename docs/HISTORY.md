@@ -2,6 +2,29 @@
 
 ---
 
+## Version 3.16.1 (2026-09-02)
+
+### Changed
+
+**The medium weights are a rule table now, not constants.** They decide which
+of two equally-matching releases wins, and the right answer depends on the
+collection — a library of needle drops wants vinyl *preferred* at 16/44.1
+rather than penalised, and only its owner knows that.
+
+`conf/medium_preference.yaml` joins `format_codes`, `char_substitutions`,
+`source_hints` and `artist_joins`: packaged by default so it keeps improving
+with each upgrade, discoverable beside `config.yaml`, and merged over the
+packaged table so changing one number neither discards the rest nor opts out of
+later additions.
+
+A weight beyond 5.0 is clamped with a warning rather than refused — against a
+base score of 50 anything larger stops being a tie-breaker and starts deciding
+matches by itself, and a typo should cost a warning rather than a run. A named
+file that does not exist warns and falls back, rather than switching the
+feature off in silence.
+
+---
+
 ## Version 3.16.0 (2026-09-02)
 
 ### Fixed
