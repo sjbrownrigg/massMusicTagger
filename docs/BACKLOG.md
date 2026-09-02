@@ -986,3 +986,51 @@ the worst single outlier if one is wanted, but do not let one track veto four.
 the classification entry above, and this is its best worked example: an exact
 title-and-order match on the right release, discarded on an averaged number,
 reported as if nothing had been found.
+
+## Every Discogs tier is anchored on the artist, so a mis-credited album is unreachable
+
+*Idiot Prayer (Nick Cave Alone At Alexandra Palace)* failed with:
+
+```
+No match — closest 9043299 — 19 tracks, local has 22 (111 compared: 111 on track count)
+```
+
+111 releases compared, none of them the album. The correct releases were never
+fetched at all:
+
+```
+16854426  File FLAC, Album, Stereo   22 tracks  -> 22/22 tracks agree on length
+16236210  CD Album                   22 tracks  -> 22/22 tracks agree on length
+```
+
+Both would pass every acceptance check untouched. Discogs' own
+`release_title=Idiot Prayer` returns seven results, all correct, first try.
+
+**The folder says one artist and Discogs says another.** It is a solo Nick Cave
+live album, credited on Discogs to `Nick Cave`. The local tags and folder call
+it `Nick Cave & The Bad Seeds`. The search resolved that to artist 36665,
+enumerated their releases, and compared 111 of the wrong artist's records.
+
+**No tier can recover from it.** Tier 1 and 2 are `artist`+`title` field
+searches; tier 3 browses the artist entity; and tier 4, the "safety net",
+queries `artistRelease` -- artist and title concatenated. Four tiers, one
+assumption: that the local artist string names the right Discogs artist. When
+it does not, the right release is not merely ranked poorly, it is never
+retrieved.
+
+**A title-only tier would close it.** Search `release_title` alone, capped at a
+handful of results, run only when every other tier has failed. The existing
+acceptance rules are the safety net that makes this safe to try: an unrelated
+album that happens to share a title fails on track count, and anything that
+survives that must still agree on most durations. *Idiot Prayer* scores 22/22.
+
+**A caution for the near-miss report.** This failure reads as "your rip has 22
+tracks and the closest release has 19" -- which invites trimming the rip, the
+opposite of the truth. When every comparison in a search was rejected on track
+count and the closest is still several tracks out, the likelier reading is that
+the pool is wrong, not the rip. Worth saying so: *"111 compared, none within 3
+tracks -- the artist may be credited differently on Discogs"*.
+
+The compilations already carry a related warning (`Compilation credited to
+"Nick Cave & The Bad Seeds" rather than to a various-artist entry`), which is
+the same disagreement seen from the other end.
