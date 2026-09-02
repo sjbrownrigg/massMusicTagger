@@ -181,6 +181,15 @@ class DiscogsSearch(DiscogsConnector):
             if depth:
                 searchParams['bitdepth'] = max(
                     int(depth), int(searchParams.get('bitdepth') or 0))
+            # Sample rate for the same reason: 44.1kHz is CD spec, and
+            # anything above 48kHz did not come off one.
+            rate = getattr(metadata, 'samplerate', None)
+            if rate:
+                searchParams['samplerate'] = max(
+                    int(rate), int(searchParams.get('samplerate') or 0))
+            codec = getattr(metadata, 'type', None)
+            if codec:
+                searchParams['codec'] = str(codec).lower()
             searchParams['date'] = metadata.date
 
             disc = metadata.disc
@@ -1177,6 +1186,62 @@ class DiscogsSearch(DiscogsConnector):
 
         return trackinfo
 
+    #: What the audio itself says about the medium it came from, as a score
+    #: adjustment. Lower is better, so a negative number is a preference and a
+    #: positive one a penalty. Small against a base of 50: this breaks ties
+    #: between releases that already agree on tracks and durations, and must
+    #: never outweigh that agreement.
+    #:
+    #: A veto was the wrong tool. Discogs miscatalogues mediums -- one entry
+    #: in this library is a "Cassette" carrying a CD catalogue number -- so a
+    #: hard gate would make correct releases unmatchable. These are nudges.
+    _MEDIUM_CD_SPEC = {
+        'cd': -1.5, 'cdr': -1.2, 'file': -0.5,
+        'vinyl': 2.0, 'lp': 2.0, 'cassette': 3.0, '8-track cartridge': 3.0,
+    }
+    _MEDIUM_HI_RES = {
+        'file': -1.5, 'vinyl': -0.5, 'lp': -0.5,
+        'cassette': 1.0, '8-track cartridge': 1.0,
+    }
+    _VINYL_FMTS = ('lp', 'vinyl', '12"', '7"', '10"')
+
+    def _medium_adjustment(self, fmt_name, searchParams):
+        """Prefer the medium the rip could plausibly have come from.
+
+        Track counts and durations cannot separate a CD from the cassette
+        issued alongside it: the tracklists are identical, so the two score the
+        same and either can win. Observed doing exactly that -- a 16/44.1 FLAC
+        rip matched an Indonesian cassette, a `Cass` folder matched a CD, and
+        an LP folder matched a CD with a different catalogue number.
+
+        The audio is the evidence. 44.1kHz/16-bit is CD spec, so a CD is the
+        likeliest origin and a needle drop or tape rip at that resolution is
+        unusual. Above 16-bit or 48kHz cannot be a CD at all -- ruled out
+        outright elsewhere -- and is most likely a download.
+
+        Positive evidence for vinyl still wins: side-and-position track
+        numbers (A1, B2) are a fact about the rip, not an inference from it.
+        """
+        tracks = searchParams.get('tracks', [])
+        local_vinyl = (searchParams.get('media') == 'vinyl'
+                       or any('real_tracknumber' in t for t in tracks))
+        if local_vinyl:
+            return -1.5 if fmt_name in self._VINYL_FMTS else 0.0
+
+        depth = int(searchParams.get('bitdepth') or 0)
+        rate = int(searchParams.get('samplerate') or 0)
+
+        # A lossy file has been through a transcode and says nothing about
+        # what it was transcoded from.
+        if (searchParams.get('codec') or '') in ('mp3', 'aac', 'ogg', 'opus'):
+            return 0.0
+
+        if depth > 16 or rate > 48000:
+            return self._MEDIUM_HI_RES.get(fmt_name, 0.0)
+        if depth == 16 and rate == 44100:
+            return self._MEDIUM_CD_SPEC.get(fmt_name, 0.0)
+        return 0.0
+
     def _candidate_score(self, release, state, base_score=50.0):
         """Composite score for ranking candidates (lower is better)."""
         score = float(base_score)
@@ -1193,15 +1258,7 @@ class DiscogsSearch(DiscogsConnector):
         if local_year and str(year) == str(local_year):
             score -= 2.0
 
-        is_vinyl = fmt_name in ('lp', 'vinyl', '12"', '7"', '10"')
-        local_vinyl = (
-            searchParams.get('media') == 'vinyl' or
-            any('real_tracknumber' in t for t in searchParams.get('tracks', []))
-        )
-        if is_vinyl and local_vinyl:
-            score -= 1.5
-        elif fmt_name == 'cd' and not local_vinyl:
-            score -= 1.0
+        score += self._medium_adjustment(fmt_name, searchParams)
 
         # Disc layout. The flat track count cannot tell a 2-disc 13 + 4 album
         # from a single-disc release of seventeen, so both score identically
