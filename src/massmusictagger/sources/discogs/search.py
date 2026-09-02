@@ -62,7 +62,7 @@ class SearchState:
     """
 
     __slots__ = ('params', 'candidates', 'no_duration', 'sifted_masters',
-                 'rejections')
+                 'rejections', 'artist_entity')
 
     def __init__(self):
         self.params = {}
@@ -73,6 +73,10 @@ class SearchState:
         #: what it saw instead of only that it saw nothing. One dict per
         #: rejection: kind, rid, detail, and distance (lower = closer).
         self.rejections = []
+        #: The Discogs artist the browse tier settled on. Kept because its
+        #: response already carries the artist's other names, and fetching it
+        #: again to read them would be paying twice for one answer.
+        self.artist_entity = None
 
     def diagnosis(self):
         """One line saying what the search saw, for a run that found nothing.
@@ -443,6 +447,13 @@ class DiscogsSearch(DiscogsConnector):
             if state.candidates or state.no_duration:
                 logger.info('Tier 3 (artist browse) found candidates')
 
+        # Tier 3b — the same artist under another name. Free of extra artist
+        # lookups: the names come from the entity tier 3 already fetched.
+        if not state.candidates and not state.no_duration:
+            self.search_artist_variations(state)
+            if state.candidates or state.no_duration:
+                logger.info('Tier 3b (artist name variations) found candidates')
+
         # Tier 4 — free-text search, first 5 results only.
         # Anything beyond this is unlikely to surface a better match than the
         # structured tiers already tried; it exists purely as a safety net.
@@ -624,6 +635,37 @@ class DiscogsSearch(DiscogsConnector):
     # Artist browse — Tier 3
     # ------------------------------------------------------------------
 
+    #: How many artist search results to inspect for name variations before
+    #: giving up. Reading them forces the full artist fetch, so this is a cost
+    #: bound; the canonical-name comparison above it is free.
+    _ANV_RESULTS_TO_INSPECT = 3
+
+    def _artist_result_matches(self, artist, result, inspect_variations):
+        """Does this Discogs artist go by the name the files use?
+
+        The canonical name is checked first and costs nothing. Failing that,
+        the artist's recorded name variations are checked -- Discogs keeps them
+        precisely because acts are credited differently across a career, so
+        "Nick Cave And The Bad Seeds" and "Einsturzende Neubauten" name real
+        artists whose canonical spellings differ. Matching on the canonical
+        name alone left those unresolvable.
+        """
+        wanted = self.normalize(artist).lower()
+        if wanted == self.normalize(strip_discogs_id_suffix(result.name)).lower():
+            return True
+        if not inspect_variations:
+            return False
+        try:
+            variations = (getattr(result, 'data', None) or {}).get('namevariations') or []
+        except Exception:
+            return False
+        for v in variations:
+            if wanted == self.normalize(strip_discogs_id_suffix(v or '')).lower():
+                logger.info('Artist %r matched %r on a name variation',
+                            artist, result.name)
+                return True
+        return False
+
     def search_artist(self, state):
         searchParams = state.params
         artist = state.params['search']['artist']
@@ -635,12 +677,16 @@ class DiscogsSearch(DiscogsConnector):
             return
 
         releases = None
-        for result in results:
+        fallback = None
+        for idx, result in enumerate(results):
             if state.candidates:
                 break
-            canonical = strip_discogs_id_suffix(result.name)
-            if self.normalize(artist).lower() == self.normalize(canonical).lower():
+            if fallback is None:
+                fallback = result
+            if self._artist_result_matches(
+                    artist, result, idx < self._ANV_RESULTS_TO_INSPECT):
                 releases = result.releases
+                state.artist_entity = result
             if releases is None:
                 continue
             for i, release in enumerate(releases):
@@ -652,6 +698,88 @@ class DiscogsSearch(DiscogsConnector):
                         self._siftReleases(list(release.versions), state)
                     else:
                         self._siftReleases([release], state)
+
+        # Nothing matched by name, but the closest artist Discogs offered is
+        # still the best source of alternate names for the tier that follows.
+        # Without this a mis-credited album has nothing at all to retry under.
+        if state.artist_entity is None and fallback is not None:
+            state.artist_entity = fallback
+
+    def artist_alternate_names(self, state):
+        """The artist's other names, from the entity the browse tier fetched.
+
+        Discogs models an artist as one entity with several names attached:
+
+            namevariations  Bad Seeds, Nick Cave, Nick Cave And The Bad Seeds, …
+            aliases         Nick Cave & The Cavemen
+            members         Mick Harvey, Nick Cave, Blixa Bargeld, Warren Ellis, …
+
+        All three arrive in the `/artists/<id>` response the browse tier
+        already fetches, and were being discarded. Reading them costs nothing.
+
+        Order matters. `namevariations` are the same act spelled differently
+        and are tried first; `aliases` are the same act under another name;
+        `members` come last because a member's own catalogue is a genuinely
+        different artist -- which is the point when a solo record has been
+        filed under the band, but is the weakest prior of the three.
+
+        Names that normalise to the artist already searched are dropped: they
+        would repeat a search that has just failed.
+        """
+        entity = state.artist_entity
+        if entity is None:
+            return []
+        data = getattr(entity, 'data', None) or {}
+        searched = self.normalize(state.params['search']['artist']).lower()
+        seen = {searched}
+        names = []
+        for key in ('namevariations', 'aliases', 'members'):
+            for item in (data.get(key) or []):
+                name = item.get('name') if isinstance(item, dict) else item
+                name = strip_discogs_id_suffix((name or '').strip())
+                if not name:
+                    continue
+                norm = self.normalize(name).lower()
+                if norm in seen:
+                    continue
+                seen.add(norm)
+                names.append(name)
+        return names
+
+    def search_artist_variations(self, state):
+        """Retry the field search under the artist's other names.
+
+        The case this exists for: every tier is anchored on the artist string
+        from the local tags, so when that names the wrong Discogs artist the
+        right release is never retrieved -- not ranked poorly, absent. Nick
+        Cave's *Idiot Prayer* is credited to `Nick Cave`; the rip said
+        `Nick Cave & The Bad Seeds`; 111 releases of the wrong artist were
+        compared and refused, and the two correct releases -- which agree on
+        22 of 22 track lengths -- were never fetched.
+
+        Broadening retrieval does not broaden acceptance: whatever this finds
+        must still match on track count and agree on most track lengths, so
+        the risk here is wasted calls rather than wrong matches. The limit is
+        therefore a cost control, not a safety one, and setting it to 0 turns
+        the tier off.
+        """
+        limit = self.artist_name_variations
+        if limit <= 0:
+            return
+        names = self.artist_alternate_names(state)[:limit]
+        if not names:
+            return
+        logger.info('Retrying under %d other name(s) for this artist: %s',
+                    len(names), ', '.join(names))
+        original = state.params['search']['artist']
+        try:
+            for name in names:
+                if state.candidates or state.no_duration:
+                    break
+                state.params['search']['artist'] = name
+                self._search_release_fields(state, include_year=False)
+        finally:
+            state.params['search']['artist'] = original
 
     def search_album_title(self, state):
         searchParams = state.params

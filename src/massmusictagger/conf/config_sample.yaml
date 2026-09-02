@@ -142,6 +142,20 @@ batch:
 
   title_similarity_threshold: 60
 
+  # How many of an artist's other names to retry a failed search under.
+  #
+  # Discogs models an artist as one entity carrying namevariations, aliases and
+  # members. When a search finds nothing, the same album is looked for under
+  # those names before giving up -- which finds a solo record filed under the
+  # band, or a band record filed under the frontman.
+  #
+  # The names come from the artist response an earlier tier already fetched, so
+  # this costs no extra artist lookups: at most this many field searches, and
+  # only for an album that has otherwise failed. Whatever it finds must still
+  # match on track count and agree on track lengths, so the setting is a cost
+  # control rather than a safety one. Set to 0 to switch the tier off.
+  artist_name_variations: 6
+
   # Number of concurrent worker threads for mass processing.
   # Set to 1 for sequential processing (required for --review mode).
   #

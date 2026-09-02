@@ -56,6 +56,7 @@ class DiscogsConnector(object):
         self.release_cache = {}
         self.tracklength_tolerance = self.config.getfloat("batch", "tracklength_tolerance")
         self.tracklength_agreement = self.config.getfloat("batch", "tracklength_agreement")
+        self.artist_name_variations = self.config.getint("batch", "artist_name_variations")
         self.title_similarity_threshold = self.config.getfloat("batch", "title_similarity_threshold")
         self._user_token = None
         self._release_cache = None
