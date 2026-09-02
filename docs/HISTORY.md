@@ -2,6 +2,22 @@
 
 ---
 
+## Version 3.18.1 (2026-09-02)
+
+### Fixed
+
+**The single-track artist rule did nothing for albums already searched.** The
+MusicBrainz search cache stores the *decision*, not the API response, so a
+cached answer bypasses ranking entirely — Thomas Feiner's *The Ship Song* kept
+resolving to Thomas Anders from a stored decision, and 3.18.0 looked broken
+when it was not.
+
+`SEARCH_LOGIC_VERSION` is now 3, retiring every stored decision. The docstring
+on that constant already described this failure from the previous time it
+happened, with the minimum artist similarity.
+
+---
+
 ## Version 3.18.0 (2026-09-02)
 
 ### Fixed
