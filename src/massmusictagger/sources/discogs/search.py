@@ -772,7 +772,29 @@ class DiscogsSearch(DiscogsConnector):
             for bucket in buckets:
                 if i < len(bucket):
                     names.append(bucket[i])
-        return names
+
+        # Rank by how the name relates to the one searched, because list order
+        # is not relevance. Nick Cave's groups list runs ten deep and
+        # "Nick Cave & Warren Ellis" is ninth, so a budget of six spent in list
+        # order went on "Cave", "Cave N", "Her Dead Twin" and "The Birthday
+        # Party" and never reached the one that holds The Assassination Of
+        # Jesse James.
+        #
+        # A name that shares the searched one, in either direction, is where an
+        # album credited slightly differently will be: "Nick Cave & Warren
+        # Ellis" extends "Nick Cave", and "Nick Cave" is contained by "Nick
+        # Cave & The Bad Seeds". Both are the cases this tier exists for, so
+        # both rank above a name with nothing in common -- another member of
+        # the band, or an unrelated alias.
+        #
+        # The sort is stable, so within a rank the round-robin above still
+        # decides, and a namevariation still precedes a member.
+        def shares_the_credit(name):
+            other = self.normalize(name).lower()
+            if not other or not searched:
+                return 1
+            return 0 if (searched in other or other in searched) else 1
+        return sorted(names, key=shares_the_credit)
 
     def search_artist_variations(self, state):
         """Retry the field search under the artist's other names.

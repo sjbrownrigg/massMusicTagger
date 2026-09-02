@@ -229,3 +229,53 @@ class GroupsTest(unittest.TestCase):
         from massmusictagger.sources.discogs.search import DiscogsSearch
         self.assertIn('groups', DiscogsSearch._NAME_SOURCES)
         self.assertIn('members', DiscogsSearch._NAME_SOURCES)
+
+
+class RelevanceOrderTest(unittest.TestCase):
+    """List order is not relevance.
+
+    Nick Cave's groups list runs ten deep and `Nick Cave & Warren Ellis` is
+    ninth, so a budget of six spent in list order went on `Cave`, `Cave N`,
+    `Her Dead Twin` and `The Birthday Party` — and never reached the credit
+    that actually holds *The Assassination Of Jesse James*. Confirmed by
+    replaying the album against 3.16.0, which still returned no candidates.
+    """
+
+    FULL = {
+        'namevariations': ['Cave', 'Cave N', 'Nicholas Cave', 'N. Cave'],
+        'aliases': [{'name': 'A Drunk Cowboy Junkie'}, {'name': 'Her Dead Twin'}],
+        'groups': [{'name': 'Nick Cave & The Bad Seeds'},
+                   {'name': 'The Birthday Party'},
+                   {'name': 'The Boys Next Door'},
+                   {'name': 'Grinderman'},
+                   {'name': 'Nick Cave & The Cavemen'},
+                   {'name': 'The Tuff Monks'},
+                   {'name': 'Nick Cave & Warren Ellis'}],
+    }
+
+    def _names(self):
+        return _searcher().artist_alternate_names(
+            _state(artist='Nick Cave', data=self.FULL))
+
+    def test_the_credit_that_holds_the_album_is_within_budget(self):
+        self.assertIn('Nick Cave & Warren Ellis', self._names()[:6])
+
+    def test_every_shared_credit_fits_in_the_budget(self):
+        """All three "Nick Cave & X" groups, plus the short variation."""
+        first_six = self._names()[:6]
+        for name in ('Nick Cave & The Bad Seeds', 'Nick Cave & The Cavemen',
+                     'Nick Cave & Warren Ellis'):
+            self.assertIn(name, first_six)
+
+    def test_unrelated_names_rank_below_shared_ones(self):
+        """A fellow band member has nothing to do with this album."""
+        names = self._names()
+        self.assertLess(names.index('Nick Cave & Warren Ellis'),
+                        names.index('Her Dead Twin'))
+        self.assertLess(names.index('Nick Cave & The Cavemen'),
+                        names.index('The Birthday Party'))
+
+    def test_a_shorter_variation_is_still_kept(self):
+        """"Cave" shares the credit; it is not junk to be ranked away."""
+        names = self._names()
+        self.assertLess(names.index('Cave'), names.index('Her Dead Twin'))
