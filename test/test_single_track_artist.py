@@ -79,3 +79,50 @@ class GateTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DiscogsGateTest(unittest.TestCase):
+    """The same rule on the Discogs side.
+
+    Three albums in this library are single-track covers filed under the artist
+    of the original -- Lunar Paths' reading of *The Ship Song* went in as
+    Marianne Faithfull, and Marco Velocci's karaoke *Into My Arms* as Nick Cave
+    & The Bad Seeds. Two came from Discogs, so guarding MusicBrainz alone would
+    have left most of the pattern in place.
+
+    It also matters more since tier 3b, which deliberately searches under other
+    names for the artist: widening what is retrieved widens what can be wrongly
+    accepted, unless the artist is checked again at the point of acceptance.
+    """
+
+    def test_the_rule_is_applied_to_discogs_candidates(self):
+        import inspect
+        from massmusictagger.sources.discogs.search import DiscogsSearch
+        src = inspect.getsource(DiscogsSearch._compareRelease)
+        self.assertIn('local_count == 1', src)
+        self.assertIn('artists_are_related', src)
+
+    def test_it_is_checked_before_durations(self):
+        """No point comparing lengths of a record by someone else."""
+        import inspect
+        from massmusictagger.sources.discogs.search import DiscogsSearch
+        src = inspect.getsource(DiscogsSearch._compareRelease)
+        self.assertLess(src.index('artists_are_related'),
+                        src.index('_compareTrackLengths'))
+
+    def test_the_rejection_is_reported(self):
+        """It has to reach the no-match line, or it is another silent refusal."""
+        import inspect
+        from massmusictagger.sources.discogs.search import DiscogsSearch
+        src = inspect.getsource(DiscogsSearch._compareRelease)
+        self.assertIn("'kind': 'artist'", src)
+
+    def test_an_artist_rejection_ranks_in_the_diagnosis(self):
+        from massmusictagger.sources.discogs.search import SearchState
+        s = SearchState()
+        s.rejections = [
+            {'kind': 'medium', 'rid': 'm', 'distance': 0.0, 'detail': 'x'},
+            {'kind': 'artist', 'rid': 'a', 'distance': 500.0,
+             'detail': 'single track credited to Marianne Faithfull'},
+        ]
+        self.assertIn('Marianne Faithfull', s.diagnosis())

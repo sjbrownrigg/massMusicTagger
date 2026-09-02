@@ -98,7 +98,8 @@ class SearchState:
 
         # Rank by kind first: a track-count miss is what the user can act on,
         # and a medium veto says nothing useful about closeness.
-        order = {'track_count': 0, 'duration': 1, 'titles': 2, 'medium': 3}
+        order = {'track_count': 0, 'duration': 1, 'artist': 2, 'titles': 3,
+                 'medium': 4}
         closest = min(self.rejections,
                       key=lambda r: (order.get(r['kind'], 9), r['distance']))
         counts = {}
@@ -1128,6 +1129,34 @@ class DiscogsSearch(DiscogsConnector):
             logger.info('  [%s] tier-2 candidate — track count %d, title similarity %.0f%%',
                         rid, local_count, similarity)
             return -(similarity / 100.0)
+
+        # A single track corroborates nothing: the count matches trivially and
+        # duration agreement is one comparison. The artist has to carry the
+        # whole match, and a resemblance is not enough -- three albums in this
+        # library are single-track covers filed under the artist of the
+        # original, including Lunar Paths' reading of "The Ship Song" filed as
+        # Marianne Faithfull.
+        #
+        # This matters more since tier 3b, which deliberately searches under
+        # other names for the artist: widening retrieval widens what can be
+        # wrongly accepted unless the artist is checked at the point of
+        # acceptance too.
+        if local_count == 1:
+            from massmusictagger.sources.musicbrainz.search import artists_are_related
+            ours = searchParams.get('albumartist') or searchParams.get('artist') or ''
+            try:
+                theirs = ', '.join(a.get('name', '') for a in
+                                   (release.data.get('artists') or []))
+            except Exception:
+                theirs = ''
+            if ours and theirs and not artists_are_related(ours, theirs):
+                logger.info('  [%s] rejected — single track, and %r is not a '
+                            'variation of %r', rid, theirs, ours)
+                state.rejections.append({
+                    'kind': 'artist', 'rid': rid, 'distance': 500.0,
+                    'detail': 'single track credited to %s, not %s' % (theirs, ours),
+                })
+                return False
 
         agreed, compared, median = self._compareTrackLengths(
             searchParams['tracks'], trackInfo)
