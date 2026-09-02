@@ -2,6 +2,44 @@
 
 ---
 
+## Version 3.13.0 (2026-09-02)
+
+### Fixed
+
+**An album credited to a different artist than the files say was unreachable.**
+Every Discogs tier is anchored on the artist string from the local tags, so
+when that named the wrong artist the right release was never retrieved — not
+ranked poorly, absent. Nick Cave's *Idiot Prayer* is credited on Discogs to
+`Nick Cave`; the rip said `Nick Cave & The Bad Seeds`; 111 releases of the
+wrong artist were compared and refused, while the two correct releases — which
+agree on 22 of 22 track lengths — were never fetched.
+
+**The artist browse matched only on the canonical name.** A rip carrying a
+career variation resolved to no artist at all, so neither the browse nor
+anything after it had somewhere to look. It now also matches the
+`namevariations` Discogs records for exactly this reason, for the first few
+search results only, since reading them forces the full artist fetch.
+
+### Added
+
+**Tier 3b — retry under the artist's other names.** After the artist browse
+fails, the field search is repeated under the artist's `namevariations`,
+`aliases` and `members`, in that order of confidence: the same act spelled
+differently, then the same act renamed, then a member whose own catalogue is a
+genuinely different artist — which is the point when a solo record has been
+filed under the band.
+
+Those names arrive in the artist response the browse tier already fetches, so
+the tier costs **no extra artist lookups**: at most
+`batch.artist_name_variations` field searches, and only for an album that has
+otherwise failed. Broadening retrieval does not broaden acceptance — anything
+found must still match on track count and agree on most track lengths — so the
+setting is a cost control, not a safety one. Set it to 0 to switch the tier off.
+
+`batch.artist_name_variations`, default `6`.
+
+---
+
 ## Version 3.12.1 (2026-09-02)
 
 ### Fixed
