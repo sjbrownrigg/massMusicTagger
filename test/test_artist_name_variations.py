@@ -184,3 +184,48 @@ class ANVResolutionTest(unittest.TestCase):
         import inspect
         src = inspect.getsource(DiscogsSearch.search_artist)
         self.assertIn('if state.artist_entity is None and fallback is not None:', src)
+
+
+NICK_CAVE_PERSON = {
+    # The real shape: ten-plus initialisms, and the answer sitting in groups.
+    'namevariations': ['Cave', 'Cave N', 'Cave Nicholas Edward', 'N Cave',
+                       'N. Cave', 'N. E. Cave', 'N.Cave', 'N.E. Cave',
+                       'N.E.Cave', 'Nicholas Cave'],
+    'aliases': [{'name': 'A Drunk Cowboy Junkie'}, {'name': 'Her Dead Twin'}],
+    'groups': [{'name': 'Nick Cave & The Bad Seeds'},
+               {'name': 'The Birthday Party'},
+               {'name': 'Nick Cave & Warren Ellis'}],
+}
+
+
+class GroupsTest(unittest.TestCase):
+    """The other direction: a collaboration filed under the person.
+
+    *The Assassination Of Jesse James* is credited on Discogs to `Nick Cave &
+    Warren Ellis`; the rip says `Nick Cave`. The Discogs search returned no
+    candidates at all — not a poor match, nothing — because every tier was
+    looking at the solo catalogue.
+    """
+
+    def _names(self, limit=6):
+        s = _searcher(limit)
+        st = _state(artist='Nick Cave', data=NICK_CAVE_PERSON)
+        return s.artist_alternate_names(st)
+
+    def test_groups_are_offered(self):
+        self.assertIn('Nick Cave & Warren Ellis', self._names())
+
+    def test_a_group_is_reached_within_the_default_budget(self):
+        """Draining namevariations first would spend it all on initialisms."""
+        self.assertIn('Nick Cave & The Bad Seeds', self._names()[:6])
+
+    def test_every_source_gets_a_turn_before_any_repeats(self):
+        first_four = self._names()[:4]
+        self.assertEqual(len(set(first_four)), 4)
+        self.assertTrue(any(n.startswith('Nick Cave &') for n in first_four),
+                        'a group must appear in the first round')
+
+    def test_both_directions_are_covered(self):
+        from massmusictagger.sources.discogs.search import DiscogsSearch
+        self.assertIn('groups', DiscogsSearch._NAME_SOURCES)
+        self.assertIn('members', DiscogsSearch._NAME_SOURCES)

@@ -705,23 +705,33 @@ class DiscogsSearch(DiscogsConnector):
         if state.artist_entity is None and fallback is not None:
             state.artist_entity = fallback
 
+    #: Where an artist's other names come from, in descending confidence.
+    #: Both directions of the same relationship are needed: `members` finds a
+    #: solo record filed under the band, `groups` finds a collaboration filed
+    #: under the person.
+    _NAME_SOURCES = ('namevariations', 'aliases', 'groups', 'members')
+
     def artist_alternate_names(self, state):
         """The artist's other names, from the entity the browse tier fetched.
 
-        Discogs models an artist as one entity with several names attached:
+        Discogs models an artist as one entity with several names attached::
 
-            namevariations  Bad Seeds, Nick Cave, Nick Cave And The Bad Seeds, …
-            aliases         Nick Cave & The Cavemen
-            members         Mick Harvey, Nick Cave, Blixa Bargeld, Warren Ellis, …
+            namevariations  Cave, N. Cave, Nicholas Cave, …
+            aliases         A Drunk Cowboy Junkie, Her Dead Twin
+            groups          Nick Cave & The Bad Seeds, Nick Cave & Warren
+                            Ellis, The Birthday Party, Grinderman
+            members         (for a group) Mick Harvey, Blixa Bargeld, …
 
-        All three arrive in the `/artists/<id>` response the browse tier
-        already fetches, and were being discarded. Reading them costs nothing.
+        All of it arrives in the `/artists/<id>` response the browse tier
+        already fetches, and was being discarded.
 
-        Order matters. `namevariations` are the same act spelled differently
-        and are tried first; `aliases` are the same act under another name;
-        `members` come last because a member's own catalogue is a genuinely
-        different artist -- which is the point when a solo record has been
-        filed under the band, but is the weakest prior of the three.
+        Taken **one from each list in turn** rather than one list at a time.
+        Nick Cave the person carries more than ten namevariations, nearly all
+        of them initialisms -- `Cave`, `N. Cave`, `N.E.Cave` -- so draining
+        that list first would spend the whole budget on noise and never reach
+        `groups`, which is where the answer actually is: *The Assassination Of
+        Jesse James* is credited to `Nick Cave & Warren Ellis` and the rip says
+        `Nick Cave`.
 
         Names that normalise to the artist already searched are dropped: they
         would repeat a search that has just failed.
@@ -732,8 +742,10 @@ class DiscogsSearch(DiscogsConnector):
         data = getattr(entity, 'data', None) or {}
         searched = self.normalize(state.params['search']['artist']).lower()
         seen = {searched}
-        names = []
-        for key in ('namevariations', 'aliases', 'members'):
+
+        buckets = []
+        for key in self._NAME_SOURCES:
+            bucket = []
             for item in (data.get(key) or []):
                 name = item.get('name') if isinstance(item, dict) else item
                 name = strip_discogs_id_suffix((name or '').strip())
@@ -743,7 +755,14 @@ class DiscogsSearch(DiscogsConnector):
                 if norm in seen:
                     continue
                 seen.add(norm)
-                names.append(name)
+                bucket.append(name)
+            buckets.append(bucket)
+
+        names = []
+        for i in range(max((len(b) for b in buckets), default=0)):
+            for bucket in buckets:
+                if i < len(bucket):
+                    names.append(bucket[i])
         return names
 
     def search_artist_variations(self, state):
