@@ -2,6 +2,26 @@
 
 ---
 
+## Version 3.16.2 (2026-09-02)
+
+### Fixed
+
+**The artist-variations tier spent its budget on implausible names.** Replaying
+*The Assassination Of Jesse James* — credited on Discogs to `Nick Cave & Warren
+Ellis` while the rip says `Nick Cave` — still returned no candidates. The tier
+fired correctly but tried `Cave`, `A Drunk Cowboy Junkie`, `Nick Cave & The Bad
+Seeds`, `Cave N`, `Her Dead Twin` and `The Birthday Party`. The credit that
+holds the album is ninth in a groups list of ten and was never reached.
+
+Names are now ranked by whether they share the credit being searched, in either
+direction: `Nick Cave & Warren Ellis` extends `Nick Cave`, and `Nick Cave` is
+contained by `Nick Cave & The Bad Seeds`. Both are the cases this tier exists
+for, and both now rank above a name with nothing in common — a fellow band
+member, or an unrelated alias. The sort is stable, so the round-robin across
+name sources still decides within a rank.
+
+---
+
 ## Version 3.16.1 (2026-09-02)
 
 ### Changed
