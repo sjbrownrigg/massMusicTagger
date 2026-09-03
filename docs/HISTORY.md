@@ -2,6 +2,34 @@
 
 ---
 
+## Version 3.21.0 (2026-09-03)
+
+### Fixed
+
+**A placeholder artist tag sent the whole search nowhere.** Einstürzende
+Neubauten's *Ende Neu (Remixes)* arrived with `artist='temp'` on all ten files,
+no `albumartist`, and the real artist folded into the album tag as
+`Einsturzende Neubauten - Ende Neu Remixes`. Discogs holds the release (360802)
+with the same ten tracks under nearly the same titles; the search asked for
+artist "temp".
+
+A placeholder is worse than an empty tag, because it looks like an answer, and
+every Discogs tier is anchored on the artist. When the tag names nobody —
+`temp`, `unknown`, `artist`, `none` and similar — the folder is used instead,
+and the artist prefix is stripped from the album title at the same time, since
+the same rips usually carry both faults.
+
+The folder is weaker evidence than a tag, which is why it is consulted only
+here. It asks for little: `Artist - Album`, or an album inside an artist
+directory. A folder with no separator is treated as an album name and the
+parent is used — returning the album as the artist would search for the record
+under its own title, and be worse than the placeholder it replaced.
+
+The MusicBrainz path has always fallen back to the parent directory this way;
+the Discogs path never did.
+
+---
+
 ## Version 3.20.0 (2026-09-03)
 
 ### Fixed
