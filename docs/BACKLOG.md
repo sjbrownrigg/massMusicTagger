@@ -1177,3 +1177,17 @@ alternative is not a weaker match but no match at all.
 And the reporting should say which of these it is. "Rejected on track count,
 local has 1, closest has 15" reads as a defective rip when it usually means a
 single whose track the database only catalogues as part of an album.
+
+**Guardrails required before subset matching is built** (Stewart, 2026-09-03).
+Not yet agreed -- he wants to look at real examples first, and is wary of the
+tagger filing incomplete releases at all:
+
+* a track-count audit, so an album filed from a subset is recorded as such
+  rather than passing silently as complete;
+* a sufficient-metadata test, so a subset match is only taken when what came
+  back actually describes the tracks in hand.
+
+The alternative destination for this class is `existing_tags`, which he expects
+some of it will need in the end. That is a deliberate last resort and not a
+substitute for the two guardrails: `existing_tags` always succeeds, so anything
+routed there stops being visible as a gap.

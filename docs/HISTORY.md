@@ -2,6 +2,27 @@
 
 ---
 
+## Version 3.18.2 (2026-09-03)
+
+### Fixed
+
+**Join words broke the single-track artist comparison.** A rip tagged
+`Trentemøller, Marie Fisker` against MusicBrainz's `Trentemøller feat. Marie
+Fisker` shares every name and still failed the containment test, because
+`feat` sits in the middle of one and not the other. Two of seven realistic
+collaboration credits from this library were refused that way.
+
+Latent rather than observed — the track-count check rejects these before the
+artist rule is reached — but modern singles are largely collaborations and the
+two sides rarely agree on the join, so it would have bitten as soon as one
+found a candidate with a matching track count.
+
+The join words now come from `conf/artist_joins.yaml` rather than a second
+hardwired list, so the same table decides how a credit is filed and how two
+credits are compared.
+
+---
+
 ## Version 3.18.1 (2026-09-02)
 
 ### Fixed
