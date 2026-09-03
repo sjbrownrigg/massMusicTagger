@@ -2,6 +2,34 @@
 
 ---
 
+## Version 3.20.0 (2026-09-03)
+
+### Fixed
+
+**MusicBrainz never checked that the audio was the same audio.** Tier 3 ranks
+on `(title_score, artist_score, has_date)` and validates the track count.
+Durations are not consulted anywhere on that path, so a release with the right
+number of tracks and a similar name could win without anything confirming the
+recordings matched. Discogs has compared lengths since 3.11.0; this closes the
+same hole on the other source.
+
+The check runs against the release already fetched for mapping, so it costs no
+extra request, and acts as a veto rather than a ranking term — it can only
+refuse a winner, never promote a loser. Ranking properly would mean fetching
+every candidate at one request per second, which is not worth it.
+
+Agreement is counted per track, as on the Discogs side and for the same reason:
+an average cannot tell one mis-entered duration from a release that is wrong
+throughout. It does not fire when the release carries no lengths, when the
+counts differ — that is the count check's business — or when the configuration
+lacks the thresholds.
+
+Worth noting what it does *not* do: it would not have caught the Red Cell
+mis-match on its own, since 180/182 against 176/180 agrees comfortably within
+tolerance. That is why the short-release title veto exists alongside it.
+
+---
+
 ## Version 3.19.2 (2026-09-03)
 
 ### Changed
