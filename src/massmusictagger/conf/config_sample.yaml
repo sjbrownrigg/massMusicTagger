@@ -156,6 +156,26 @@ batch:
   # control rather than a safety one. Set to 0 to switch the tier off.
   artist_name_variations: 6
 
+  # Refuse to tag a release that does not hold as many tracks as its own
+  # metadata says it should.
+  #
+  # The check reads the tracktotal already in the files, so it is a statement
+  # about the material rather than about any database, and it runs before any
+  # search: an incomplete release is not looked up at all.
+  #
+  # Why refuse rather than tag what is there: a library that holds whole
+  # releases treats a missing track as a defect to re-acquire. Tagging the
+  # fragment files it away as though it were the album, and it stops being
+  # visible as a gap. Refused releases are listed at the end of the run with
+  # what they hold and what is missing, so the run doubles as a re-acquisition
+  # list.
+  #
+  # Multi-disc sets are summed per disc, since tracktotal counts one disc. A
+  # release whose files carry no tracktotal cannot be judged and is allowed
+  # through. CUE images are split before this runs, so they are counted as the
+  # tracks they become.
+  completeness_guard: false
+
   # Number of concurrent worker threads for mass processing.
   # Set to 1 for sequential processing (required for --review mode).
   #

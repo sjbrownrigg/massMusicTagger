@@ -51,6 +51,11 @@ OUTCOME_OK      = 'ok'
 OUTCOME_FAILED  = 'failed'
 OUTCOME_SKIPPED = 'skipped'
 OUTCOME_DRY_RUN = 'dry_run'
+#: Refused before any search because the release does not hold as many tracks
+#: as its own metadata says it should. Distinct from 'failed', which means the
+#: databases were asked and had no answer, and from 'skipped', which the user
+#: asked for. This one is a statement about the material.
+OUTCOME_INCOMPLETE = 'incomplete'
 
 
 def _split_source_id(value):
@@ -74,11 +79,13 @@ def _split_source_id(value):
 class ProcessingResult:
     __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
                  'title', 'albumartist', 'elapsed', 'error', 'target_dir',
-                 'archive_path')
+                 'archive_path', 'completeness')
 
     def __init__(self, sourcedir: str):
         self.sourcedir = sourcedir
         self.outcome: str = OUTCOME_FAILED
+        #: What the files said about their own completeness, when the guard ran.
+        self.completeness = None
         self.source: Optional[str] = None
         self.release_id: Optional[str] = None
         self.release_url: Optional[str] = None
@@ -229,6 +236,22 @@ def sweep_stale_staging(staging_root: str) -> int:
         logger.info('Removed %d staging director%s left by a previous run',
                     removed, 'y' if removed == 1 else 'ies')
     return removed
+
+
+def _audio_files_in(directory):
+    """Every audio file under *directory*, including per-disc subdirectories.
+
+    Walks rather than lists: a multi-disc album keeps its tracks in CD 1 / CD 2,
+    and the completeness check has to see all of them to sum per disc.
+    """
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    found = []
+    for dirpath, dirnames, files in os.walk(directory):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        for name in sorted(files):
+            if name.lower().endswith(AUDIO_EXTENSIONS):
+                found.append(os.path.join(dirpath, name))
+    return found
 
 
 def _stage_root(cfg) -> str:
@@ -454,6 +477,24 @@ class MassProcessor:
                 result.outcome = OUTCOME_SKIPPED
                 result.elapsed = time.monotonic() - t0
                 return result
+
+            # Completeness, before anything is looked up. An incomplete
+            # release should not be tagged at all: filing the fragment as
+            # though it were the album is how a gap stops being visible.
+            from massmusictagger.core import completeness as _completeness
+            if _completeness.enabled(cfg):
+                audio = _audio_files_in(sourcedir)
+                state = _completeness.assess(audio)
+                result.completeness = state
+                if state.judged and not state.complete:
+                    logger.warning('Incomplete release, not tagging %s — %s',
+                                   os.path.basename(origin), state.describe())
+                    result.outcome = OUTCOME_INCOMPLETE
+                    result.error = 'Incomplete — %s' % state.describe()
+                    result.elapsed = time.monotonic() - t0
+                    return result
+                logger.debug('Completeness: %s — %s',
+                             os.path.basename(origin), state.describe())
 
             # --releaseid wins; otherwise an id.txt in this directory.
             override_source, override_id = self.release_id_source, self.release_id
@@ -889,15 +930,19 @@ class MassProcessor:
         failed  = sum(1 for r in results if r.outcome == OUTCOME_FAILED)
         skipped = sum(1 for r in results if r.outcome == OUTCOME_SKIPPED)
         dry     = sum(1 for r in results if r.outcome == OUTCOME_DRY_RUN)
+        incomplete = [r for r in results if r.outcome == OUTCOME_INCOMPLETE]
         total   = len(results)
 
         # 'ignored' = albums excluded before processing (done file, no id.txt).
         # 'skipped' = albums that reached the processor but were skipped (done file or review reject).
         ignored_part = f'  [dim]{n_ignored} ignored[/]' if n_ignored else ''
+        incomplete_part = (f'  [magenta]{len(incomplete)} incomplete[/]'
+                           if incomplete else '')
         console.print(
             f'\n[bold]Summary:[/] {total} processed — '
             f'[green]{ok} tagged[/]  [yellow]{skipped} skipped[/]  '
-            f'[red]{failed} failed[/]  [dim]{dry} dry-run[/]{ignored_part}'
+            f'[red]{failed} failed[/]{incomplete_part}  '
+            f'[dim]{dry} dry-run[/]{ignored_part}'
         )
 
         # Detailed per-album table — one row per processed directory.
@@ -913,6 +958,7 @@ class MassProcessor:
             OUTCOME_OK:      ('✓', 'green'),
             OUTCOME_FAILED:  ('✗', 'red'),
             OUTCOME_SKIPPED: ('–', 'yellow'),
+            OUTCOME_INCOMPLETE: ('!', 'magenta'),
             OUTCOME_DRY_RUN: ('○', 'dim'),
         }
 
@@ -937,7 +983,10 @@ class MassProcessor:
             # Prefer release URL; fall back to bare ID
             id_str = r.release_url or r.release_id or '—'
 
-            error_suffix = f'  [red dim]{r.error}[/]' if r.error else ''
+            # An incomplete release is not an error in red: nothing went
+            # wrong, the material is short and the run is saying so.
+            _err_style = 'magenta dim' if r.outcome == OUTCOME_INCOMPLETE else 'red dim'
+            error_suffix = f'  [{_err_style}]{r.error}[/]' if r.error else ''
             tbl.add_row(
                 f'[{style}]{icon}[/]',
                 f'[{style}]{label}[/]{error_suffix}',
@@ -946,6 +995,42 @@ class MassProcessor:
             )
 
         console.print(tbl)
+
+        # The re-acquisition list. Reported separately from the table because
+        # it is the one part of a run that asks the user for something: these
+        # albums were never looked up, and will not be until the files are
+        # complete.
+        if incomplete:
+            console.print(
+                f'\n[bold magenta]{len(incomplete)} release(s) not tagged — '
+                f'fewer tracks than their own metadata expects:[/]')
+            sub = Table(show_header=True, header_style='bold', box=None,
+                        show_edge=False, pad_edge=False, padding=(0, 1))
+            sub.add_column('', width=2, no_wrap=True)
+            sub.add_column('Release', no_wrap=False, overflow='fold')
+            sub.add_column('Have', width=6, justify='right', no_wrap=True)
+            sub.add_column('Expect', width=6, justify='right', no_wrap=True)
+            sub.add_column('Missing', no_wrap=False, overflow='fold')
+            import os as _os
+            for r in incomplete:
+                c = r.completeness
+                missing = '—'
+                if c is not None and c.gaps:
+                    parts = []
+                    for disc, nums in c.gaps:
+                        text = ', '.join(str(n) for n in nums[:8])
+                        if len(nums) > 8:
+                            text += ', …'
+                        parts.append(('disc %d: ' % disc if c.discs > 1 else '') + text)
+                    missing = '; '.join(parts)
+                sub.add_row(
+                    '[magenta]![/]',
+                    _os.path.basename(r.sourcedir.rstrip('/\\')),
+                    str(c.present) if c else '—',
+                    str(c.expected) if c else '—',
+                    f'[dim]{missing}[/]',
+                )
+            console.print(sub)
 
 
 def _make_progress(total: int) -> Progress:

@@ -229,6 +229,7 @@ DEFAULTS = {
     ('batch', 'tracklength_agreement'): '0.75',
     ('batch', 'title_similarity_threshold'): '60',
     ('batch', 'artist_name_variations'): '6',
+    ('batch', 'completeness_guard'): 'False',
 
     # ── [cue] ─────────────────────────────────────────────────────────
     ('cue', 'cue_done_dir'): '.cue',
