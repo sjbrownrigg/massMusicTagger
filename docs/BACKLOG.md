@@ -1116,3 +1116,64 @@ would rather be told than have them silently interleave.
 Related: the concurrency fix in 3.10.0 was the same shape one level up --
 per-album state shared between workers. This is per-destination state shared
 between workers.
+
+## The backlog is singles, and a folder is not always a release
+
+Measured on the 105 albums that failed in both of the last two runs:
+
+```
+  1 track    48   ################################################
+  2-4        26   ##########################
+  5+         30   ##############################
+```
+
+**70% hold four tracks or fewer, and nearly half are a single track.** This is
+not a tail of odd cases; it is the shape of the remaining work.
+
+Among the small ones:
+
+```
+  catalogued release larger than local   47
+  nothing catalogued at all              23
+  local bundle larger than the release   10
+```
+
+**Modern release practice is the cause, and it breaks an assumption the tagger
+was built on: that a folder is a release.** Three patterns, all now common:
+
+*The bundle.* A single is released as the new track plus two or three from the
+back catalogue. ALT BLK ERA's three 2024 singles hold overlapping subsets of
+the same three tracks, one of them with a remix. MusicBrainz catalogues each as
+a **1-track Single**; the folders hold 3, 3 and 2. No release in either
+database matches the folder, because the folder is a bundle rather than an
+edition.
+
+*The repackage.* The same tracks reappear in a different order under a
+different title track. Each pressing is a distinct release, and the local copy
+may correspond to none of them.
+
+*The per-service edition.* The same album is issued in different shapes across
+streaming services -- different bonus tracks, different masters, so different
+durations. Discogs catalogues some of these as separate `File` releases and
+most not at all, so exact track count and duration agreement are both weaker
+evidence for digital than they are for a CD rip.
+
+**What follows from this.**
+
+Exact track count is the wrong gate for a small digital release. It is a good
+gate for a CD rip, where the medium fixes the contents. Treating a candidate as
+plausible when the local tracks are a **subset** of its tracklist would cover
+the 47 in the largest group -- a 1-track folder whose track appears on a
+catalogued single or album -- provided the matched track's title and duration
+agree closely. The risk is filing a single under an album, so the release
+chosen should prefer a Single release-group over an album when one exists.
+
+A single track is a recording, not a release, and should be identified as one.
+Tier 4.5 already looks up ISRCs and would answer many of these outright; it
+currently requires two agreeing codes, which a 1-track folder can never supply.
+Worth revisiting that floor specifically for the single-track case, where the
+alternative is not a weaker match but no match at all.
+
+And the reporting should say which of these it is. "Rejected on track count,
+local has 1, closest has 15" reads as a defective rip when it usually means a
+single whose track the database only catalogues as part of an album.
