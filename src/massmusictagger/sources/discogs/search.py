@@ -505,6 +505,13 @@ class DiscogsSearch(DiscogsConnector):
         logger.info('Searching Discogs for: artist="%s" album="%s"',
                     s.get('artist', '?'), searchParams.get('album', '?'))
 
+        # Tier 0 — catalogue number. The most precise thing we routinely hold:
+        # it names a pressing, not just a release, which is the ambiguity every
+        # other tier struggles with. Only fires when a hint was found.
+        self._search_catalog_number(state)
+        if state.candidates or state.no_duration:
+            logger.info('Tier 0 (catalogue number) found candidates')
+
         # Tier 1 — structured fields with year (most precise)
         if searchParams.get('year'):
             self._search_release_fields(state, include_year=True)
@@ -774,6 +781,54 @@ class DiscogsSearch(DiscogsConnector):
 
         if self._search_cache and collected:
             self._search_cache.put(query, type_, collected)
+
+    #: Catalogue numbers to look up before falling back to the text tiers.
+    #: More than a couple means the hints are guesses rather than a number.
+    _CATNO_LOOKUPS = 2
+
+    def _search_catalog_number(self, state):
+        """Tier 0: find the pressing by its catalogue number.
+
+        A catalogue number identifies one pressing, which is precisely what the
+        other tiers cannot do -- they find the release and then have to guess
+        which edition. That guess has cost real mistakes: the Music On Vinyl
+        pressing of *Ultra* (MOVLP945) matched a CD, and DHS's *House Of God*
+        was filed twice because two databases described the same 12" release
+        differently.
+
+        The number is already extracted from the folder name and the
+        catalognum tag; until now it only adjusted the score of candidates
+        another tier had already found, so a pressing nobody else retrieved
+        could not be scored at all.
+
+        Retrieval only. Whatever comes back still has to match on track count
+        and agree on durations, so a hint that turns out to be a year or a
+        matrix number costs a request, not a wrong match.
+        """
+        hints = state.params.get('catalog_hints')
+        if not hints:
+            return
+        for catno in sorted(hints)[:self._CATNO_LOOKUPS]:
+            if state.candidates or state.no_duration:
+                return
+            logger.info('Catalogue number search: %s', catno)
+            try:
+                results = self.discogs_client.search(catno=catno, type='release')
+            except Exception as exc:
+                logger.warning('Catalogue number search failed for %s: %s',
+                               catno, exc)
+                continue
+            found = []
+            for idx, result in enumerate(results):
+                if state.candidates or idx >= 10:
+                    break
+                if 'Artist' in type(result).__name__:
+                    continue
+                found.append(result)
+            if found:
+                logger.info('Catalogue number %s returned %d release(s)',
+                            catno, len(found))
+                self._siftReleases(found, state)
 
     # ------------------------------------------------------------------
     # Artist browse — Tier 3
