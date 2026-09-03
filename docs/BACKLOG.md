@@ -1191,3 +1191,48 @@ The alternative destination for this class is `existing_tags`, which he expects
 some of it will need in the end. That is a deliberate last resort and not a
 substitute for the two guardrails: `existing_tags` always succeeds, so anything
 routed there stops being visible as a gap.
+
+## Combining Discogs and MusicBrainz — where it would help, and where it would hurt
+
+Raised 2026-09-03, prompted by DHS's *House Of God (Official 10 Year
+Anniversary Remixes)* being filed twice: `[12″ …]` from MusicBrainz and
+`[LP …]` from Discogs. Same physical record, and neither tagging is wrong.
+`vinyl_sizes_conditional` renders a 12" as `12″` only for a Single, EP or
+Maxi-Single; MusicBrainz types this as a Single, Discogs describes it as
+`Vinyl` with `12"` and `33 ⅓ RPM` and no type at all. The rule behaves as
+written. The sources disagree.
+
+Stewart's call was manual intervention, and it is the right one: every
+candidate fix -- always render 12" as `12″`, or infer Single from `33 ⅓ RPM` --
+trades this duplicate for a different set of mis-filings. His worry about a
+general merge making things fragile is also well founded, but the two halves of
+that idea are not equally risky and are worth separating.
+
+**Additive merging is cheap and safe.** Where one source holds a field and the
+other cannot, there is nothing to reconcile. MusicBrainz has ISRCs and recording
+identifiers that Discogs does not carry at all; Discogs has catalogue numbers,
+pressing detail and format descriptors that MusicBrainz frequently lacks.
+Tier 4.5 and the ISRC preservation in 3.14.0 already lean this way, and the
+Discogs link followed in 3.15.0 is a limited form of it -- safe precisely
+because MusicBrainz *curates* that link, so it is one source vouching for the
+other rather than us guessing.
+
+**Reconciling merging is where the fragility lives.** The moment both sources
+hold a field and disagree -- the case above -- every field needs a precedence
+policy, and the policies interact. Worse, a merged album has no single
+provenance: `tagger_source` says where the release came from, not where each
+value came from, so when a field is wrong there is nothing to read back. Today
+proved how hard a wrong value is to see once it is filed; four wrong matches
+sat in the library looking entirely normal.
+
+**And it would not have fixed much of what actually broke.** Every defect found
+in this session was about *which release was chosen*, not about a field missing
+from the chosen one: Planet Jarre, Idiot Prayer, Fifteen Feet, Haus Der Lüge,
+the four wrong matches, the Red Cell retagging. A merge layer would have left
+all of them exactly as they were.
+
+**If it is ever built**, the shape that keeps the value and avoids the cost:
+fill only what is absent, never overwrite what is present, and record per-field
+provenance so a wrong value can be traced to the source that supplied it.
+Anything that reconciles a disagreement should be a rule table the user owns,
+like the others, rather than logic.
