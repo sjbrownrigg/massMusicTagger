@@ -79,12 +79,40 @@ _ARTIST_FOLD = str.maketrans({
 })
 
 
+def _join_words():
+    """The join phrases, as bare words, from conf/artist_joins.yaml.
+
+    Taken from the table rather than hardwired so the same list decides both
+    how a credit is filed and how two credits are compared.
+    """
+    from massmusictagger.core.naming import artistjoins
+    table = artistjoins.load_artist_joins()
+    words = set()
+    for key in ('subordinating', 'coordinating'):
+        for phrase in (table.get(key) or []):
+            for word in re.split(r'[^a-z0-9]+', str(phrase).lower()):
+                if word:
+                    words.add(word)
+    words.update({'and', 'x'})
+    return words
+
+
 def _fold_artist(name: str) -> str:
-    """Lowercase, strip diacritics and punctuation, for comparison only."""
+    """Lowercase, drop join words, diacritics and punctuation, for comparison.
+
+    Join words have to go or the same credit written two ways stops matching
+    itself: a rip tagged "Trentemøller, Marie Fisker" against MusicBrainz's
+    "Trentemøller feat. Marie Fisker" shares every name and still fails a
+    containment test, because "feat" sits in the middle of one and not the
+    other. Collaboration credits written with a comma on one side and a join
+    word on the other are the normal case in modern singles, not an edge one.
+    """
     folded = (name or '').lower().translate(_ARTIST_FOLD)
     folded = unicodedata.normalize('NFKD', folded)
     folded = ''.join(c for c in folded if not unicodedata.combining(c))
-    return re.sub(r'[^a-z0-9]', '', folded)
+    words = [w for w in re.split(r'[^a-z0-9]+', folded)
+             if w and w not in _join_words()]
+    return ''.join(words)
 
 
 def artists_are_related(ours: str, theirs: str) -> bool:

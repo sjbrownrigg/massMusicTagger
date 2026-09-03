@@ -126,3 +126,43 @@ class DiscogsGateTest(unittest.TestCase):
              'detail': 'single track credited to Marianne Faithfull'},
         ]
         self.assertIn('Marianne Faithfull', s.diagnosis())
+
+
+class CollaborationCreditTest(unittest.TestCase):
+    """The same credit written two ways must still match itself.
+
+    Modern singles are largely collaborations, and the two sides rarely agree
+    on the join: a rip tagged "Trentemøller, Marie Fisker" against
+    MusicBrainz's "Trentemøller feat. Marie Fisker" shares every name and still
+    failed a containment test, because "feat" sits in the middle of one and not
+    the other.
+
+    This was latent rather than observed — the track-count check rejects these
+    before the artist rule is reached — but it would have bitten as soon as a
+    single-track collaboration found a candidate with the right count, which is
+    most of what is left in the backlog.
+    """
+
+    def test_a_comma_credit_matches_a_feat_credit(self):
+        self.assertTrue(artists_are_related('Trentemøller, Marie Fisker',
+                                            'Trentemøller feat. Marie Fisker'))
+
+    def test_and_matches_an_ampersand(self):
+        self.assertTrue(artists_are_related('Edward Ka-Spel and Alena Boykova',
+                                            'Edward Ka-Spel & Alena Boykova'))
+
+    def test_a_lead_artist_alone_still_matches_the_pair(self):
+        self.assertTrue(artists_are_related('Reptile Youth, Trentemøller',
+                                            'Reptile Youth'))
+
+    def test_the_join_words_come_from_the_rule_table(self):
+        """Same list decides how a credit is filed and how two are compared."""
+        from massmusictagger.sources.musicbrainz.search import _join_words
+        words = _join_words()
+        for w in ('feat', 'featuring', 'ft', 'vs', 'meets', 'with'):
+            self.assertIn(w, words)
+
+    def test_folding_joins_does_not_make_strangers_match(self):
+        self.assertFalse(artists_are_related('Thomas Feiner', 'Thomas Anders'))
+        self.assertFalse(artists_are_related('Lunar Paths', 'Marianne Faithfull'))
+        self.assertFalse(artists_are_related('Nick Cave', 'Nick Drake'))
