@@ -2,6 +2,36 @@
 
 ---
 
+## Version 3.19.0 (2026-09-03)
+
+### Added
+
+**A completeness guard.** `batch.completeness_guard`, off by default. When on,
+a release holding fewer tracks than its own `tracktotal` says it should is not
+tagged, and is not even looked up.
+
+The number comes from the files themselves, so this is a statement about the
+material rather than about any database. Refusing rather than tagging what is
+there follows from a library that holds whole releases: tagging the fragment
+files it away as though it were the album, and it stops being visible as a gap.
+
+Refused releases carry an outcome of their own — distinct from `failed`, which
+means the databases were asked and had no answer, and from `skipped`, which the
+user asked for. The end-of-run report lists them separately with what they
+hold, what was expected, and which track numbers are missing, so a run doubles
+as a re-acquisition list.
+
+Multi-disc sets are summed per disc, since `tracktotal` counts one disc, and a
+gap names the disc it is on. CUE images are split before the check runs, so
+they are counted as the tracks they become. A release whose files declare no
+`tracktotal` cannot be judged and is allowed through.
+
+Measured on this library when the guard was written: of 118 album folders in
+`/incoming`, 90 were complete, 7 short, 8 held more files than expected, 10
+were unsplit CUE images and 3 declared no `tracktotal` at all.
+
+---
+
 ## Version 3.18.2 (2026-09-03)
 
 ### Fixed
