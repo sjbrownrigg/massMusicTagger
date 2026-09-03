@@ -2,6 +2,31 @@
 
 ---
 
+## Version 3.22.0 (2026-09-03)
+
+### Added
+
+**Tier 0 — search Discogs by catalogue number.** A catalogue number identifies
+one *pressing*, which is exactly what every other tier cannot do: they find the
+release and then guess the edition.
+
+That guess has cost real mistakes. The Music On Vinyl pressing of *Ultra*
+(`MOVLP945`) matched a CD carrying `RR2 46522`, and DHS's *House Of God
+(Official 10 Year Anniversary Remixes)* sits in the library twice because
+MusicBrainz types it as a Single and Discogs does not, so the same 12" release
+filed once as `12″` and once as `LP`.
+
+The number was already extracted from the folder name and the `catalognum` tag,
+but it only ever adjusted the score of candidates another tier had already
+retrieved — so a pressing nobody else found could not be scored at all, because
+it was never fetched.
+
+It runs first, and only when a hint exists. Retrieval only: whatever comes back
+still has to match on track count and agree on durations, so a hint that turns
+out to be a year or a matrix number costs a request rather than a wrong match.
+
+---
+
 ## Version 3.21.0 (2026-09-03)
 
 ### Fixed
