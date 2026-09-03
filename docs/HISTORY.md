@@ -2,6 +2,31 @@
 
 ---
 
+## Version 3.19.1 (2026-09-03)
+
+### Fixed
+
+**A two-track single could be accepted as a different two-track single.** Their
+track counts are equal by definition and their durations line up by chance
+often enough to be worthless as evidence.
+
+Red Cell's *Good Morning, Good Light* — Radio Edit 180s and *Only Night* 182s —
+was accepted as the *Acoustic Version* release, whose two tracks are 176s and
+180s. Every duration agreed inside the 10-second tolerance and the counts were
+equal, so nothing objected, and *Only Night* was retagged as a radio edit of a
+different song — destroying the title it arrived with.
+
+For a release of four tracks or fewer, every local track must now find a
+counterpart title on the candidate. The wrong folder scores 33 on its weakest
+track and the right folder 100 on both, so the two separate cleanly. Above that
+size a stray track means a bonus track rather than a wrong release.
+
+A veto only — durations and track counts still decide which release wins — and
+it does not fire when either side has no titles, or when the local files cannot
+be read.
+
+---
+
 ## Version 3.19.0 (2026-09-03)
 
 ### Added
