@@ -132,6 +132,20 @@ _TITLE_MATCH_SCORE = 60
 _SMALL_RELEASE = 4
 
 
+#: A title that names nothing. An untagged or placeholder-tagged rip carries
+#: these, and comparing them against real titles would score near zero and veto
+#: every candidate -- turning a check meant to catch wrong matches into one that
+#: refuses right ones. The evidence is absent, not contradictory.
+_PLACEHOLDER_TITLE = re.compile(
+    r'(?i)^\s*(?:track|title|audio|untitled|pista|piste)?\s*[-_.#]?\s*\d{0,3}\s*$')
+
+
+def _usable_titles(titles):
+    """The titles that actually name something."""
+    return [t for t in (titles or [])
+            if t and t.strip() and not _PLACEHOLDER_TITLE.match(t)]
+
+
 def tracks_are_accounted_for(local_titles, release_titles):
     """Does every local track have a plausible counterpart on the release?
 
@@ -143,9 +157,14 @@ def tracks_are_accounted_for(local_titles, release_titles):
     Measured on the case that prompted it: the wrong folder scores 33 on its
     weakest track, the right one 100 on both.
     """
-    local = [t for t in (local_titles or []) if t]
-    pool = [t for t in (release_titles or []) if t]
+    local = _usable_titles(local_titles)
+    pool = _usable_titles(release_titles)
     if not local or not pool or len(pool) > _SMALL_RELEASE:
+        return True
+    # A rip that names only some of its tracks cannot corroborate anything;
+    # judging it on the half that happens to be tagged invents evidence.
+    if len(local) < len([t for t in (local_titles or []) if t and t.strip()]):
+        logger.debug('Some local titles are placeholders — not vetoing on titles')
         return True
     for title in local:
         best = max(fuzz.token_set_ratio(title.lower(), c.lower()) for c in pool)

@@ -1166,6 +1166,23 @@ class DiscogsSearch(DiscogsConnector):
 
         share = agreed / compared
         if share >= self.tracklength_agreement:
+            # Lengths agreeing is not enough on a short release. Two different
+            # two-track singles have the same count by definition and their
+            # durations land inside tolerance often enough to mean nothing, so
+            # the titles have to agree as well -- a veto after the length
+            # match, not another term in the score.
+            from massmusictagger.sources.musicbrainz.search import (
+                tracks_are_accounted_for)
+            local_titles = [t.get('title') for t in searchParams.get('tracks', [])]
+            cand_titles = [t.get('title') for t in trackInfo]
+            if not tracks_are_accounted_for(local_titles, cand_titles):
+                logger.info('  [%s] rejected — lengths agree but the tracks do '
+                            'not: a short release has to match on titles too', rid)
+                state.rejections.append({
+                    'kind': 'titles', 'rid': rid, 'distance': median,
+                    'detail': 'lengths agree but a track has no counterpart',
+                })
+                return False
             logger.info('  [%s] accepted — %d/%d tracks within %ss, median diff %.1fs',
                         rid, agreed, compared, self.tracklength_tolerance, median)
             return median
