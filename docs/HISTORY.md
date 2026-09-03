@@ -2,6 +2,27 @@
 
 ---
 
+## Version 3.19.2 (2026-09-03)
+
+### Changed
+
+**The title check is a veto, and it sits after the length match.** On a short
+release a title mismatch now refuses a candidate outright on the Discogs path
+too, once the track lengths have already agreed. Folding it into the score
+would only move a wrong release down the ranking, and on a two-track single
+there is often nothing else in the ranking to beat it.
+
+### Fixed
+
+**Titles that name nothing no longer veto.** An untagged or placeholder-tagged
+rip carries titles like `Track 01` or `02`, which score near zero against real
+ones — so a check meant to catch wrong matches would have refused right ones,
+on exactly the material that most needs a database to tell it what it is. The
+veto now stands down for placeholder titles, and for a rip that names only some
+of its tracks: the evidence is absent, not contradictory.
+
+---
+
 ## Version 3.19.1 (2026-09-03)
 
 ### Fixed
@@ -12,9 +33,15 @@ often enough to be worthless as evidence.
 
 Red Cell's *Good Morning, Good Light* — Radio Edit 180s and *Only Night* 182s —
 was accepted as the *Acoustic Version* release, whose two tracks are 176s and
-180s. Every duration agreed inside the 10-second tolerance and the counts were
-equal, so nothing objected, and *Only Night* was retagged as a radio edit of a
-different song — destroying the title it arrived with.
+180s. *Only Night* was retagged as a radio edit of a different song, destroying
+the title it arrived with.
+
+It came through MusicBrainz tier 3, which ranks on release title, artist and
+track count: `Good Morning, Good Light` partial-matches `…(Acoustic Version)`,
+the artist is identical and 2 == 2. Durations were never consulted on that
+path. On the Discogs path they would have been, and would have agreed — every
+pairing falls inside the 10-second tolerance — so neither source had anything
+left to object with.
 
 For a release of four tracks or fewer, every local track must now find a
 counterpart title on the candidate. The wrong folder scores 33 on its weakest
