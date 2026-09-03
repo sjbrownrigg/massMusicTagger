@@ -44,6 +44,60 @@ _CD_ONLY_FMTS = frozenset(('cd', 'cdr', 'cd-r', 'hdcd', 'minidisc'))
 
 
 
+#: Artist names that name nobody. Rippers leave these behind, and they are
+#: worse than an empty tag: every tier is anchored on the artist, so "temp"
+#: sends the whole search somewhere that does not exist. Einstürzende
+#: Neubauten's "Ende Neu (Remixes)" arrived with artist='temp' on all ten
+#: files and matched nothing, though the release is on Discogs with the same
+#: ten tracks under nearly the same titles.
+_PLACEHOLDER_ARTISTS = frozenset({
+    'temp', 'tmp', 'unknown', 'unknown artist', 'untitled', 'artist',
+    'no artist', 'none', 'n/a', 'na', 'test', 'new artist',
+})
+
+
+def _is_placeholder_artist(name) -> bool:
+    return (name or '').strip().lower() in _PLACEHOLDER_ARTISTS
+
+
+def artist_from_folder(sourcedir):
+    """The artist a directory claims, from its own name or its parent's.
+
+    Used only when the tags name nobody. The folder is weaker evidence than a
+    tag -- which is why it is not consulted otherwise -- but it is far better
+    than a placeholder, and the MusicBrainz path has always fallen back this
+    way while the Discogs path never did.
+    """
+    import os as _os
+    base = _os.path.basename(_os.path.abspath(sourcedir).rstrip('/\\'))
+    trimmed = re.sub(r'\s*[\[(].*$', '', base)
+    # Only when the folder is named "Artist - Album". Without the separator the
+    # basename is the album, and returning it would search for the record under
+    # its own title -- worse than the placeholder it replaces.
+    parts = re.split(r'\s+-\s+', trimmed, 1)
+    lead = parts[0].strip() if len(parts) > 1 else ''
+    if lead and not re.match(r'^(?:\d{4}|cd\s*\d|disc\s*\d)$', lead, re.I) \
+            and len(lead) > 2 and not _is_placeholder_artist(lead):
+        return lead
+    parent = _os.path.basename(_os.path.dirname(_os.path.abspath(sourcedir)))
+    if parent.lower() in ('', 'incoming', 'music', 'albums', 'sorted', 'archive'):
+        return ''
+    return parent.strip()
+
+
+def strip_artist_prefix(album, artist):
+    """"Artist - Album" in the album tag is the album's name, not the artist's.
+
+    The same rip that carries a placeholder artist often folds the real one
+    into the album title, so the two are worth fixing together.
+    """
+    if not album or not artist:
+        return album
+    pattern = r'(?i)^\s*' + re.escape(artist.strip()) + r'\s*[-–—:]\s*'
+    stripped = re.sub(pattern, '', album).strip()
+    return stripped or album
+
+
 class SearchState:
     """One album's working set for a single search.
 
@@ -232,6 +286,19 @@ class DiscogsSearch(DiscogsConnector):
             searchParams['artist'] = ', '.join(searchParams['artists'])
         else:
             searchParams['artist'] = albumartist  # VA or empty — kept as-is
+
+        # A placeholder names nobody, and every tier is anchored on the artist,
+        # so it is worse than an empty tag. Fall back to the folder, which the
+        # MusicBrainz path has always done and this one never did.
+        if _is_placeholder_artist(searchParams['artist']) or not searchParams['artist']:
+            from_folder = artist_from_folder(source_dir)
+            if from_folder:
+                logger.info('Artist tag is %r — using the folder instead: %r',
+                            searchParams['artist'] or '', from_folder)
+                searchParams['artist'] = from_folder
+                searchParams['albumartist'] = from_folder
+                searchParams['album'] = strip_artist_prefix(
+                    searchParams.get('album', ''), from_folder)
 
         # Resolve to the Discogs canonical name while we still have the raw
         # metadata.  This runs once per album so every search tier and every log
