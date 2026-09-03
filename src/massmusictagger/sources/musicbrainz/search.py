@@ -115,6 +115,47 @@ def _fold_artist(name: str) -> str:
     return ''.join(words)
 
 
+#: How closely a local track title must resemble something on the release for
+#: that track to count as accounted for.
+_TITLE_MATCH_SCORE = 60
+
+#: Releases at or below this many tracks must have every track accounted for.
+#: A small release carries almost no evidence: two tracks of similar length is
+#: an ordinary coincidence, not a fingerprint. Red Cell's "Good Morning, Good
+#: Light" -- Radio Edit 180s and "Only Night" 182s -- matched the Acoustic
+#: Version release, whose two tracks are 176s and 180s. Every duration agreed
+#: inside tolerance and the track count was equal, so nothing objected, and
+#: "Only Night" was retagged as a radio edit of another song.
+#:
+#: Above this size a stray track is a bonus track or a mis-tag, not evidence
+#: that the whole release is wrong, and the existing checks carry more weight.
+_SMALL_RELEASE = 4
+
+
+def tracks_are_accounted_for(local_titles, release_titles):
+    """Does every local track have a plausible counterpart on the release?
+
+    Only asked of small releases, and only as a veto: durations and track
+    counts still decide which release wins. This exists because on a two-track
+    single they cannot -- the lengths line up by chance often enough that the
+    only thing left to disagree is what the tracks are called.
+
+    Measured on the case that prompted it: the wrong folder scores 33 on its
+    weakest track, the right one 100 on both.
+    """
+    local = [t for t in (local_titles or []) if t]
+    pool = [t for t in (release_titles or []) if t]
+    if not local or not pool or len(pool) > _SMALL_RELEASE:
+        return True
+    for title in local:
+        best = max(fuzz.token_set_ratio(title.lower(), c.lower()) for c in pool)
+        if best < _TITLE_MATCH_SCORE:
+            logger.info('Track %r has no counterpart on the release '
+                        '(best %d%% of %d%%)', title, best, _TITLE_MATCH_SCORE)
+            return False
+    return True
+
+
 def artists_are_related(ours: str, theirs: str) -> bool:
     """Is the credited artist a variation of ours, rather than a lookalike?
 

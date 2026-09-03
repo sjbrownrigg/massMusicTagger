@@ -379,6 +379,48 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
         return None
 
 
+def _titles_corroborate(sourcedir, raw) -> bool:
+    """On a small release, do the track titles agree as well as the count?
+
+    Track count and duration cannot separate two different two-track singles:
+    the counts are equal by definition and the lengths line up by chance often
+    enough. Red Cell's "Good Morning, Good Light" -- Radio Edit 180s and "Only
+    Night" 182s -- was accepted as the Acoustic Version release, whose tracks
+    are 176s and 180s, and "Only Night" was retagged as a radio edit of a
+    different song.
+    """
+    from massmusictagger.sources.musicbrainz.search import tracks_are_accounted_for
+    from massmusictagger.core.mediafile import MediaFile
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+
+    release_titles = []
+    for medium in (raw.get('medium-list') or []):
+        for track in (medium.get('track-list') or []):
+            title = ((track.get('recording') or {}).get('title')
+                     or track.get('title') or '')
+            if title:
+                release_titles.append(title)
+    if not release_titles:
+        return True
+
+    local_titles = []
+    try:
+        for dirpath, dirnames, files in os.walk(sourcedir):
+            dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+            for name in sorted(files):
+                if name.lower().endswith(AUDIO_EXTENSIONS):
+                    title = getattr(MediaFile(os.path.join(dirpath, name)),
+                                    'title', None)
+                    if title:
+                        local_titles.append(title)
+    except Exception as exc:
+        logger.debug('Could not read local titles (%s) — not vetoing', exc)
+        return True
+    if not local_titles:
+        return True
+    return tracks_are_accounted_for(local_titles, release_titles)
+
+
 def _try_musicbrainz(sourcedir, cfg, connector, searcher,
                      release_id_override=None) -> Optional[tuple]:
     """Return (raw_release, mbid) or None.
@@ -418,6 +460,10 @@ def _try_musicbrainz(sourcedir, cfg, connector, searcher,
                 if not _validate_id_match(local_count, mb_count, 'MusicBrainz',
                                           mbid, from_explicit=False):
                     pass   # mismatch → fall through
+                elif not _titles_corroborate(sourcedir, raw):
+                    logger.warning(
+                        'MusicBrainz %s has the right number of tracks but not '
+                        'the right ones — not accepting it', mbid)
                 else:
                     # Sanity-check: release must have a usable album artist.
                     # Empty artist-credit → albumartist tag would be absent.
