@@ -379,6 +379,91 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
         return None
 
 
+def _local_tracks(sourcedir):
+    """(title, seconds) per local file, ordered by disc then track number."""
+    from massmusictagger.core.mediafile import MediaFile
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    rows = []
+    for dirpath, dirnames, files in os.walk(sourcedir):
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+        for name in sorted(files):
+            if not name.lower().endswith(AUDIO_EXTENSIONS):
+                continue
+            try:
+                meta = MediaFile(os.path.join(dirpath, name))
+            except Exception:
+                continue
+            try:
+                disc = int(getattr(meta, 'disc', None) or 1)
+            except (TypeError, ValueError):
+                disc = 1
+            try:
+                num = int(getattr(meta, 'track', None) or 0)
+            except (TypeError, ValueError):
+                num = 0
+            rows.append((disc, num, getattr(meta, 'title', None),
+                         getattr(meta, 'length', None)))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    return [(t, sec) for _, _, t, sec in rows]
+
+
+def _release_tracks(raw):
+    """(title, seconds) per track on a MusicBrainz release, in order."""
+    rows = []
+    for medium in (raw.get('medium-list') or []):
+        for track in (medium.get('track-list') or []):
+            rec = track.get('recording') or {}
+            title = rec.get('title') or track.get('title') or ''
+            ms = track.get('length') or rec.get('length')
+            try:
+                seconds = int(ms) / 1000.0 if ms else None
+            except (TypeError, ValueError):
+                seconds = None
+            rows.append((title, seconds))
+    return rows
+
+
+def _durations_corroborate(cfg, sourcedir, raw) -> bool:
+    """Do the track lengths agree, for a release MusicBrainz has lengths for?
+
+    MusicBrainz ranking never looks at durations -- tier 3 ranks on release
+    title, artist and track count -- so a candidate with the right number of
+    tracks and a similar name wins without anything checking that the audio is
+    the same audio. Discogs has compared lengths since 3.11.0; this closes the
+    same hole on the other source.
+
+    Applied to the release already fetched for mapping, so it costs no extra
+    request, and as a veto rather than a ranking term: it can only refuse a
+    winner, never promote a loser.
+
+    Agreement is counted per track, as on the Discogs side, for the same
+    reason: an average cannot tell one mis-entered duration from a release
+    that is wrong throughout.
+    """
+    try:
+        tolerance = cfg.getfloat('batch', 'tracklength_tolerance')
+        needed = cfg.getfloat('batch', 'tracklength_agreement')
+    except Exception:
+        return True
+
+    local = _local_tracks(sourcedir)
+    theirs = _release_tracks(raw)
+    if not local or not theirs or len(local) != len(theirs):
+        return True
+
+    pairs = [(a, b) for (_, a), (_, b) in zip(local, theirs)
+             if a is not None and b is not None]
+    if not pairs:
+        return True
+    agreed = sum(1 for a, b in pairs if abs(a - b) <= tolerance)
+    share = agreed / len(pairs)
+    if share < needed:
+        logger.info('MusicBrainz: only %d of %d track lengths agree within %ss '
+                    '(need %.0f%%)', agreed, len(pairs), tolerance, needed * 100)
+        return False
+    return True
+
+
 def _titles_corroborate(sourcedir, raw) -> bool:
     """On a small release, do the track titles agree as well as the count?
 
@@ -464,6 +549,10 @@ def _try_musicbrainz(sourcedir, cfg, connector, searcher,
                     logger.warning(
                         'MusicBrainz %s has the right number of tracks but not '
                         'the right ones — not accepting it', mbid)
+                elif not _durations_corroborate(cfg, sourcedir, raw):
+                    logger.warning(
+                        'MusicBrainz %s has the right tracks by name but not by '
+                        'length — not accepting it', mbid)
                 else:
                     # Sanity-check: release must have a usable album artist.
                     # Empty artist-credit → albumartist tag would be absent.
