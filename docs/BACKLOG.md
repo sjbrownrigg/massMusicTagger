@@ -1074,3 +1074,45 @@ Thomas Feiner case, because `thomasfeiner` and `thomasanders` are similar
 enough to pass a 0.55 similarity floor. The near-name collisions are both the
 most dangerous and the hardest to detect this way, so the true count is higher
 than fifteen.
+
+## Two sources that map to one target directory corrupt each other
+
+`High Time (Chinese Takeaway)` exists twice in `sorted`: one folder holding the
+sidecars and no audio, and a `(2)` folder holding the audio. The audit explains
+it:
+
+```
+2026-09-01T16:28:44  failed  discogs 28525462   → …High Time…[1xDMS…]
+     error: source_action remove/move: no audio files found in target
+2026-09-01T16:28:44  ok      musicbrainz cf5cb13e → …High Time…[1xDMS…]
+2026-09-02T11:08:07  ok      discogs 28525462   → …High Time…[1xDMS…] (2)
+```
+
+**The same second, two workers, one destination.** `/incoming` holds the album
+twice -- the `[FLAC]` duplicate pair -- and both copies compute the same target
+directory because they are the same release. With `batch.workers` above 1 they
+were tagged concurrently: one wrote its audio there, the other found the
+directory already populated, and the archive guard refused to move its source
+because the target held no audio it recognised. A retry the next day collided
+with the surviving folder and took the `(2)` suffix.
+
+**The collision suffix is not the bug.** It did its job: nothing was
+overwritten. The bug is that two albums were allowed to assemble into one
+directory at the same time, which the suffix only helps with once one of them
+has finished.
+
+**Staging does not cover this.** Each album stages separately and moves at the
+end, so the *contents* are safe -- but `_move_staged` resolves the collision at
+move time, and two moves racing for the same destination can both see it free.
+
+**What would fix it.** A destination claimed for the duration of a run: a
+per-target lock taken before the move and released after, so the second album
+waits and then takes the suffix deliberately rather than by accident. Cheaper
+still, and worth doing anyway: detect at scan time that two source directories
+resolve to the same release and process them in sequence, or refuse the second
+with a message naming the first -- the user knows the duplicates are there and
+would rather be told than have them silently interleave.
+
+Related: the concurrency fix in 3.10.0 was the same shape one level up --
+per-album state shared between workers. This is per-destination state shared
+between workers.

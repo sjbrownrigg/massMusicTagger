@@ -423,9 +423,13 @@ class DiscogsAlbum(object):
         if len(parts) == 1:
             return parts[0][0]
 
-        # Combine only when at least one meaningful join is present between artists
-        meaningful = any(j and j != ',' for _, j in parts[:-1])
-        if not meaningful:
+        # A comma is a join like any other. Treating it as "no join text" threw
+        # the second artist away before conf/artist_joins.yaml could have a say:
+        # Discogs credits "High Time (Chinese Takeaway)" to "j:dead, FabrikC",
+        # and the album was filed under j:dead alone. The comma is deliberately
+        # unlisted in that table, which means coordinating -- keep the whole
+        # credit -- and the decision belongs there, not hardwired here.
+        if not any(j for _, j in parts[:-1]):
             logger.debug("album-artist: Discogs provides no join text — "
                          "TaggerUtils will apply join_artists or use first artist")
             return ''
@@ -433,7 +437,12 @@ class DiscogsAlbum(object):
         result = parts[0][0]
         for i in range(1, len(parts)):
             _, join_before = parts[i - 1]
-            sep = f' {join_before} ' if join_before and join_before != ',' else ' '
+            if not join_before:
+                sep = ' '
+            elif join_before == ',':
+                sep = ', '        # no space before the comma
+            else:
+                sep = f' {join_before} '
             result = result + sep + parts[i][0]
 
         logger.debug("album-artist display: %r", result)
