@@ -2,6 +2,31 @@
 
 ---
 
+## Version 3.22.1 (2026-09-04)
+
+### Fixed
+
+**The single-track artist rule refused a correct match.** Auditing batch 23
+found both of the run's artist refusals were the same album, and both were
+wrong: `Simon Carter, Fredrik Keith Croona` was refused against Discogs'
+`Simon Carter (14), Fredrik Croona` — the same two people.
+
+Containment failed twice over. On the `(14)`, which is Discogs' index for
+disambiguating same-named artists rather than part of the name; and on a middle
+name present on one side only.
+
+The disambiguation suffix is now stripped, and when containment fails the
+credits are compared as sets of words. One credit's words being a subset of the
+other's covers a middle name on one side, a nickname in the middle (`Lee
+Scratch Perry` against `Lee Perry`), and a reordered pair (`Michael Mayer, The
+Orb` against `The Orb / Michael Mayer`) — the last of which was also producing
+false positives in the wrong-match sweep.
+
+Strangers still do not match: `Thomas Feiner` and `Thomas Anders` share one
+word of two, and neither set contains the other.
+
+---
+
 ## Version 3.22.0 (2026-09-03)
 
 ### Added
