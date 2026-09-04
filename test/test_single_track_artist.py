@@ -166,3 +166,47 @@ class CollaborationCreditTest(unittest.TestCase):
         self.assertFalse(artists_are_related('Thomas Feiner', 'Thomas Anders'))
         self.assertFalse(artists_are_related('Lunar Paths', 'Marianne Faithfull'))
         self.assertFalse(artists_are_related('Nick Cave', 'Nick Drake'))
+
+
+class WordComparisonTest(unittest.TestCase):
+    """Credits differ in ways a substring test cannot absorb.
+
+    Found by auditing batch 23: both of the run's artist refusals were the same
+    album, and both were wrong. `Simon Carter, Fredrik Keith Croona` was refused
+    against Discogs' `Simon Carter (14), Fredrik Croona` — the same two people.
+    Containment failed twice over: on the `(14)`, which is Discogs' index for
+    disambiguating same-named artists rather than part of the name, and on a
+    middle name present on one side only.
+    """
+
+    def test_a_discogs_disambiguation_number_is_not_part_of_the_name(self):
+        self.assertTrue(artists_are_related('Simon Carter', 'Simon Carter (14)'))
+
+    def test_the_refusal_that_prompted_this(self):
+        self.assertTrue(artists_are_related(
+            'Simon Carter, Fredrik Keith Croona',
+            'Simon Carter (14), Fredrik Croona'))
+
+    def test_a_middle_name_on_one_side_only(self):
+        self.assertTrue(artists_are_related('Fredrik Keith Croona',
+                                            'Fredrik Croona'))
+
+    def test_a_reordered_pair_is_the_same_credit(self):
+        """Also removes a false positive from the wrong-match sweep."""
+        self.assertTrue(artists_are_related('Michael Mayer, The Orb',
+                                            'The Orb / Michael Mayer'))
+
+    def test_a_nickname_in_the_middle(self):
+        self.assertTrue(artists_are_related('The Orb, Lee Scratch Perry',
+                                            'The Orb Featuring Lee Perry'))
+
+    def test_words_do_not_make_strangers_match(self):
+        """The whole point of the rule must survive the relaxation."""
+        for a, b in (('Thomas Feiner', 'Thomas Anders'),
+                     ('Nick Cave', 'Nick Drake'),
+                     ('Lunar Paths', 'Marianne Faithfull'),
+                     ('Red Dons', 'Anja Huwe')):
+            self.assertFalse(artists_are_related(a, b), '%s / %s' % (a, b))
+
+    def test_a_shared_first_name_alone_is_not_enough(self):
+        self.assertFalse(artists_are_related('Simon Carter', 'Simon Says'))

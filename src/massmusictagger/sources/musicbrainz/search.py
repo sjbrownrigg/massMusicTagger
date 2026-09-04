@@ -97,7 +97,25 @@ def _join_words():
     return words
 
 
-def _fold_artist(name: str) -> str:
+#: Discogs disambiguates same-named artists with a bracketed number --
+#: "Simon Carter (14)". It is an index into their database, not part of the
+#: name, and comparing it as though it were refuses correct matches.
+_DISCOGS_DISAMBIGUATION = re.compile(r'\s*\(\d+\)\s*$')
+
+
+def _artist_tokens(name: str) -> frozenset:
+    """The words of a credit, for comparison.
+
+    Compared as a set of words rather than a run of characters because credits
+    differ in ways substrings cannot absorb: a middle name present on one side
+    ("Fredrik Keith Croona" against "Fredrik Croona"), or two artists billed in
+    the opposite order ("Michael Mayer, The Orb" against "The Orb / Michael
+    Mayer"). Both are the same credit and both defeat containment.
+    """
+    return frozenset(w for w in _fold_artist(name, tokens=True) if w)
+
+
+def _fold_artist(name: str, tokens: bool = False):
     """Lowercase, drop join words, diacritics and punctuation, for comparison.
 
     Join words have to go or the same credit written two ways stops matching
@@ -107,12 +125,13 @@ def _fold_artist(name: str) -> str:
     other. Collaboration credits written with a comma on one side and a join
     word on the other are the normal case in modern singles, not an edge one.
     """
-    folded = (name or '').lower().translate(_ARTIST_FOLD)
+    folded = _DISCOGS_DISAMBIGUATION.sub('', (name or '').strip())
+    folded = folded.lower().translate(_ARTIST_FOLD)
     folded = unicodedata.normalize('NFKD', folded)
     folded = ''.join(c for c in folded if not unicodedata.combining(c))
     words = [w for w in re.split(r'[^a-z0-9]+', folded)
-             if w and w not in _join_words()]
-    return ''.join(words)
+             if w and w not in _join_words() and not w.isdigit()]
+    return words if tokens else ''.join(words)
 
 
 #: How closely a local track title must resemble something on the release for
@@ -185,7 +204,13 @@ def artists_are_related(ours: str, theirs: str) -> bool:
     score does not.
     """
     a, b = _fold_artist(ours), _fold_artist(theirs)
-    return bool(a and b and (a in b or b in a))
+    if a and b and (a in b or b in a):
+        return True
+    # Fall back to words. One credit's words being a subset of the other's
+    # covers a middle name on one side and a reordered pair of artists, both
+    # of which are the same credit written differently.
+    ta, tb = _artist_tokens(ours), _artist_tokens(theirs)
+    return bool(ta and tb and (ta <= tb or tb <= ta))
 _MULTI_ACOUSTID_COVERAGE  = 0.5    # at least half the tracks must agree
 
 # DiscID validation: at least one of title/artist must reach this score against
