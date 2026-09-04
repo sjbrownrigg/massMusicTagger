@@ -118,6 +118,11 @@ class SearchState:
     __slots__ = ('params', 'candidates', 'no_duration', 'sifted_masters',
                  'rejections', 'artist_entity')
 
+    #: Above this, the nearest candidate is not near: its track count differs
+    #: from ours by more than half of what we hold. Naming it as "closest"
+    #: sends the reader to check an unrelated record.
+    _CLOSEST_MAX_RELATIVE_GAP = 0.5
+
     def __init__(self):
         self.params = {}
         self.candidates = {}
@@ -155,12 +160,22 @@ class SearchState:
         order = {'track_count': 0, 'duration': 1, 'artist': 2, 'titles': 3,
                  'medium': 4}
         closest = min(self.rejections,
-                      key=lambda r: (order.get(r['kind'], 9), r['distance']))
+                      key=lambda r: (order.get(r['kind'], 9),
+                                     r.get('relative', 0.0), r['distance']))
         counts = {}
         for r in self.rejections:
             counts[r['kind']] = counts.get(r['kind'], 0) + 1
         tally = ', '.join('%d on %s' % (n, k.replace('_', ' '))
                           for k, n in sorted(counts.items(), key=lambda kv: -kv[1]))
+        # Naming a "closest" release only helps when something actually came
+        # close. On a one-track album every two-track release is a gap of one --
+        # the smallest possible -- so whatever the search dragged in wins the
+        # label. Simon Carter's "Judgement Day" was reported as one track short
+        # of a 1970s Wilf Carter country 7". Saying nothing came close is both
+        # true and more useful than sending someone to check that.
+        if closest.get('relative', 0.0) > self._CLOSEST_MAX_RELATIVE_GAP:
+            return ('nothing came close — %d compared, nearest was %s (%s)'
+                    % (len(self.rejections), closest['detail'], tally))
         return 'closest %s — %s (%d compared: %s)' % (
             closest['rid'], closest['detail'], len(self.rejections), tally)
 
@@ -1184,6 +1199,11 @@ class DiscogsSearch(DiscogsConnector):
                         state.rejections.append({
                             'kind': 'track_count', 'rid': rid,
                             'distance': abs(local_count - len(trackInfo)),
+                            # Judged in proportion, not in absolute tracks: a
+                            # gap of one is nothing on a 36-track album and
+                            # everything on a single.
+                            'relative': (abs(local_count - len(trackInfo))
+                                         / max(local_count, 1)),
                             'detail': '%d tracks, local has %d' % (
                                 len(trackInfo), local_count),
                         })

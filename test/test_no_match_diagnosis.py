@@ -96,3 +96,60 @@ class WiringTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ClosenessTest(unittest.TestCase):
+    """"Closest" has to mean close, or it sends the reader somewhere useless.
+
+    Simon Carter's *Judgement Day* (2026, one track) was reported as one track
+    short of release 17382961 — which is Wilf Carter & The Calgary Stampeders'
+    "Don't Wait Until Judgement Day (To Cast Your Sins Away)", a 1970s country
+    7". Discogs holds nothing for the actual single.
+
+    The ranking was by absolute gap, so on a one-track album every two-track
+    release scores the smallest gap possible and whatever the search dragged in
+    wins the label. A gap of one is nothing on a 36-track album and everything
+    on a single, so closeness is judged in proportion to what we hold.
+    """
+
+    def _state(self, rejections):
+        s = SearchState()
+        s.rejections = rejections
+        return s
+
+    def test_an_unrelated_release_is_not_called_closest(self):
+        d = self._state([{'kind': 'track_count', 'rid': '17382961',
+                          'distance': 1, 'relative': 1.0,
+                          'detail': '2 tracks, local has 1'}]).diagnosis()
+        self.assertIn('nothing came close', d)
+        self.assertNotIn('17382961', d, 'naming it invites checking it')
+
+    def test_a_genuinely_near_release_is_still_named(self):
+        """Planet Jarre: 5 short of 41 is worth chasing."""
+        d = self._state([{'kind': 'track_count', 'rid': '12530658',
+                          'distance': 5, 'relative': 5 / 36,
+                          'detail': '41 tracks, local has 36'}]).diagnosis()
+        self.assertIn('12530658', d)
+
+    def test_the_counts_are_still_reported_either_way(self):
+        """Suppressing the id must not suppress the evidence."""
+        d = self._state([{'kind': 'track_count', 'rid': 'x', 'distance': 1,
+                          'relative': 1.0,
+                          'detail': '2 tracks, local has 1'}]).diagnosis()
+        self.assertIn('2 tracks, local has 1', d)
+        self.assertIn('1 compared', d)
+
+    def test_the_nearest_in_proportion_wins_not_the_nearest_in_tracks(self):
+        s = self._state([
+            {'kind': 'track_count', 'rid': 'far', 'distance': 1,
+             'relative': 1.0, 'detail': '2 tracks, local has 1'},
+            {'kind': 'track_count', 'rid': 'near', 'distance': 2,
+             'relative': 2 / 40, 'detail': '38 tracks, local has 40'},
+        ])
+        self.assertIn('near', s.diagnosis())
+
+    def test_a_rejection_without_a_relative_still_reports(self):
+        """Kinds other than track count carry no proportion."""
+        d = self._state([{'kind': 'duration', 'rid': '99', 'distance': 18.0,
+                          'detail': 'only 1 of 5 tracks agree'}]).diagnosis()
+        self.assertIn('99', d)
