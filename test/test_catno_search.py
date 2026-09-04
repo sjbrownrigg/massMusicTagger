@@ -102,3 +102,32 @@ class LadderTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class HintQualityTest(unittest.TestCase):
+    """A hint that is not a catalogue number costs a lookup for nothing.
+
+    Measured across /incoming: only 4 of 449 album folders yielded a hint at
+    all, and one of the four was `20th Anniversary Edition` — an edition
+    descriptor with a digit in it, not a catalogue number. At that hit rate a
+    single false positive is a quarter of the tier's work.
+    """
+
+    def _hints(self, folder):
+        from massmusictagger.sources.discogs.utils import extract_catalog_hints
+        return sorted(extract_catalog_hints(folder))
+
+    def test_an_edition_descriptor_is_not_a_catalogue_number(self):
+        self.assertEqual(self._hints('Angels in Disguise (20th Anniversary Edition)'), [])
+
+    def test_real_catalogue_numbers_survive(self):
+        for folder, expected in (
+            ('Thin Walls - Part I (2003)(#END005)', '#end005'),
+            ('House of God (TINO-2001)', 'tino2001'),
+            ('B-Sides & Rarities (CDMUTEL11)', 'cdmutel11'),
+            ('Part II (Deluxe Edition) (BMGCAT450CDX)', 'bmgcat450cdx'),
+        ):
+            self.assertIn(expected, self._hints(folder), folder)
+
+    def test_a_bare_year_is_still_not_a_hint(self):
+        self.assertEqual(self._hints('Some Album (2013)'), [])

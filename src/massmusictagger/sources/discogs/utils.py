@@ -428,6 +428,13 @@ def _is_catalog_like(candidate: str) -> bool:
     """
     if len(candidate) < 3:
         return False
+    # Catalogue numbers are short. Every one this library has seen fits well
+    # inside this -- TINO-2001, CDMUTEL11, BMGCAT450CDX, 013582-5 CLU -- while
+    # a long run of words with a digit in it is an edition descriptor:
+    # "(20th Anniversary Edition)" was being read as the catalogue number
+    # 20thanniversaryedition, which would spend a lookup on nothing.
+    if len(candidate) > 16:
+        return False
     if not any(ch.isdigit() for ch in candidate):
         return False
     if _YEAR_RE.fullmatch(candidate):
