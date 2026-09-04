@@ -2,6 +2,29 @@
 
 ---
 
+## Version 3.22.2 (2026-09-04)
+
+### Fixed
+
+**"Closest" could name a completely unrelated release.** Simon Carter's
+*Judgement Day* (2026, one track) was reported as one track short of release
+17382961 — Wilf Carter & The Calgary Stampeders' *Don't Wait Until Judgement
+Day (To Cast Your Sins Away)*, a 1970s country 7". Discogs holds nothing for
+the actual single, so the refusal was correct and only the report was wrong.
+
+The ranking used the absolute track gap, so on a one-track album every
+two-track release scores a gap of one — the smallest possible — and whatever
+the search dragged in won the label. Sending the reader to check an unrelated
+record is the opposite of what the classification was added for.
+
+Closeness is now judged against what the album holds: a gap of one is nothing
+on a 36-track release and everything on a single. Above half, no release is
+named and the run says nothing came close, still reporting the counts and the
+tally. Genuine near misses keep their release named — *Don't Blink* at 8 local
+against 7, *Planet Jarre* at 36 against 41.
+
+---
+
 ## Version 3.22.1 (2026-09-04)
 
 ### Fixed
