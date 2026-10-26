@@ -2,6 +2,56 @@
 
 ---
 
+## Version 3.23.0 (2026-10-26)
+
+### Added
+
+**Tag from a release that matches in every way except its medium.**
+`batch.cross_medium`, off by default. *Chapter Two: The Slender Blade* is a
+24-bit/48kHz download whose only Discogs entry is the CDr: same nine tracks,
+same titles, same durations, refused because a 24-bit file cannot have come off
+a CDr. True — and it left an album catalogued, correctly identified and still
+unfilable, a shape that recurs with small independent artists.
+
+The same allowance already applied to digital releases, where a `File` entry
+listing 16/44.1 tags a 24/96 copy. This extends it behind three limits: only
+once every source has failed, only for releases refused on medium alone, and
+only when switched on. The medium gate runs before durations and titles are
+checked, so the pass re-runs the *whole* comparison on just those releases with
+only that one gate lifted — nothing else about the matching is relaxed. It runs
+before `existing_tags`, since a real release on another medium is better
+evidence than the files describing themselves.
+
+The borrowing is recorded, not hidden. A new `TAGGER_PROVENANCE` tag names the
+release, its medium and what the copy in hand actually is. `MEDIA` and the
+folder's format code describe the download rather than the CDr, so everything
+that describes the files describes the files. Matches made this way are listed
+separately at the end of the run.
+
+### Changed
+
+**AcoustID answers are cached.** Every restart re-fingerprinted every album that
+had failed the cheaper tiers — decoding each track through `fpcalc` and
+querying AcoustID again. Tiers 1–4 were cached; 2.5, 6 and 7 were not, and on
+the residue left in `/incoming` they were most of a 45-minute stretch before
+anything was filed. The per-recording MusicBrainz lookups that follow, at one
+request a second, are cached too.
+
+The cached value is AcoustID's answer, not a decision, so the comparison still
+runs on it and a later matching fix still gets its chance. It is keyed on the
+file's content — size plus its first and last 64 KB — because preparation
+writes CUE splits and m4a conversions into a freshly named staging directory
+every run, which a path-based key would miss. An empty answer expires after 30
+days, since fingerprints are submitted continually.
+
+**DiscID is skipped on releases of fewer than four tracks.** A short disc has
+almost no table of contents to hash — one track is one length — so its DiscID
+collides with anything of similar duration. A one-track remix single was
+matched to an unrelated Japanese release. `musicbrainz.discid_min_tracks`,
+default 4.
+
+---
+
 ## Version 3.22.3 (2026-10-26)
 
 ### Fixed
