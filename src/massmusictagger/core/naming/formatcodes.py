@@ -86,13 +86,23 @@ def load_format_codes(yaml_path: str | None = None) -> dict:
                        'the bundled table', yaml_path)
         return base
 
+    # A file that exists but defines nothing is the normal state of the
+    # commented template --new-config writes. Saying it was "merged over the
+    # bundled table" implied overrides were in effect when none were, and read
+    # differently from char_substitutions in exactly the same situation.
+    if not user:
+        logger.info('Format codes: %s defines nothing — using the bundled '
+                    'table', yaml_path)
+        return base
+
     merged = dict(base)
     for key, value in user.items():
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = {**merged[key], **value}
         else:
             merged[key] = value
-    logger.info('Format codes: %s merged over the bundled table', yaml_path)
+    logger.info('Format codes: %s merged over the bundled table (%d section%s '
+                'overridden)', yaml_path, len(user), '' if len(user) == 1 else 's')
     return merged
 
 
