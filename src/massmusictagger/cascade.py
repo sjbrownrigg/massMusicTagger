@@ -104,10 +104,12 @@ def search_and_map(
         release_id_override=release_id_override,
         release_id_source=release_id_source,
         notes=notes,
+        medium_rejected=[],
     )
 
     priority = _get_priority(cfg)
     logger.debug('Source priority: %s', priority)
+    tried_cross_medium = False
 
     for source in priority:
         resolve = _SOURCES.get(source)
@@ -119,11 +121,21 @@ def search_and_map(
                 source, ', '.join(sorted(_SOURCES)))
             continue
 
+        # Before existing_tags: a real release on a different medium is better
+        # evidence than the files describing themselves.
+        if source == 'existing_tags' and not tried_cross_medium:
+            tried_cross_medium = True
+            resolved = _try_cross_medium(ctx)
+            if resolved is not None:
+                return resolved
+
         logger.debug('Trying source: %s', source)
         resolved = resolve(source, ctx)
         if resolved is not None:
             return resolved
 
+    if not tried_cross_medium:
+        return _try_cross_medium(ctx)
     return None
 
 
@@ -154,6 +166,10 @@ class _Attempt(NamedTuple):
     #: fails. Per attempt, never on a shared searcher: the searcher object is
     #: reused across worker threads.
     notes: Optional[list] = None
+    #: Discogs releases refused only because their medium could not have
+    #: produced the copy in hand -- a CDr against a 24-bit file. Collected
+    #: while searching, consulted only if every source then fails.
+    medium_rejected: Optional[list] = None
 
 
 def _override_for(source: str, ctx: '_Attempt') -> Optional[str]:
@@ -175,13 +191,91 @@ def _override_for(source: str, ctx: '_Attempt') -> Optional[str]:
     return None
 
 
+def _cross_medium_enabled(cfg) -> bool:
+    try:
+        return cfg.getboolean('batch', 'cross_medium')
+    except Exception:
+        return False
+
+
+def _copy_in_hand(sourcedir) -> str:
+    """A short description of the audio actually present, for provenance."""
+    from massmusictagger.core.mediafile import MediaFile
+    from massmusictagger.sources.discogs.utils import AUDIO_EXTENSIONS
+    for dirpath, _dirs, files in os.walk(sourcedir):
+        for name in sorted(files):
+            if name.lower().endswith(AUDIO_EXTENSIONS):
+                try:
+                    m = MediaFile(os.path.join(dirpath, name))
+                    rate = getattr(m, 'samplerate', 0) or 0
+                    return '%s %s-bit/%skHz' % (
+                        (getattr(m, 'type', '') or '').upper() or 'audio',
+                        getattr(m, 'bitdepth', '?') or '?',
+                        ('%g' % (rate / 1000.0)) if rate else '?')
+                except Exception:
+                    break
+    return 'unknown'
+
+
+def _try_cross_medium(ctx: '_Attempt'):
+    """Tag from a release that matches in every way except its medium.
+
+    The case this exists for: *Chapter Two: The Slender Blade*, a 24-bit/48kHz
+    download whose only Discogs entry is the CDr. Same nine tracks, same
+    titles, same durations -- refused because a 24-bit file cannot have come
+    off a CDr, which is true and is why the gate exists. But it leaves an
+    album that is catalogued, correctly identified and still unfilable,
+    a shape that recurs with small independent artists whose digital release
+    nobody has entered.
+
+    This is the same allowance already made for digital releases, where a
+    File entry listing 16/44.1 still tags a 24/96 copy. It runs only once
+    every source has failed, only on releases refused on medium alone, and
+    only with batch.cross_medium switched on. The album records where its
+    metadata came from, in the files, so the borrowing is never invisible.
+    """
+    if not _cross_medium_enabled(ctx.cfg) or not ctx.medium_rejected:
+        return None
+    if ctx.discogs_search is None or ctx.discogs_connector is None:
+        return None
+    try:
+        found = ctx.discogs_search.cross_medium_match(ctx.sourcedir,
+                                                      ctx.medium_rejected)
+    except Exception as exc:
+        logger.warning('Cross-medium pass failed: %s', exc)
+        return None
+    if found is None:
+        return None
+    release_id, medium = found
+    local_count = _local_audio_count(ctx.sourcedir)
+    via = _fetch_discogs_with_validation(release_id, ctx.discogs_connector,
+                                         ctx.sourcedir, local_count,
+                                         from_explicit=False)
+    if via is None:
+        return None
+    raw, rid = via
+    from massmusictagger.source_factory import make_discogs_mapper
+    album = make_discogs_mapper(ctx.cfg, connector=ctx.discogs_connector,
+                                local_count=local_count).map(raw)
+    album.release_id_str = rid
+    held = _copy_in_hand(ctx.sourcedir)
+    album.cross_medium = {
+        'release_id': str(rid), 'medium': medium or 'unknown', 'held': held,
+        'provenance': ('Metadata from Discogs %s (%s); copy in hand is %s'
+                       % (rid, medium or 'unknown medium', held)),
+    }
+    logger.warning('Cross-medium match: tagging from Discogs %s (%s) — copy '
+                   'in hand is %s', rid, medium, held)
+    return album, ctx.discogs_connector
+
+
 def _resolve_discogs(source: str, ctx: '_Attempt'):
     """discogs and local differ only in which connector fetches."""
     conn = (ctx.discogs_local_connector if source == 'local'
             else ctx.discogs_connector)
     found = _try_discogs(ctx.sourcedir, ctx.cfg, conn, ctx.discogs_search,
                          release_id_override=_override_for(source, ctx),
-                         notes=ctx.notes)
+                         notes=ctx.notes, medium_rejected=ctx.medium_rejected)
     if found is None:
         return None
     raw, release_id = found
@@ -313,7 +407,8 @@ _SOURCES = {
 
 
 def _try_discogs(sourcedir, cfg, connector, searcher,
-                 release_id_override=None, notes=None) -> Optional[tuple]:
+                 release_id_override=None, notes=None,
+                 medium_rejected=None) -> Optional[tuple]:
     """Return (raw_release, release_id) or None.
 
     Lookup order:
@@ -359,7 +454,8 @@ def _try_discogs(sourcedir, cfg, connector, searcher,
             searchdiscogs = (cfg.getboolean('batch', 'searchdiscogs')
                              if cfg.has_option('batch', 'searchdiscogs') else False)
             if searchdiscogs:
-                relid = searcher.search(sourcedir, notes=notes)
+                relid = searcher.search(sourcedir, notes=notes,
+                                        medium_rejected=medium_rejected)
                 raw = connector.fetch_release(relid) if relid else None
                 if raw is not None:
                     try:

@@ -275,6 +275,14 @@ class TagHandler(object):
         if _source_name:
             _set('tagger_source', _source_name)
 
+        # Borrowed metadata says so. A cross-medium match describes a different
+        # manifestation of the work from these files -- a CDr's tracklist on a
+        # 24-bit download -- and without this nothing in the tags would tell
+        # the two apart afterwards.
+        _cross = getattr(self.album, 'cross_medium', None)
+        if _cross:
+            _set('tagger_provenance', _cross.get('provenance', ''))
+
         # Release type classification (MB-style, inferred for Discogs releases)
         _release_type = getattr(self.album, 'release_type', None) or ''
         if _release_type:
@@ -296,7 +304,14 @@ class TagHandler(object):
         _set('disctitle', track.discsubtitle)
         _set('disc', track.discnumber)
         _set('disctotal', len(self.album.discs))
-        _set('media', self.album.media)
+        # Likewise the MEDIA tag: on a cross-medium match the release's medium
+        # is not the medium of these files.
+        _media = self.album.media
+        _cross_m = getattr(self.album, 'cross_medium', None)
+        if _cross_m and _media and _cross_m.get('medium'):
+            _media = re.sub(r'(?i)\b%s\b' % re.escape(_cross_m['medium']),
+                            'File', _media)
+        _set('media', _media)
 
         if self.album.is_compilation and 'comp' not in sup:
             metadata.comp = True
@@ -677,8 +692,13 @@ class TaggerUtils(object):
         _format_codes = load_format_codes(_fc_path)
         _raw_descs = list(self.album.format_description or [])
         self._vinyl_size = extract_vinyl_size(_raw_descs)
+        # A cross-medium match borrows a CDr's metadata for a download. The
+        # folder names what is on disk, so its format code is computed from the
+        # medium actually held; TAGGER_PROVENANCE records the borrowing.
+        _medium = ('File' if getattr(self.album, 'cross_medium', None)
+                   else (self.album.format or ''))
         self._format_code = compute_format_code(
-            self.album.format or '',
+            _medium,
             _raw_descs,
             int(self.album.disctotal or 1),
             _format_codes,
@@ -688,7 +708,7 @@ class TaggerUtils(object):
         # Use %format_base% in custom variables when you want the medium alone:
         #   medium = %format_base%   → CD, LP, 12″, CDr, file, …
         self._format_base = compute_format_code(
-            self.album.format or '',
+            _medium,
             _raw_descs,
             1,   # always single-disc to get base only
             _format_codes,

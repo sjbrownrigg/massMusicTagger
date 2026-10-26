@@ -443,7 +443,8 @@ class DiscogsSearch(DiscogsConnector):
         else:
             s['artistRelease'] = self.normalize(' '.join((s['artist'], s['release'])).strip())
 
-    def search(self, sourcedir: str, notes: 'list | None' = None) -> 'str | None':
+    def search(self, sourcedir: str, notes: 'list | None' = None,
+               medium_rejected: 'list | None' = None) -> 'str | None':
         """Return a Discogs release ID for *sourcedir*, or None.
 
         The SourceSearch entry point, matching MBSearch.search(). Everything
@@ -494,6 +495,12 @@ class DiscogsSearch(DiscogsConnector):
         if release is None:
             if notes is not None:
                 notes.append(state.diagnosis())
+            if medium_rejected is not None:
+                seen = set(medium_rejected)
+                for r in state.rejections:
+                    if r.get('kind') == 'medium' and r['rid'] not in seen:
+                        medium_rejected.append(r['rid'])
+                        seen.add(r['rid'])
             return None
 
         try:
@@ -1247,7 +1254,11 @@ class DiscogsSearch(DiscogsConnector):
                            .get('name', '') or '').lower()
             except Exception:
                 rel_fmt = ''
-            if rel_fmt in _CD_ONLY_FMTS:
+            if rel_fmt in _CD_ONLY_FMTS and searchParams.get('relax_medium'):
+                logger.info('  [%s] %d-bit source against a %s — medium gate '
+                            'suspended for the cross-medium pass', rid,
+                            local_depth, rel_fmt)
+            elif rel_fmt in _CD_ONLY_FMTS:
                 logger.info('  [%s] rejected — %d-bit source cannot be a %s '
                             '(CD audio is 16-bit)', rid, local_depth, rel_fmt)
                 state.rejections.append({
@@ -1694,6 +1705,47 @@ class DiscogsSearch(DiscogsConnector):
         if hasattr(release, 'master') and release.master is not None:
             return release.master
         return release
+
+    def cross_medium_match(self, sourcedir, release_ids):
+        """Re-compare releases refused only on medium, with that gate suspended.
+
+        A release refused because a 24-bit file cannot have come off a CD was
+        refused *before* its durations and titles were checked: the medium gate
+        runs first. Whether it "matches in every way except format" is therefore
+        unknown at that point. This answers it by running the whole comparison
+        again on just those releases -- track count, the short-release title
+        veto, durations, the artist rule -- with only the medium gate lifted.
+        Nothing about the matching is relaxed except the one thing that is
+        known to differ.
+
+        Returns (release_id, medium) for the best survivor, or None.
+        """
+        if not release_ids:
+            return None
+        state = SearchState()
+        self.getSearchParams(sourcedir, state)
+        state.params['relax_medium'] = True
+        releases = []
+        for rid in release_ids[:10]:
+            try:
+                releases.append(self._release_obj_from_cache(rid))
+            except Exception as exc:
+                logger.debug('Cross-medium: could not fetch %s (%s)', rid, exc)
+        if not releases:
+            return None
+        self._siftReleases(releases, state)
+        best = self._pick_best(state)
+        if best is None:
+            logger.info('Cross-medium: none of %d release(s) refused on medium '
+                        'matches on anything else', len(releases))
+            return None
+        try:
+            medium = (best.data.get('formats', [{}])[0].get('name', '') or '')
+        except Exception:
+            medium = ''
+        logger.info('Cross-medium: %s matches on every check but medium (%s)',
+                    best.id, medium or 'unknown')
+        return str(best.id), medium
 
     def _release_obj_from_cache(self, release_id):
         release = self.discogs_client.release(release_id)

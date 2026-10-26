@@ -176,6 +176,28 @@ batch:
   # tracks they become.
   completeness_guard: false
 
+  # When every source has failed, tag from a release that matches in every way
+  # except its medium.
+  #
+  # The case it exists for is a digital download whose only database entry is
+  # a physical edition: a 24-bit file against a CDr. Track count, titles and
+  # durations all agree, and it is refused only because a 24-bit file cannot
+  # have come off a CDr -- which is true, and is why that check exists. But it
+  # leaves an album that is catalogued and correctly identified with nowhere to
+  # go, a shape that recurs with small independent artists.
+  #
+  # Only releases refused on medium alone are reconsidered, and the full
+  # comparison is run again on them with just that one check lifted. It runs
+  # after Discogs and MusicBrainz have both failed, and before existing_tags.
+  #
+  # What it changes in the files:
+  #   TAGGER_PROVENANCE  records the release and medium the metadata came from,
+  #                      and what the copy in hand actually is
+  #   MEDIA and the folder's format code describe the copy in hand -- the
+  #                      download -- rather than the edition borrowed from
+  # Matches made this way are listed separately at the end of the run.
+  cross_medium: false
+
   # Number of concurrent worker threads for mass processing.
   # Set to 1 for sequential processing (required for --review mode).
   #

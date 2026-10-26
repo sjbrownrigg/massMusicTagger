@@ -79,13 +79,15 @@ def _split_source_id(value):
 class ProcessingResult:
     __slots__ = ('sourcedir', 'outcome', 'source', 'release_id', 'release_url',
                  'title', 'albumartist', 'elapsed', 'error', 'target_dir',
-                 'archive_path', 'completeness')
+                 'archive_path', 'completeness', 'cross_medium')
 
     def __init__(self, sourcedir: str):
         self.sourcedir = sourcedir
         self.outcome: str = OUTCOME_FAILED
         #: What the files said about their own completeness, when the guard ran.
         self.completeness = None
+        #: Set when the metadata was borrowed from another medium's release.
+        self.cross_medium = None
         self.source: Optional[str] = None
         self.release_id: Optional[str] = None
         self.release_url: Optional[str] = None
@@ -535,6 +537,7 @@ class MassProcessor:
             # connector used for downloading, independently of metadata source.
             connector = self._apply_image_source(album, connector, sourcedir, cfg)
             result.source = getattr(album, 'source', None)
+            result.cross_medium = getattr(album, 'cross_medium', None)
             result.release_id = str(album.id)
             result.release_url = getattr(album, 'url', None) or None
             result.title = album.title
@@ -1003,6 +1006,22 @@ class MassProcessor:
             )
 
         console.print(tbl)
+
+        # Borrowed metadata, listed so it is never just another green tick: each
+        # of these is filed from a release on a medium other than the one held.
+        crossed = [r for r in results
+                   if r.cross_medium and r.outcome in (OUTCOME_OK, OUTCOME_DRY_RUN)]
+        if crossed:
+            console.print(
+                f'\n[bold cyan]{len(crossed)} release(s) tagged from a different '
+                f'medium — metadata borrowed, recorded in TAGGER_PROVENANCE:[/]')
+            import os as _os
+            for r in crossed:
+                c = r.cross_medium
+                console.print(
+                    f'  [cyan]~[/] {_os.path.basename(r.sourcedir.rstrip("/"))}\n'
+                    f'      [dim]from Discogs {c.get("release_id")} '
+                    f'({c.get("medium")}) — copy in hand is {c.get("held")}[/]')
 
         # The re-acquisition list. Reported separately from the table because
         # it is the one part of a run that asks the user for something: these

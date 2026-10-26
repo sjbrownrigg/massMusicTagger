@@ -138,6 +138,17 @@ _add('musicbrainz_releasegroupid', MediaField(
 # Tagger provenance
 # ---------------------------------------------------------------------------
 
+_add('tagger_provenance', MediaField(
+    # Set only when the metadata describes a different manifestation of the
+    # work from the copy in hand -- a CDr's tracklist on a 24-bit download.
+    # Says which release and which medium, so borrowed metadata is never
+    # mistaken for a description of these files. Absent on an ordinary match.
+    MP3DescStorageStyle('TAGGER_PROVENANCE'),
+    MP4StorageStyle('----:com.apple.iTunes:TAGGER_PROVENANCE'),
+    StorageStyle('TAGGER_PROVENANCE'),
+    ASFStorageStyle('WM/TaggerProvenance'),
+))
+
 _add('tagger_source', MediaField(
     # Which metadata source was used to tag this file.
     # Values: 'discogs', 'musicbrainz', 'existing_tags'

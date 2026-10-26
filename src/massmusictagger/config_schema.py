@@ -230,6 +230,7 @@ DEFAULTS = {
     ('batch', 'title_similarity_threshold'): '60',
     ('batch', 'artist_name_variations'): '6',
     ('batch', 'completeness_guard'): 'False',
+    ('batch', 'cross_medium'): 'False',
 
     # ── [cue] ─────────────────────────────────────────────────────────
     ('cue', 'cue_done_dir'): '.cue',
