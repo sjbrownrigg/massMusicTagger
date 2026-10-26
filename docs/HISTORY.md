@@ -2,6 +2,39 @@
 
 ---
 
+## Version 3.22.3 (2026-10-26)
+
+### Fixed
+
+**Artist images failed on every album where the cover art came from the Cover
+Art Archive.** Once the metadata is in hand, `_process_one` reassigns its
+connector to whichever source the *cover art* will come from, and with
+`image_source: musicbrainz` that is the MusicBrainz connector — even for a
+Discogs-matched album. The artist-image fetch was handed it, and Discogs artist
+images cannot be read through it:
+
+```
+Could not read Discogs artist 156788:
+'MBConnector' object has no attribute 'discogs_client'
+```
+
+277 such failures in one log, and 106 of 161 artist folders left without a
+picture. It failed exactly where the Cover Art Archive *succeeded*, so the better
+the cover art, the less likely the artist image. Artist images now always use
+the Discogs connector.
+
+That also makes true what the sample configuration always claimed: an album
+matched on MusicBrainz costs one Discogs artist lookup by name. That lookup
+needs a Discogs connector, and now gets one.
+
+**A commented-out `format_codes.yaml` was reported as merged when it merged
+nothing.** The template `--new-config` writes reads as an empty mapping, and the
+log said it had been "merged over the bundled table" — implying overrides were
+in effect. An empty file now says it defines nothing, and a real override
+reports how many sections it replaced.
+
+---
+
 ## Version 3.22.2 (2026-09-04)
 
 ### Fixed
