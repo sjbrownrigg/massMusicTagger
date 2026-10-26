@@ -757,6 +757,103 @@ class MBSearch:
 
     # ── Tier 6: Single-track AcoustID ─────────────────────────────────────
 
+    # ── AcoustID cache ────────────────────────────────────────────────────
+
+    #: An AcoustID lookup that found nothing is cached for this long, then
+    #: tried again. Fingerprints are submitted continually, so "unknown" is
+    #: the one answer that goes stale; a match does not, and is kept.
+    _ACOUSTID_EMPTY_TTL = 30 * 86400
+
+    @staticmethod
+    def _content_key(path: str) -> Optional[str]:
+        """Identify a file by its content, not its path.
+
+        Path and modification time would be the obvious key and would miss the
+        cases that matter: preparation writes split CUE images and converted
+        m4a files into a freshly named staging directory on every run, so the
+        same audio arrives under a new path each time. Size plus the first and
+        last 64 KB identifies the content, costs a fraction of decoding the
+        whole file through fpcalc, and still changes when the file is edited.
+
+        One known miss: lossy re-encodes. Ogg Vorbis assigns a random stream
+        serial number per encode, so an m4a converted to ogg on each run is
+        byte-different every time and never hits.
+        """
+        import hashlib
+        try:
+            size = os.path.getsize(path)
+            h = hashlib.sha256(str(size).encode())
+            with open(path, 'rb') as f:
+                h.update(f.read(65536))
+                if size > 131072:
+                    f.seek(-65536, os.SEEK_END)
+                    h.update(f.read(65536))
+            return h.hexdigest()
+        except OSError:
+            return None
+
+    def _acoustid_cache_path(self, kind: str, key: str):
+        conn = getattr(self, '_conn', None)
+        root = getattr(conn, '_cache_root', None) if conn is not None else None
+        if root is None or not getattr(conn, '_cache_search', False):
+            return None
+        return root / kind / (key + '.json')
+
+    def _acoustid_match(self, api_key: str, path: str) -> list:
+        """acoustid.match(), remembered.
+
+        Every restart used to re-run this for every album that had failed the
+        cheaper tiers -- decoding each track through fpcalc and querying
+        AcoustID again for an answer that had not changed. On the residue left
+        in /incoming that was most of a 45-minute stretch before anything was
+        filed. The cached value is AcoustID's answer, not a decision: the
+        comparison logic still runs on it every time, so a later matching fix
+        still gets its chance -- the same shape as the release cache.
+        """
+        import time
+        import acoustid
+        key = self._content_key(path)
+        cache = self._acoustid_cache_path('acoustid', key) if key else None
+        if cache is not None and cache.exists():
+            raw = self._conn._load_json(cache)
+            if isinstance(raw, dict):
+                results = raw.get('results') or []
+                fresh = results or (time.time() - raw.get('at', 0)
+                                    < self._ACOUSTID_EMPTY_TTL)
+                if fresh:
+                    logger.debug('AcoustID cache hit: %s', os.path.basename(path))
+                    return [tuple(r) for r in results]
+        # acoustid.match() fingerprints *and* looks up, so the slot also
+        # covers the network call.
+        with cpuguard.slot('AcoustID fingerprint'):
+            results = [tuple(r) for r in acoustid.match(api_key, path)]
+        if cache is not None:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            self._conn._save_json(cache, {
+                'file': os.path.basename(path), 'at': time.time(),
+                'results': [list(r) for r in results]})
+        return results
+
+    def _recording_releases(self, recording_id: str) -> list:
+        """The releases containing a recording, remembered.
+
+        A MusicBrainz request per recording, at one request a second; tier 7
+        makes one per track.
+        """
+        cache = self._acoustid_cache_path('recordings', recording_id)
+        if cache is not None and cache.exists():
+            raw = self._conn._load_json(cache)
+            if isinstance(raw, list):
+                return raw
+        result = musicbrainzngs.get_recording_by_id(recording_id,
+                                                    includes=['releases'])
+        releases = result.get('recording', {}).get('release-list', []) or []
+        if cache is not None:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            self._conn._save_json(cache, releases)
+        return releases
+
+
     def _acoustid_single(self, audio_path: str) -> Optional[str]:
         """Tier 6: Fingerprint the first track and look up via AcoustID.
 
@@ -771,11 +868,7 @@ class MBSearch:
         import acoustid
         logger.info('MB tier 6: single-track AcoustID — %s', os.path.basename(audio_path))
         try:
-            # acoustid.match() fingerprints *and* looks up, so the slot also
-            # covers the network call. Imprecise, but these tiers only run
-            # once a search by name has already failed, so they are rare.
-            with cpuguard.slot('AcoustID fingerprint'):
-                results = list(acoustid.match(api_key, audio_path))
+            results = list(self._acoustid_match(api_key, audio_path))
         except Exception as exc:
             logger.warning('MB tier 6: AcoustID failed: %s', exc)
             return None
@@ -784,7 +877,12 @@ class MBSearch:
         for score, recording_id, *_ in results:
             if score < _MULTI_ACOUSTID_MIN_SCORE:
                 break
-            mbid = _recording_to_release(recording_id)
+            try:
+                releases = self._recording_releases(recording_id)
+            except Exception as exc:
+                logger.debug('MB recording lookup failed for %s: %s', recording_id, exc)
+                releases = []
+            mbid = releases[0].get('id') if releases else None
             if mbid:
                 logger.info('MB tier 6: AcoustID matched release %s (score %.2f)', mbid, score)
                 return mbid
@@ -822,8 +920,7 @@ class MBSearch:
         recording_ids: list[str] = []
         for fpath in audio_files:
             try:
-                with cpuguard.slot('AcoustID fingerprint'):
-                    results = list(acoustid.match(api_key, fpath))
+                results = list(self._acoustid_match(api_key, fpath))
                 results.sort(key=lambda r: r[0], reverse=True)
                 for score, rec_id, *_ in results:
                     if score >= _MULTI_ACOUSTID_MIN_SCORE:
@@ -844,8 +941,7 @@ class MBSearch:
         release_votes: dict[str, int] = {}
         for rec_id in recording_ids:
             try:
-                result = musicbrainzngs.get_recording_by_id(rec_id, includes=['releases'])
-                for rel in result.get('recording', {}).get('release-list', []):
+                for rel in self._recording_releases(rec_id):
                     rel_id = rel.get('id')
                     if rel_id:
                         release_votes[rel_id] = release_votes.get(rel_id, 0) + 1
@@ -1036,15 +1132,3 @@ def _read_directory_metadata(sourcedir: str) -> dict:
     }
 
 
-def _recording_to_release(recording_id: str) -> Optional[str]:
-    """Return the first Release MBID containing the given MB Recording."""
-    try:
-        result = musicbrainzngs.get_recording_by_id(
-            recording_id, includes=['releases']
-        )
-        releases = result.get('recording', {}).get('release-list', [])
-        if releases:
-            return releases[0].get('id')
-    except Exception as exc:
-        logger.debug('MB recording lookup failed for %s: %s', recording_id, exc)
-    return None
