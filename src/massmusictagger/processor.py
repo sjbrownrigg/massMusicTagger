@@ -661,7 +661,15 @@ class MassProcessor:
                 artist_image = None
                 try:
                     from massmusictagger.image_utils import fetch_artist_image
-                    artist_image = fetch_artist_image(album, connector, cfg)
+                    # The Discogs connector, not `connector`. By this point
+                    # `connector` is whichever source the *cover art* came from,
+                    # and with image_source: musicbrainz that is the
+                    # MusicBrainz connector even for a Discogs-matched album.
+                    # Artist images only exist on Discogs, so handing them the
+                    # cover-art connector failed with "'MBConnector' object has
+                    # no attribute 'discogs_client'" -- 277 times in one log,
+                    # leaving 106 of 161 artist folders without a picture.
+                    artist_image = fetch_artist_image(album, self._discogs_conn, cfg)
                 except Exception as exc:
                     logger.debug('No artist image: %s', exc)
 
