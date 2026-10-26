@@ -2,6 +2,32 @@
 
 ---
 
+## Version 3.23.1 (2026-10-26)
+
+### Fixed
+
+**An m4a converted to Ogg came out as a video file.** An m4a carries its cover
+as an attached video stream, and the conversion command had no `-map`, so
+ffmpeg's default stream selection took the cover too. Ogg cannot hold a picture
+the way FLAC and MP3 can, so ffmpeg transcoded it into a Theora *video* stream
+and put it first:
+
+```
+source m4a : 0 aac audio     1 mjpeg video (attached_pic)
+our ogg    : 0 theora video  1 vorbis audio
+```
+
+Mutagen read the whole file as `OggTheora` and refused it — The Cassandra
+Complex's *The Plague* failed on every track. Conversions now take the audio
+stream only (`-map 0:a`).
+
+Nothing damaged reached the library: the Ogg files were refused before they
+could be tagged. FLAC and MP3 conversions did carry the stray picture, which
+survives the tag wipe, but the cover embed replaces the picture list rather
+than adding to it, so it was overwritten as soon as MMT embedded its own.
+
+---
+
 ## Version 3.23.0 (2026-10-26)
 
 ### Added
