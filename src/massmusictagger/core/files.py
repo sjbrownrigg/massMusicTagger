@@ -627,8 +627,17 @@ class FileUtils(object):
                                os.path.splitext(file)[0] + '.' + target_ext)
             logger.info('M4A: converting %s (%s) → %s (%s)',
                         _fssafe(file), codec, _fssafe(os.path.basename(out)), action)
-            cmd = (['ffmpeg', '-y', '-i', path, '-map_metadata', '0', '-c:a', encoder]
-                   + quality_args + [out])
+            # -map 0:a takes the audio and nothing else. Without it ffmpeg's
+            # default stream selection also takes the cover picture an m4a
+            # carries as an attached video stream, and does something different
+            # with it per container: FLAC and MP3 can hold a picture, so they
+            # quietly embed a stale copy of the source's cover; Ogg cannot, so
+            # it transcodes the cover into a Theora *video* stream and puts it
+            # first. Mutagen then reads the whole file as OggTheora and refuses
+            # it -- The Cassandra Complex's "The Plague" failed on every track.
+            # Cover art is the metadata source's job, embedded later.
+            cmd = (['ffmpeg', '-y', '-i', path, '-map', '0:a', '-map_metadata', '0',
+                    '-c:a', encoder] + quality_args + [out])
             logger.debug('M4A: running %s', ' '.join(cmd))
             with cpuguard.slot('transcode'):
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -746,7 +755,10 @@ class FileUtils(object):
                 # Use ffmpeg (already a hard dependency) rather than shntool
                 # conv so that APE and other formats work without needing the
                 # monkeys-audio OS package for this single-track case.
-                cmd = ['ffmpeg', '-y', '-i', src, '-c:a', 'flac',
+                # Audio only, for the same reason as the m4a conversion: a disc
+                # image can carry an embedded picture, and it should not ride
+                # along.
+                cmd = ['ffmpeg', '-y', '-i', src, '-map', '0:a', '-c:a', 'flac',
                        '-compression_level', self.flac_compression_level, out]
                 logger.debug('CUE: running %s', ' '.join(cmd))
                 with cpuguard.slot('transcode'):
