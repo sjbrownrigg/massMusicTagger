@@ -657,6 +657,22 @@ class MBSearch:
         if not audio_files:
             return None
 
+        # A DiscID hashes the disc's table of contents, and a short disc has
+        # almost none: one track is one length, so the hash collides with any
+        # release of similar duration. Palindrones' one-track "Anima (Activa
+        # Remix)" DiscID-matched '未完成', an unrelated Japanese release. The
+        # hint check below caught it, but a lookup that cannot mean anything is
+        # better not made than made and then disbelieved. Three tracks is still
+        # too few to trust; from four the TOC carries real information.
+        try:
+            min_tracks = self.cfg.getint('musicbrainz', 'discid_min_tracks')
+        except Exception:
+            min_tracks = 4
+        if len(audio_files) < min_tracks:
+            logger.debug('MB tier 5: skipped — %d track(s), DiscID needs %d '
+                         'to mean anything', len(audio_files), min_tracks)
+            return None
+
         SECTORS_PER_SEC = 75   # CD standard: 75 sectors per second
         LEAD_IN_SECTORS = 150  # CD standard 2-second lead-in
 

@@ -141,7 +141,7 @@ class TestDiscIDTier(unittest.TestCase):
         fake_files = ['/fake/01.flac', '/fake/02.flac', '/fake/03.flac']
         fake_durations = [210.0, 185.4, 245.0]  # seconds
 
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[
@@ -169,7 +169,7 @@ class TestDiscIDTier(unittest.TestCase):
             cause=Exception('404')
         )
         fake_files = ['/fake/01.flac']
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(200.0)],
@@ -195,13 +195,13 @@ class TestDiscIDTier(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_discid_empty_files_returns_none(self):
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         result = search._discid_search([])
         self.assertIsNone(result)
 
     def test_discid_missing_duration_aborts(self):
         """A file without a duration causes the tier to abort (DiscID unreliable)."""
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(None)],
@@ -222,7 +222,7 @@ class TestDiscIDTier(unittest.TestCase):
             mb.ResponseError = _mb.ResponseError
             mb.get_releases_by_discid.return_value = {'disc': {'release-list': []}}
 
-            search = _make_search(discid=True)
+            search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
             with patch(
                 'massmusictagger.sources.musicbrainz.search.MediaFile',
                 side_effect=[_make_mock_mf(d) for d in durations],
@@ -266,7 +266,7 @@ class TestDiscIDTier(unittest.TestCase):
             }
         }
         fake_files = ['/fake/01.flac']
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(240.0)],
@@ -292,7 +292,7 @@ class TestDiscIDTier(unittest.TestCase):
             }
         }
         fake_files = ['/fake/01.flac']
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(240.0)],
@@ -319,7 +319,7 @@ class TestDiscIDTier(unittest.TestCase):
             }
         }
         fake_files = ['/fake/01.flac']
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(240.0)],
@@ -341,7 +341,7 @@ class TestDiscIDTier(unittest.TestCase):
             }
         }
         fake_files = ['/fake/01.flac']
-        search = _make_search(discid=True)
+        search = _make_search(discid=True, **{'musicbrainz.discid_min_tracks': '1'})
         with patch(
             'massmusictagger.sources.musicbrainz.search.MediaFile',
             side_effect=[_make_mock_mf(240.0)],
@@ -575,3 +575,36 @@ def _patch_acoustid(results_per_file: list):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestDiscIDMinimumTracks(unittest.TestCase):
+    """A short disc has too little table of contents to hash meaningfully.
+
+    One track is one length, so its DiscID collides with anything of similar
+    duration: Palindrones' one-track "Anima (Activa Remix)" DiscID-matched
+    '未完成', an unrelated Japanese release. The hint check caught it, but a
+    lookup whose answer cannot be trusted is better not made.
+    """
+
+    def _lookups(self, n_tracks, **cfg):
+        from unittest.mock import patch
+        search = _make_search(discid=True, **cfg)
+        files = ['/fake/%02d.flac' % i for i in range(1, n_tracks + 1)]
+        with patch('massmusictagger.sources.musicbrainz.search.musicbrainzngs') as mb, \
+             patch('massmusictagger.sources.musicbrainz.search.MediaFile') as mf, \
+             patch.dict('sys.modules', {'discid': _make_mock_discid_lib('X')}):
+            mf.return_value.length = 200.0
+            mb.get_releases_by_discid.return_value = {'disc': {'release-list': []}}
+            search._discid_search(files)
+            return mb.get_releases_by_discid.call_count
+
+    def test_one_two_and_three_track_discs_are_not_looked_up(self):
+        for n in (1, 2, 3):
+            self.assertEqual(self._lookups(n), 0, '%d track(s)' % n)
+
+    def test_four_tracks_are(self):
+        self.assertEqual(self._lookups(4), 1)
+
+    def test_the_threshold_is_configurable(self):
+        self.assertEqual(self._lookups(2, **{'musicbrainz.discid_min_tracks': '2'}), 1)
+        self.assertEqual(self._lookups(5, **{'musicbrainz.discid_min_tracks': '6'}), 0)

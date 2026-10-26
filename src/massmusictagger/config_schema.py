@@ -289,6 +289,7 @@ DEFAULTS = {
     ('musicbrainz', 'acoustid_api_key'): '',
     ('musicbrainz', 'acoustid_submitter_key'): '',
     ('musicbrainz', 'acoustid_early'): 'False',
+    ('musicbrainz', 'discid_min_tracks'): '4',
     ('musicbrainz', 'caa_request_delay'): '0.5',
     # The three disk caches. They were read by the connector with defaults of
     # their own, and documented, but never declared -- so setting one worked
